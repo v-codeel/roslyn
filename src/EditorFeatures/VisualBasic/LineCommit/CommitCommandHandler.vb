@@ -8,6 +8,7 @@ Imports Microsoft.CodeAnalysis.Editor.Host
 Imports Microsoft.CodeAnalysis.Editor.Shared.Utilities
 Imports Microsoft.CodeAnalysis.Formatting.Rules
 Imports Microsoft.CodeAnalysis.Text
+Imports Microsoft.CodeAnalysis.Text.Shared.Extensions
 Imports Microsoft.VisualStudio.Text
 Imports Microsoft.VisualStudio.Text.Editor
 Imports Microsoft.VisualStudio.Text.Operations
@@ -66,7 +67,7 @@ Namespace Microsoft.CodeAnalysis.Editor.VisualBasic.LineCommit
                     Dim buffer = args.SubjectBuffer
                     Dim snapshot = buffer.CurrentSnapshot
 
-                    Dim wholeFile = New SnapshotSpan(snapshot, 0, snapshot.Length)
+                    Dim wholeFile = snapshot.GetFullSpan()
                     Dim commitBufferManager = _bufferManagerFactory.CreateForBuffer(buffer)
                     commitBufferManager.ExpandDirtyRegion(wholeFile)
                     commitBufferManager.CommitDirty(isExplicitFormat:=True, cancellationToken:=waitContext.CancellationToken)
@@ -193,7 +194,7 @@ Namespace Microsoft.CodeAnalysis.Editor.VisualBasic.LineCommit
                     Return False
                 End If
 
-                Dim tree = document.GetVisualBasicSyntaxTreeAsync(cancellationToken).WaitAndGetResult(cancellationToken)
+                Dim tree = document.GetSyntaxTreeAsync(cancellationToken).WaitAndGetResult(cancellationToken)
                 Dim token = tree.FindTokenOnLeftOfPosition(oldCaretPositionInOldSnapshot.Value, cancellationToken)
 
                 If token.IsKind(SyntaxKind.StringLiteralToken) AndAlso token.FullSpan.Contains(oldCaretPositionInOldSnapshot.Value) Then
@@ -246,7 +247,7 @@ Namespace Microsoft.CodeAnalysis.Editor.VisualBasic.LineCommit
                 ' Did we paste content that changed the number of lines?
                 If oldVersion.Changes IsNot Nothing AndAlso oldVersion.Changes.IncludesLineChanges Then
                     Try
-                        _bufferManagerFactory.CreateForBuffer(args.SubjectBuffer).CommitDirty(isExplicitFormat:=True, cancellationToken:=waitContext.CancellationToken)
+                        _bufferManagerFactory.CreateForBuffer(args.SubjectBuffer).CommitDirty(isExplicitFormat:=False, cancellationToken:=waitContext.CancellationToken)
                     Catch ex As OperationCanceledException
                         ' If the commit was cancelled, we still want the paste to go through
                     End Try
@@ -268,7 +269,7 @@ Namespace Microsoft.CodeAnalysis.Editor.VisualBasic.LineCommit
                     allowCancel:=True,
                     action:=Sub(waitContext)
                                 Using transaction = _textUndoHistoryRegistry.GetHistory(args.TextView.TextBuffer).CreateTransaction(VBEditorResources.FormatOnSave)
-                                    _bufferManagerFactory.CreateForBuffer(args.SubjectBuffer).CommitDirty(isExplicitFormat:=True, cancellationToken:=waitContext.CancellationToken)
+                                    _bufferManagerFactory.CreateForBuffer(args.SubjectBuffer).CommitDirty(isExplicitFormat:=False, cancellationToken:=waitContext.CancellationToken)
 
                                     ' We should only create the transaction if anything actually happened
                                     If transaction.UndoPrimitives.Any() Then

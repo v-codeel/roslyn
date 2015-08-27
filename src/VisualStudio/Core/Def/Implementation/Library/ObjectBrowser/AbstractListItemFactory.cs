@@ -106,7 +106,7 @@ namespace Microsoft.VisualStudio.LanguageServices.Implementation.Library.ObjectB
             return new TypeListItem(projectId, namedTypeSymbol, displayText, fullNameText, searchText, hidden);
         }
 
-        protected TypeListItem CreateFullyQualifedTypeListItem(INamedTypeSymbol namedTypeSymbol, ProjectId projectId, bool hidden)
+        protected TypeListItem CreateFullyQualifiedTypeListItem(INamedTypeSymbol namedTypeSymbol, ProjectId projectId, bool hidden)
         {
             var displayText = namedTypeSymbol.SpecialType.ToPredefinedType() != PredefinedType.None
                 ? namedTypeSymbol.ToDisplayString(s_predefinedTypeDisplay)
@@ -719,7 +719,7 @@ namespace Microsoft.VisualStudio.LanguageServices.Implementation.Library.ObjectB
             var types = GetAccessibleTypes(namespaceSymbol, compilation);
 
             var listItems = fullyQualified
-                ? CreateListItemsFromSymbols(types, compilation, projectId, CreateFullyQualifedTypeListItem)
+                ? CreateListItemsFromSymbols(types, compilation, projectId, CreateFullyQualifiedTypeListItem)
                 : CreateListItemsFromSymbols(types, compilation, projectId, CreateSimpleTypeListItem);
 
             if (searchString == null)
@@ -776,21 +776,17 @@ namespace Microsoft.VisualStudio.LanguageServices.Implementation.Library.ObjectB
             while (stack.Count > 0)
             {
                 var namespaceSymbol = stack.Pop();
+                var typeListItems = GetTypeListItems(namespaceSymbol, compilation, projectId, searchString, fullyQualified: true);
 
-                if (!namespaceSymbol.IsGlobalNamespace)
+                foreach (var typeListItem in typeListItems)
                 {
-                    var typeListItems = GetTypeListItems(namespaceSymbol, compilation, projectId, searchString, fullyQualified: true);
-
-                    foreach (var typeListItem in typeListItems)
+                    if (searchString == null)
                     {
-                        if (searchString == null)
-                        {
-                            builder.Add(typeListItem);
-                        }
-                        else if (typeListItem.SearchText.IndexOf(searchString, StringComparison.OrdinalIgnoreCase) >= 0)
-                        {
-                            builder.Add(typeListItem);
-                        }
+                        builder.Add(typeListItem);
+                    }
+                    else if (typeListItem.SearchText.IndexOf(searchString, StringComparison.OrdinalIgnoreCase) >= 0)
+                    {
+                        builder.Add(typeListItem);
                     }
                 }
 
@@ -813,24 +809,20 @@ namespace Microsoft.VisualStudio.LanguageServices.Implementation.Library.ObjectB
             while (namespaceStack.Count > 0)
             {
                 var namespaceSymbol = namespaceStack.Pop();
+                var types = GetAccessibleTypes(namespaceSymbol, compilation);
 
-                if (!namespaceSymbol.IsGlobalNamespace)
+                foreach (var type in types)
                 {
-                    var types = GetAccessibleTypes(namespaceSymbol, compilation);
-
-                    foreach (var type in types)
+                    var memberListItems = GetMemberListItems(type, compilation, projectId, fullyQualified: true);
+                    foreach (var memberListItem in memberListItems)
                     {
-                        var memberListItems = GetMemberListItems(type, compilation, projectId, fullyQualified: true);
-                        foreach (var memberListItem in memberListItems)
+                        if (searchString == null)
                         {
-                            if (searchString == null)
-                            {
-                                builder.Add(memberListItem);
-                            }
-                            else if (memberListItem.SearchText.IndexOf(searchString, StringComparison.OrdinalIgnoreCase) >= 0)
-                            {
-                                builder.Add(memberListItem);
-                            }
+                            builder.Add(memberListItem);
+                        }
+                        else if (memberListItem.SearchText.IndexOf(searchString, StringComparison.OrdinalIgnoreCase) >= 0)
+                        {
+                            builder.Add(memberListItem);
                         }
                     }
                 }

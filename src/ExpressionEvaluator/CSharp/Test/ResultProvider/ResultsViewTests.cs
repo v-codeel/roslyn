@@ -1407,7 +1407,7 @@ class C : IEnumerable
             }
         }
 
-        [Fact]
+        [Fact, WorkItem(1145125, "DevDiv")]
         public void GetEnumerableException()
         {
             var source =
@@ -1454,14 +1454,13 @@ class C
                         "o.Q",
                         DkmEvaluationResultFlags.Expandable | DkmEvaluationResultFlags.ReadOnly | DkmEvaluationResultFlags.ExceptionThrown));
                 children = GetChildren(children[1]);
-                Verify(children.Last(),
+                Verify(children[6],
                     EvalResult(
-                        "Results View",
-                        "Expanding the Results View will enumerate the IEnumerable",
-                        "",
+                        "Message",
+                        "\"Exception of type 'E' was thrown.\"",
+                        "string",
                         null,
-                        DkmEvaluationResultFlags.Expandable | DkmEvaluationResultFlags.ReadOnly,
-                        DkmEvaluationResultCategory.Method));
+                        DkmEvaluationResultFlags.RawString | DkmEvaluationResultFlags.ReadOnly));
             }
         }
 
@@ -1615,7 +1614,7 @@ class C
                         "S",
                         DkmEvaluationResultFlags.RawString,
                         DkmEvaluationResultCategory.Other,
-                        "\"\""));
+                       editableValue: "\"\""));
 
                 // array (unchanged)
                 evalResult = FormatPropertyValue(runtime, value, "T");

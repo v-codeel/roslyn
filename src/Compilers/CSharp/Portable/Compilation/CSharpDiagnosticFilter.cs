@@ -28,10 +28,22 @@ namespace Microsoft.CodeAnalysis.CSharp
         /// <returns>A diagnostic updated to reflect the options, or null if it has been filtered out</returns>
         public static Diagnostic Filter(Diagnostic d, int warningLevelOption, ReportDiagnostic generalDiagnosticOption, IDictionary<string, ReportDiagnostic> specificDiagnosticOptions)
         {
-            // If diagnostic is not configurable, keep it as it is.
-            if (d == null || d.IsNotConfigurable())
+            if (d == null)
             {
                 return d;
+            }
+            else if (d.IsNotConfigurable())
+            {
+                if (d.IsEnabledByDefault)
+                {
+                    // Enabled NotConfigurable should always be reported as it is.
+                    return d;
+                }
+                else
+                {
+                    // Disabled NotConfigurable should never be reported.
+                    return null;
+                }
             }
             else if (d.Severity == InternalDiagnosticSeverity.Void)
             {
@@ -70,7 +82,6 @@ namespace Microsoft.CodeAnalysis.CSharp
 
         // Take a warning and return the final deposition of the given warning,
         // based on both command line options and pragmas.
-        // If you update this method, also update DiagnosticItemSource.GetEffectiveSeverity. 
         internal static ReportDiagnostic GetDiagnosticReport(DiagnosticSeverity severity, bool isEnabledByDefault, string id, int diagnosticWarningLevel, Location location, string category, int warningLevelOption, ReportDiagnostic generalDiagnosticOption, IDictionary<string, ReportDiagnostic> specificDiagnosticOptions)
         {
             // Read options (e.g., /nowarn or /warnaserror)

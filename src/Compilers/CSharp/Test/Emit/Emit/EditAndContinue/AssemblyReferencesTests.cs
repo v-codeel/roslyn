@@ -71,7 +71,7 @@ class C
 
             c2.EmitDifference(baseline, edits, mdStream, ilStream, pdbStream, updatedMethods);
 
-            var actualIL = ilStream.ToArray().GetMethodIL();
+            var actualIL = ImmutableArray.Create(ilStream.ToArray()).GetMethodIL();
             var expectedIL = @"
 {
   // Code size        7 (0x7)
@@ -86,7 +86,7 @@ class C
         }
 
         /// <summary>
-        /// The baseline metadata might have more referneces than the current compilation. 
+        /// The baseline metadata might have more references than the current compilation. 
         /// References that aren't found in the compilation are treated as missing.
         /// </summary>
         [Fact]
@@ -142,7 +142,7 @@ class C
 
             c2.EmitDifference(baseline, edits, mdStream, ilStream, pdbStream, updatedMethods);
 
-            var actualIL = ilStream.ToArray().GetMethodIL();
+            var actualIL = ImmutableArray.Create(ilStream.ToArray()).GetMethodIL();
 
             // Symbol matcher should ignore overloads with missing type symbols and match 
             // F(object).

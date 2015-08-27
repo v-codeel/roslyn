@@ -362,6 +362,11 @@ namespace Microsoft.CodeAnalysis.FindSymbols
                     }
 
                     var value = (string)typeNameConstant.Value;
+                    if (value == null)
+                    {
+                        continue;
+                    }
+
                     var commaIndex = value.IndexOf(',');
                     var assemblyName = commaIndex >= 0 ? value.Substring(0, commaIndex).Trim() : value;
 
@@ -377,12 +382,12 @@ namespace Microsoft.CodeAnalysis.FindSymbols
         {
             if (containingAssembly == null)
             {
-                throw new ArgumentNullException("containingAssembly");
+                throw new ArgumentNullException(nameof(containingAssembly));
             }
 
             if (project == null)
             {
-                throw new ArgumentNullException("project");
+                throw new ArgumentNullException(nameof(project));
             }
 
             if (sourceProject != null)
@@ -392,7 +397,7 @@ namespace Microsoft.CodeAnalysis.FindSymbols
             }
 
             // If the project we're looking at doesn't even support compilations, then there's no 
-            // way for it to have an IAssemblySymbo.  And without that, there is no way for it
+            // way for it to have an IAssemblySymbol.  And without that, there is no way for it
             // to have any sort of 'ReferenceTo' the provided 'containingAssembly' symbol.
             if (!project.SupportsCompilation)
             {

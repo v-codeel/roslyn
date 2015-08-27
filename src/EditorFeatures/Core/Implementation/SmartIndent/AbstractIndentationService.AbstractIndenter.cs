@@ -45,7 +45,8 @@ namespace Microsoft.CodeAnalysis.Editor.Implementation.SmartIndent
                          new ChainedFormattingRules(this.Rules, OptionSet),
                          this.TabSize,
                          this.OptionSet.GetOption(FormattingOptions.IndentationSize, this.Document.Root.Language),
-                         tokenStream: null);
+                         tokenStream: null,
+                         lastToken: default(SyntaxToken));
             }
 
             public abstract IndentationResult? GetDesiredIndentation();
@@ -110,7 +111,7 @@ namespace Microsoft.CodeAnalysis.Editor.Implementation.SmartIndent
             {
                 if (Tree == null)
                 {
-                    throw new ArgumentNullException("syntaxTree");
+                    throw new ArgumentNullException(nameof(Tree));
                 }
 
                 var line = this.LineToBeIndented;

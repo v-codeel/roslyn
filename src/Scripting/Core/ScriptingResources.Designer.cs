@@ -10,6 +10,7 @@
 
 namespace Microsoft.CodeAnalysis.Scripting {
     using System;
+    using System.Reflection;
     
     
     /// <summary>
@@ -39,7 +40,7 @@ namespace Microsoft.CodeAnalysis.Scripting {
         internal static global::System.Resources.ResourceManager ResourceManager {
             get {
                 if (object.ReferenceEquals(resourceMan, null)) {
-                    global::System.Resources.ResourceManager temp = new global::System.Resources.ResourceManager("Microsoft.CodeAnalysis.Scripting.ScriptingResources", typeof(ScriptingResources).Assembly);
+                    global::System.Resources.ResourceManager temp = new global::System.Resources.ResourceManager("Microsoft.CodeAnalysis.Scripting.ScriptingResources", typeof(ScriptingResources).GetTypeInfo().Assembly);
                     resourceMan = temp;
                 }
                 return resourceMan;
@@ -144,9 +145,9 @@ namespace Microsoft.CodeAnalysis.Scripting {
         /// <summary>
         ///   Looks up a localized string similar to !&lt;Stack overflow while evaluating object&gt;.
         /// </summary>
-        internal static string StackOverflowWhileEvaluat {
+        internal static string StackOverflowWhileEvaluating {
             get {
-                return ResourceManager.GetString("StackOverflowWhileEvaluat", resourceCulture);
+                return ResourceManager.GetString("StackOverflowWhileEvaluating", resourceCulture);
             }
         }
         

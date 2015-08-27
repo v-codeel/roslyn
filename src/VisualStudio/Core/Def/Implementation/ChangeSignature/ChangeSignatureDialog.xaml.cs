@@ -34,11 +34,11 @@ namespace Microsoft.VisualStudio.LanguageServices.Implementation.ChangeSignature
         public string OK { get { return ServicesVSResources.OK; } }
         public string Cancel { get { return ServicesVSResources.Cancel; } }
 
-        public Brush ParameterText { get; private set; }
-        public Brush RemovedParameterText { get; private set; }
-        public Brush DisabledParameterForeground { get; private set; }
-        public Brush DisabledParameterBackground { get; private set; }
-        public Brush StrikethroughBrush { get; private set; }
+        public Brush ParameterText { get; }
+        public Brush RemovedParameterText { get; }
+        public Brush DisabledParameterForeground { get; }
+        public Brush DisabledParameterBackground { get; }
+        public Brush StrikethroughBrush { get; }
 
         // Use C# Reorder Parameters helpTopic for C# and VB.
         internal ChangeSignatureDialog(ChangeSignatureDialogViewModel viewModel)
@@ -65,16 +65,20 @@ namespace Microsoft.VisualStudio.LanguageServices.Implementation.ChangeSignature
             DataContext = viewModel;
 
             Loaded += ChangeSignatureDialog_Loaded;
+            IsVisibleChanged += ChangeSignatureDialog_IsVisibleChanged;
         }
 
         private void ChangeSignatureDialog_Loaded(object sender, RoutedEventArgs e)
         {
             Members.Focus();
+        }
 
-            var handler = TEST_DialogLoaded;
-            if (handler != null)
+        private void ChangeSignatureDialog_IsVisibleChanged(object sender, DependencyPropertyChangedEventArgs e)
+        {
+            if ((bool)e.NewValue)
             {
-                handler();
+                IsVisibleChanged -= ChangeSignatureDialog_IsVisibleChanged;
+                TEST_DialogLoaded?.Invoke();
             }
         }
 

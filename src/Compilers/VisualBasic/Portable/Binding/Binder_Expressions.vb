@@ -405,7 +405,7 @@ Namespace Microsoft.CodeAnalysis.VisualBasic
 
         Private Function BindNameOfExpression(node As NameOfExpressionSyntax, diagnostics As DiagnosticBag) As BoundExpression
 
-            ' Suppress diagnostocs if argument has syntax errors
+            ' Suppress diagnostics if argument has syntax errors
             If node.Argument.HasErrors Then
                 diagnostics = New DiagnosticBag()
             End If
@@ -836,6 +836,29 @@ Namespace Microsoft.CodeAnalysis.VisualBasic
                 ReportDiagnostic(diagnosticsBagFor_ERR_CantReferToMyGroupInsideGroupType1, typeExpr.Syntax, ERRID.ERR_CantReferToMyGroupInsideGroupType1, classType)
             End If
 
+            ' We need to change syntax node for the result to match typeExpr's syntax node.
+            ' This will allow SemanticModel to report the node as a default instance access rather than 
+            ' as a type reference.
+            Select Case result.Kind
+                Case BoundKind.PropertyAccess
+                    Dim access = DirectCast(result, BoundPropertyAccess)
+                    result = New BoundPropertyAccess(typeExpr.Syntax, access.PropertySymbol, access.PropertyGroupOpt, access.AccessKind,
+                                                     access.IsWriteable, access.ReceiverOpt, access.Arguments, access.Type, access.HasErrors)
+
+                Case BoundKind.FieldAccess
+                    Dim access = DirectCast(result, BoundFieldAccess)
+                    result = New BoundFieldAccess(typeExpr.Syntax, access.ReceiverOpt, access.FieldSymbol, access.IsLValue,
+                                                  access.SuppressVirtualCalls, access.ConstantsInProgressOpt, access.Type, access.HasErrors)
+
+                Case BoundKind.Call
+                    Dim [call] = DirectCast(result, BoundCall)
+                    result = New BoundCall(typeExpr.Syntax, [call].Method, [call].MethodGroupOpt, [call].ReceiverOpt, [call].Arguments,
+                                           [call].ConstantValueOpt, [call].SuppressObjectClone, [call].Type, [call].HasErrors)
+
+                Case Else
+                    Throw ExceptionUtilities.UnexpectedValue(result.Kind)
+            End Select
+
             Return result
         End Function
 
@@ -945,7 +968,6 @@ Namespace Microsoft.CodeAnalysis.VisualBasic
 
                 Select Case propertyAccess.AccessKind
                     Case PropertyAccessKind.Set
-                        Debug.Assert(False)
                         ReportDiagnostic(diagnostics, syntax, ERRID.ERR_VoidValue)
                         Return BadExpression(syntax, expr, LookupResultKind.NotAValue, ErrorTypeSymbol.UnknownResultType)
 
@@ -981,7 +1003,6 @@ Namespace Microsoft.CodeAnalysis.VisualBasic
 
             ElseIf expr.IsLateBound() Then
                 If (expr.GetLateBoundAccessKind() And (LateBoundAccessKind.Set Or LateBoundAccessKind.Call)) <> 0 Then
-                    Debug.Assert(False)
                     ReportDiagnostic(diagnostics, syntax, ERRID.ERR_VoidValue)
                     Return BadExpression(syntax, expr, LookupResultKind.NotAValue, ErrorTypeSymbol.UnknownResultType)
                 End If
@@ -1070,7 +1091,7 @@ Namespace Microsoft.CodeAnalysis.VisualBasic
 
                 Select Case propertyAccess.AccessKind
                     Case PropertyAccessKind.Get
-                    ' Nothing to do.
+                        ' Nothing to do.
 
                     Case PropertyAccessKind.Unknown
                         Debug.Assert(propertyAccess.PropertySymbol.IsReadable)
@@ -1085,7 +1106,7 @@ Namespace Microsoft.CodeAnalysis.VisualBasic
 
                 Select Case expr.GetLateBoundAccessKind()
                     Case LateBoundAccessKind.Get
-                    ' Nothing to do.
+                        ' Nothing to do.
 
                     Case LateBoundAccessKind.Unknown
                         expr = expr.SetLateBoundAccessKind(LateBoundAccessKind.Get)
@@ -1582,7 +1603,7 @@ Namespace Microsoft.CodeAnalysis.VisualBasic
 
                     Case Else
                         ' What else can it be?
-                        Debug.Assert(False)
+                        Throw ExceptionUtilities.UnexpectedValue(containingMember.Kind)
                 End Select
             End If
 
@@ -1868,7 +1889,7 @@ Namespace Microsoft.CodeAnalysis.VisualBasic
 
         ''' <summary>
         ''' True if inside in binding arguments of constructor 
-        ''' call with {'Me'/'MyClass'/'MyBase'}.New(...) from anothir constructor
+        ''' call with {'Me'/'MyClass'/'MyBase'}.New(...) from another constructor
         ''' </summary>
         Protected Overridable ReadOnly Property IsInsideChainedConstructorCallArguments As Boolean
             Get
@@ -2050,7 +2071,7 @@ Namespace Microsoft.CodeAnalysis.VisualBasic
 
             If parent IsNot Nothing Then
                 Select Case parent.Kind
-                    Case SyntaxKind.SimpleMemberAccessExpression ' intentionally NOT SyntaxKind.DictionaryAcess
+                    Case SyntaxKind.SimpleMemberAccessExpression ' intentionally NOT SyntaxKind.DictionaryAccess
                         If DirectCast(parent, MemberAccessExpressionSyntax).Expression Is nameSyntax Then
                             Return False
                         End If
@@ -3174,7 +3195,7 @@ Namespace Microsoft.CodeAnalysis.VisualBasic
 
         Private Sub CheckMemberTypeAccessibility(diagnostics As DiagnosticBag, node As VisualBasicSyntaxNode, member As Symbol)
             ' We are not doing this check during lookup due to a performance impact it has on IDE scenarios.
-            ' In any case, an accessible member with inaccassible type is beyond language spec, so we have
+            ' In any case, an accessible member with inaccessible type is beyond language spec, so we have
             ' some freedom how to deal with it.
 
             Dim memberType As TypeSymbol
@@ -3505,7 +3526,7 @@ Namespace Microsoft.CodeAnalysis.VisualBasic
                     ' "Structure '{0}' cannot be indexed because it has no default property."
                     ReportDiagnostic(diagnostics, syntax, ERRID.ERR_StructureNoDefault1, type)
                 Case TypeKind.Error
-                ' We should have reported an error elsewhere.
+                    ' We should have reported an error elsewhere.
                 Case Else
                     ' "'{0}' cannot be indexed because it has no default property."
                     ReportDiagnostic(diagnostics, syntax, ERRID.ERR_InterfaceNoDefault1, type)
@@ -4620,7 +4641,7 @@ lElseClause:
                              ERRID.ERR_UseOfObsoletePropertyAccessor3,
                              ERRID.ERR_UseOfObsoleteSymbolNoMessage1,
                              ERRID.ERR_UseOfObsoleteSymbol2
-                        ' ignore
+                            ' ignore
 
                         Case Else
                             Return True

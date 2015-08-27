@@ -13,7 +13,6 @@ using Microsoft.CodeAnalysis.Test.Utilities;
 using Roslyn.Test.Utilities;
 using Roslyn.Utilities;
 using Xunit;
-using ProprietaryTestResources = Microsoft.CodeAnalysis.Test.Resources.Proprietary;
 
 namespace Microsoft.CodeAnalysis.CSharp.UnitTests
 {
@@ -2622,10 +2621,12 @@ class Module1
 
         private sealed class Resolver : TestMetadataReferenceResolver
         {
+            private readonly RelativePathReferenceResolver _pathResolver;
             private readonly string _data, _core, _system;
 
             public Resolver(string data, string core, string system)
             {
+                _pathResolver = RelativePathReferenceResolver.Default;
                 _data = data;
                 _core = core;
                 _system = system;
@@ -2645,7 +2646,7 @@ class Module1
                         return _system;
 
                     default:
-                        return base.ResolveReference(reference, baseFileName);
+                        return _pathResolver.ResolveReference(reference, baseFileName);
                 }
             }
         }
@@ -2653,9 +2654,9 @@ class Module1
         [Fact]
         public void CompilationWithReferenceDirectives()
         {
-            var data = Temp.CreateFile().WriteAllBytes(ProprietaryTestResources.NetFX.v4_0_30319.System_Data).Path;
-            var core = Temp.CreateFile().WriteAllBytes(ProprietaryTestResources.NetFX.v4_0_30319.System_Core).Path;
-            var system = Temp.CreateFile().WriteAllBytes(ProprietaryTestResources.NetFX.v4_0_30319.System).Path;
+            var data = Temp.CreateFile().WriteAllBytes(TestResources.NetFX.v4_0_30319.System_Data).Path;
+            var core = Temp.CreateFile().WriteAllBytes(TestResources.NetFX.v4_0_30319.System_Core).Path;
+            var system = Temp.CreateFile().WriteAllBytes(TestResources.NetFX.v4_0_30319.System).Path;
 
             var trees = new[] {
                 SyntaxFactory.ParseSyntaxTree(@"
@@ -2693,10 +2694,10 @@ System.Diagnostics.Process.GetCurrentProcess();
         [Fact]
         public void CompilationWithReferenceDirectives_Errors()
         {
-            var data = Temp.CreateFile().WriteAllBytes(ProprietaryTestResources.NetFX.v4_0_30319.System_Data).Path;
-            var core = Temp.CreateFile().WriteAllBytes(ProprietaryTestResources.NetFX.v4_0_30319.System_Core).Path;
-            var system = Temp.CreateFile().WriteAllBytes(ProprietaryTestResources.NetFX.v4_0_30319.System).Path;
-            var mscorlibRef = MetadataReference.CreateFromAssembly(typeof(object).Assembly);
+            var data = Temp.CreateFile().WriteAllBytes(TestResources.NetFX.v4_0_30319.System_Data).Path;
+            var core = Temp.CreateFile().WriteAllBytes(TestResources.NetFX.v4_0_30319.System_Core).Path;
+            var system = Temp.CreateFile().WriteAllBytes(TestResources.NetFX.v4_0_30319.System).Path;
+            var mscorlibRef = MetadataReference.CreateFromAssemblyInternal(typeof(object).Assembly);
 
             var trees = new[] {
                     SyntaxFactory.ParseSyntaxTree(@"
@@ -2723,10 +2724,10 @@ System.Diagnostics.Process.GetCurrentProcess();
                 // (2,4): error CS7010: Quoted file name expected
                 Diagnostic(ErrorCode.ERR_ExpectedPPFile, "System"),
                 // (2,1): error CS7011: #r is only allowed in scripts
-                Diagnostic(ErrorCode.ERR_ReferenceDirectiveOnlyAllowedInScripts, @"#r ""System.Core"""));
+                Diagnostic(ErrorCode.ERR_ReferenceDirectiveOnlyAllowedInScripts, "r"));
         }
 
-        private static readonly string s_resolvedPath = Path.GetPathRoot(Environment.CurrentDirectory) + "RESOLVED";
+        private static readonly string s_resolvedPath = Path.GetPathRoot(Directory.GetCurrentDirectory()) + "RESOLVED";
 
         private class DummyFileProvider : MetadataFileReferenceProvider
         {
@@ -2777,7 +2778,7 @@ class C : Metadata.ICSPropImpl { }";
             compilation.VerifyDiagnostics();
         }
 
-        [Fact]
+        [ClrOnlyFact(ClrOnlyReason.Unknown)]
         public void CompilationWithReferenceDirective_RelativeToBaseDirectory()
         {
             string path = Temp.CreateFile().WriteAllBytes(TestResources.MetadataTests.InterfaceAndClass.CSClasses01).Path;
@@ -2815,7 +2816,7 @@ class C : Metadata.ICSPropImpl { }";
                 Diagnostic(ErrorCode.ERR_MetadataReferencesNotSupported, @"#r ""bar"""));
         }
 
-        [Fact]
+        [ClrOnlyFact(ClrOnlyReason.Unknown)]
         public void CompilationWithReferenceDirective_RelativeToBaseParent()
         {
             string path = Temp.CreateFile().WriteAllBytes(TestResources.MetadataTests.InterfaceAndClass.CSClasses01).Path;
@@ -2838,7 +2839,7 @@ class C : Metadata.ICSPropImpl { }";
             compilation.VerifyDiagnostics();
         }
 
-        [Fact]
+        [ClrOnlyFact(ClrOnlyReason.Unknown)]
         public void CompilationWithReferenceDirective_RelativeToBaseRoot()
         {
             string path = Temp.CreateFile().WriteAllBytes(TestResources.MetadataTests.InterfaceAndClass.CSClasses01).Path;

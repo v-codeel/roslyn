@@ -1,4 +1,4 @@
-﻿// Copyright (c) Microsoft.  All Rights Reserved.  Licensed under the Apache License, Version 2.0.  See License.txt in the project root for license information.
+// Copyright (c) Microsoft.  All Rights Reserved.  Licensed under the Apache License, Version 2.0.  See License.txt in the project root for license information.
 
 using System.Linq;
 using Microsoft.CodeAnalysis.CSharp.Symbols.Metadata.PE;
@@ -420,7 +420,7 @@ namespace Microsoft.CodeAnalysis.CSharp.UnitTests.Symbols.Metadata.PE
             Assert.True(@class.Interfaces.Contains(interface2));
 
             var classMethod = (MethodSymbol)@class.GetMembers("Method").Single();   //  the method is considered to be Ordinary 
-            Assert.Equal(MethodKind.Ordinary, classMethod.MethodKind);              //  becasue it has name without '.'
+            Assert.Equal(MethodKind.Ordinary, classMethod.MethodKind);              //  because it has name without '.'
 
             var explicitImpls = classMethod.ExplicitInterfaceImplementations;
             Assert.Equal(2, explicitImpls.Length);
@@ -522,7 +522,7 @@ namespace Microsoft.CodeAnalysis.CSharp.UnitTests.Symbols.Metadata.PE
             Assert.True(@class.Interfaces.Contains(implementedInterface));
 
             var classMethod = (MethodSymbol)@class.GetMembers("Method").Single();   //  the method is considered to be Ordinary 
-            Assert.Equal(MethodKind.Ordinary, classMethod.MethodKind);              //  becasue it has name without '.'
+            Assert.Equal(MethodKind.Ordinary, classMethod.MethodKind);              //  because it has name without '.'
 
             var explicitImpl = classMethod.ExplicitInterfaceImplementations.Single();
             Assert.Equal(interface2Method, explicitImpl);
@@ -837,7 +837,7 @@ class Override : MetadataModifiers
                 Diagnostic(ErrorCode.ERR_CantOverrideNonVirtual, "M13").WithArguments("Override.M13()", "MetadataModifiers.M13()"));
         }
 
-        [Fact]
+        [ClrOnlyFact]
         public void TestVirtualnessFlags_CSharpRepresentation()
         {
             // All combinations of VirtualContract, NewSlotVTable, AbstractImpl, and FinalContract - without explicit overriding
@@ -997,8 +997,7 @@ class Override : MetadataModifiers
                         Assert.False(true, "Unexpected enum value " + expectedVirtualness);
                         break;
                 }
-            },
-            emitOptions: TestEmitters.RefEmitBug);
+            });
         }
 
         // Note that not all combinations are possible.
@@ -1267,7 +1266,7 @@ public class D
                 Diagnostic(ErrorCode.ERR_BindToBogus, "VT").WithArguments("C.VT()"));
         }
         [WorkItem(666162, "DevDiv")]
-        [Fact]
+        [ClrOnlyFact(ClrOnlyReason.Ilasm)]
         public void Repro666162()
         {
             var il = @"

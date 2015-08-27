@@ -35,7 +35,7 @@ Namespace Microsoft.CodeAnalysis.VisualBasic
                 Return Visit(DirectCast(node.Operand, BoundUserDefinedConversion).UnderlyingExpression)
             End If
 
-            ' not all nullable conversins have Nullable flag
+            ' not all nullable conversions have Nullable flag
             ' For example   Nothing --> Boolean?  has conversionkind = WideningNothingLiteral
             If (node.Type IsNot Nothing AndAlso node.Type.IsNullableType OrElse
                 node.Operand.Type IsNot Nothing AndAlso node.Operand.Type.IsNullableType) AndAlso
@@ -164,9 +164,9 @@ Namespace Microsoft.CodeAnalysis.VisualBasic
                     Return False
                 Case BoundKind.Call
                     Dim t = DirectCast(node, BoundCall)
-                    Return t.Method = F.WellKnownMember(Of MethodSymbol)(WellKnownMember.System_Delegate__CreateDelegate, True) OrElse
-                        t.Method = F.WellKnownMember(Of MethodSymbol)(WellKnownMember.System_Delegate__CreateDelegate4, True) OrElse
-                        t.Method = F.WellKnownMember(Of MethodSymbol)(WellKnownMember.System_Reflection_MethodInfo__CreateDelegate, True)
+                    Return Not (t.Method = F.WellKnownMember(Of MethodSymbol)(WellKnownMember.System_Delegate__CreateDelegate, True) OrElse
+                                t.Method = F.WellKnownMember(Of MethodSymbol)(WellKnownMember.System_Delegate__CreateDelegate4, True) OrElse
+                                t.Method = F.WellKnownMember(Of MethodSymbol)(WellKnownMember.System_Reflection_MethodInfo__CreateDelegate, True))
                 Case Else
                     Return True
             End Select
@@ -288,16 +288,13 @@ Namespace Microsoft.CodeAnalysis.VisualBasic
                         ' converting null
                         Return NullableNull(result.Syntax, resultType)
                     Else
-                        If rewrittenOperand.Kind = BoundKind.LoweredConditionalAccess Then
-                            Dim conditional = DirectCast(rewrittenOperand, BoundLoweredConditionalAccess)
-
-                            If HasValue(conditional.WhenNotNull) AndAlso HasNoValue(conditional.WhenNullOpt) Then
-                                Return conditional.Update(conditional.ReceiverOrCondition,
-                                                          conditional.CaptureReceiver,
-                                                          conditional.PlaceholderId,
-                                                          FinishRewriteNullableConversion(node, resultType, NullableValueOrDefault(conditional.WhenNotNull), Nothing, Nothing, Nothing),
-                                                          NullableNull(result.Syntax, resultType),
-                                                          resultType)
+                        Dim whenNotNull As BoundExpression = Nothing
+                        Dim whenNull As BoundExpression = Nothing
+                        If IsConditionalAccess(rewrittenOperand, whenNotNull, whenNull) Then
+                            If HasValue(whenNotNull) AndAlso HasNoValue(whenNull) Then
+                                Return UpdateConditionalAccess(rewrittenOperand,
+                                                               FinishRewriteNullableConversion(node, resultType, NullableValueOrDefault(whenNotNull), Nothing, Nothing, Nothing),
+                                                               NullableNull(result.Syntax, resultType))
                             End If
                         End If
 
@@ -482,7 +479,7 @@ Namespace Microsoft.CodeAnalysis.VisualBasic
             ' The structure of the nullable BoundUserDefinedConversion looks like this:
             '    [OPERAND] -> [IN-CONVERSION] -> [CALL] -> [OUT-CONVERSION]
             '
-            '   In-conversion also does unrapping.
+            '   In-conversion also does unwrapping.
             '   Out-conversion also does wrapping.
             '
             ' operand
@@ -712,8 +709,7 @@ Namespace Microsoft.CodeAnalysis.VisualBasic
 
             ' This point should not be reachable, because if there is no constructor in the 
             ' loaded value type, we should have generated a synthesized constructor.
-            Debug.Assert(False)
-            Return node
+            Throw ExceptionUtilities.Unreachable
         End Function
 
         Private Function RewriteReferenceTypeToCharArrayRankOneConversion(node As BoundConversion, typeFrom As TypeSymbol, typeTo As TypeSymbol) As BoundExpression

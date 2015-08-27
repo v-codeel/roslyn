@@ -61,6 +61,16 @@ namespace Microsoft.CodeAnalysis.CSharp.Formatting
             return true;
         }
 
+        public static bool IsOpenParenInParameterListOfAConversionOperatorDeclaration(this SyntaxToken token)
+        {
+            return token.IsOpenParenInParameterList() && token.Parent.IsParentKind(SyntaxKind.ConversionOperatorDeclaration);
+        }
+
+        public static bool IsOpenParenInParameterListOfAOperationDeclaration(this SyntaxToken token)
+        {
+            return token.IsOpenParenInParameterList() && token.Parent.IsParentKind(SyntaxKind.OperatorDeclaration);
+        }
+
         public static bool IsOpenParenInParameterList(this SyntaxToken token)
         {
             return token.Kind() == SyntaxKind.OpenParenToken && token.Parent.Kind() == SyntaxKind.ParameterList;
@@ -248,6 +258,13 @@ namespace Microsoft.CodeAnalysis.CSharp.Formatting
             return false;
         }
 
+        public static bool IsEqualsTokenInAutoPropertyInitializers(this SyntaxToken token)
+        {
+            return token.IsKind(SyntaxKind.EqualsToken) &&
+                token.Parent.IsKind(SyntaxKind.EqualsValueClause) &&
+                token.Parent.Parent.IsKind(SyntaxKind.PropertyDeclaration);
+        }
+
         public static bool IsCloseParenInStatement(this SyntaxToken token)
         {
             var statement = token.Parent as StatementSyntax;
@@ -341,7 +358,7 @@ namespace Microsoft.CodeAnalysis.CSharp.Formatting
                      (token.Parent is AnonymousObjectCreationExpressionSyntax));
         }
 
-        public static bool IsIdentiferInLabeledStatement(this SyntaxToken token)
+        public static bool IsIdentifierInLabeledStatement(this SyntaxToken token)
         {
             var labeledStatement = token.Parent as LabeledStatementSyntax;
             return token.Kind() == SyntaxKind.IdentifierToken &&

@@ -642,7 +642,7 @@ Public MustInherit Class WriteUtils
 
 
 
-    ' Generate and XML comment with the given description and remarks sections. If emtpy, the sections are ommitted.
+    ' Generate and XML comment with the given description and remarks sections. If empty, the sections are omitted.
     Protected Sub GenerateXmlComment(writer As TextWriter, descriptionText As String, remarksText As String, indent As Integer)
         GenerateXmlCommentPart(writer, descriptionText, "summary", indent)
         GenerateXmlCommentPart(writer, remarksText, "remarks", indent)
@@ -704,7 +704,7 @@ Public MustInherit Class WriteUtils
         GenerateXmlComment(writer, descriptionText, remarksText, indent)
     End Sub
 
-    Private VBKeywords As String() = {
+    Private ReadOnly _VBKeywords As String() = {
         "ADDHANDLER",
         "ADDRESSOF",
         "ALIAS",
@@ -860,7 +860,7 @@ Public MustInherit Class WriteUtils
 
     ' If the string is a keyword, escape it. Otherwise just return it.
     Protected Function Ident(id As String) As String
-        If VBKeywords.Contains(id.ToUpperInvariant()) Then
+        If _VBKeywords.Contains(id.ToUpperInvariant()) Then
             Return "[" + id + "]"
         Else
             Return id

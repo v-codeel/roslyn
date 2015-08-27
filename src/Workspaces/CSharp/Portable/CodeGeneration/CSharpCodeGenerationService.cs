@@ -29,6 +29,11 @@ namespace Microsoft.CodeAnalysis.CSharp.CodeGeneration
             return CSharpCodeGenerationHelpers.GetDestination(node);
         }
 
+        protected override IComparer<SyntaxNode> GetMemberComparer()
+        {
+            return CSharpDeclarationComparer.Instance;
+        }
+
         protected override AbstractImportsAdder CreateImportsAdder(
             Document document)
         {
@@ -546,13 +551,30 @@ namespace Microsoft.CodeAnalysis.CSharp.CodeGeneration
         public override SyntaxNode CreateFieldDeclaration(IFieldSymbol field, CodeGenerationDestination destination, CodeGenerationOptions options)
         {
             return destination == CodeGenerationDestination.EnumType
-                ? (SyntaxNode)EnumMemberGenerator.GenerateEnumMemberDeclaration(field, null, options)
+                ? EnumMemberGenerator.GenerateEnumMemberDeclaration(field, null, options)
                 : (SyntaxNode)FieldGenerator.GenerateFieldDeclaration(field, destination, options);
         }
 
         public override SyntaxNode CreateMethodDeclaration(
             IMethodSymbol method, CodeGenerationDestination destination, CodeGenerationOptions options)
         {
+            // Synthesized methods for properties/events are not things we actually generate 
+            // declarations for.
+            if (method.AssociatedSymbol is IEventSymbol)
+            {
+                return null;
+            }
+
+            if (method.AssociatedSymbol is IPropertySymbol)
+            {
+                // we will ignore the method if the associated property can be generated.
+                var property = (IPropertySymbol)method.AssociatedSymbol;
+                if (PropertyGenerator.CanBeGenerated(property))
+                {
+                    return null;
+                }
+            }
+
             if (method.IsConstructor())
             {
                 return ConstructorGenerator.GenerateConstructorDeclaration(method, destination, options);
@@ -560,6 +582,14 @@ namespace Microsoft.CodeAnalysis.CSharp.CodeGeneration
             else if (method.IsDestructor())
             {
                 return DestructorGenerator.GenerateDestructorDeclaration(method, destination, options);
+            }
+            else if (method.IsUserDefinedOperator())
+            {
+                return OperatorGenerator.GenerateOperatorDeclaration(method, destination, options);
+            }
+            else if (method.IsConversion())
+            {
+                return ConversionGenerator.GenerateConversionDeclaration(method, destination, options);
             }
             else
             {
@@ -570,7 +600,7 @@ namespace Microsoft.CodeAnalysis.CSharp.CodeGeneration
         public override SyntaxNode CreatePropertyDeclaration(
             IPropertySymbol property, CodeGenerationDestination destination, CodeGenerationOptions options)
         {
-            return PropertyGenerator.GeneratePropertyDeclaration(property, destination, options);
+            return PropertyGenerator.GeneratePropertyOrIndexer(property, destination, options);
         }
 
         public override SyntaxNode CreateNamedTypeDeclaration(
@@ -624,16 +654,16 @@ namespace Microsoft.CodeAnalysis.CSharp.CodeGeneration
             return UpdateDeclarationModifiers(declaration, computeNewModifiersList, options, cancellationToken);
         }
 
-        public override TDeclarationNode UpdateDeclarationAccessibility<TDeclarationNode>(TDeclarationNode declaration, Accessibility newAccesibility, CodeGenerationOptions options, CancellationToken cancellationToken)
+        public override TDeclarationNode UpdateDeclarationAccessibility<TDeclarationNode>(TDeclarationNode declaration, Accessibility newAccessibility, CodeGenerationOptions options, CancellationToken cancellationToken)
         {
-            Func<SyntaxTokenList, SyntaxTokenList> computeNewModifiersList = (SyntaxTokenList modifiersList) => UpdateDeclarationAccessibility(modifiersList, newAccesibility, options);
+            Func<SyntaxTokenList, SyntaxTokenList> computeNewModifiersList = (SyntaxTokenList modifiersList) => UpdateDeclarationAccessibility(modifiersList, newAccessibility, options);
             return UpdateDeclarationModifiers(declaration, computeNewModifiersList, options, cancellationToken);
         }
 
-        private static SyntaxTokenList UpdateDeclarationAccessibility(SyntaxTokenList modifiersList, Accessibility newAccesibility, CodeGenerationOptions options)
+        private static SyntaxTokenList UpdateDeclarationAccessibility(SyntaxTokenList modifiersList, Accessibility newAccessibility, CodeGenerationOptions options)
         {
             var newModifierTokens = new List<SyntaxToken>();
-            CSharpCodeGenerationHelpers.AddAccessibilityModifiers(newAccesibility, newModifierTokens, options, Accessibility.NotApplicable);
+            CSharpCodeGenerationHelpers.AddAccessibilityModifiers(newAccessibility, newModifierTokens, options, Accessibility.NotApplicable);
             if (newModifierTokens.Count == 0)
             {
                 return modifiersList;

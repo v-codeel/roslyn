@@ -362,6 +362,22 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
             }
         }
 
+        internal override bool HasTypeArgumentsCustomModifiers
+        {
+            get
+            {
+                return false;
+            }
+        }
+
+        internal override ImmutableArray<ImmutableArray<CustomModifier>> TypeArgumentsCustomModifiers
+        {
+            get
+            {
+                return CreateEmptyTypeArgumentsCustomModifiers();
+            }
+        }
+
         public override ImmutableArray<TypeParameterSymbol> TypeParameters
         {
             get
@@ -736,7 +752,7 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
             {
                 AttributeUsageInfo info = attribute.DecodeAttributeUsageAttribute();
 
-                // Validate first ctor argument for AtributeUsage specification is a valid AttributeTargets enum member
+                // Validate first ctor argument for AttributeUsage specification is a valid AttributeTargets enum member
                 if (!info.HasValidAttributeTargets)
                 {
                     if (diagnose)

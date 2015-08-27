@@ -1,12 +1,20 @@
-﻿// Copyright (c) Microsoft.  All Rights Reserved.  Licensed under the Apache License, Version 2.0.  See License.txt in the project root for license information.
+// Copyright (c) Microsoft.  All Rights Reserved.  Licensed under the Apache License, Version 2.0.  See License.txt in the project root for license information.
 
 using System;
-using System.Globalization;
 using System.IO;
+using System.Linq;
+using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
+using System.Reflection.PortableExecutable;
+using System.Text;
 using System.Threading;
 using Microsoft.CodeAnalysis.CodeGen;
+using Microsoft.CodeAnalysis.CSharp.Symbols;
 using Microsoft.CodeAnalysis.CSharp.Test.Utilities;
+using Microsoft.CodeAnalysis.Emit;
 using Microsoft.CodeAnalysis.Test.Utilities;
+using Microsoft.CodeAnalysis.Text;
+using Roslyn.Test.PdbUtilities;
 using Roslyn.Test.Utilities;
 using Xunit;
 
@@ -14,6 +22,442 @@ namespace Microsoft.CodeAnalysis.CSharp.UnitTests.PDB
 {
     public class PDBTests : CSharpPDBTestBase
     {
+        #region General
+
+        [Fact]
+        public void EmitDebugInfoForSourceTextWithoutEncoding1()
+        {
+            var tree1 = SyntaxFactory.ParseSyntaxTree("class A { }", encoding: null, path: "Foo.cs");
+            var tree2 = SyntaxFactory.ParseSyntaxTree("class B { }", encoding: null, path: "");
+            var tree3 = SyntaxFactory.ParseSyntaxTree(SourceText.From("class C { }", encoding: null), path: "Bar.cs");
+            var tree4 = SyntaxFactory.ParseSyntaxTree("class D { }", encoding: Encoding.UTF8, path: "Baz.cs");
+
+            var comp = CSharpCompilation.Create("Compilation", new[] { tree1, tree2, tree3, tree4 }, new[] { MscorlibRef }, options: TestOptions.ReleaseDll);
+
+            var result = comp.Emit(new MemoryStream(), pdbStream: new MemoryStream());
+            result.Diagnostics.Verify(
+                // Foo.cs(1,1): error CS8055: Cannot emit debug information for a source text without encoding.
+                Diagnostic(ErrorCode.ERR_EncodinglessSyntaxTree, "class A { }").WithLocation(1, 1),
+                // Bar.cs(1,1): error CS8055: Cannot emit debug information for a source text without encoding.
+                Diagnostic(ErrorCode.ERR_EncodinglessSyntaxTree, "class C { }").WithLocation(1, 1));
+
+            Assert.False(result.Success);
+        }
+
+        [Fact]
+        public void EmitDebugInfoForSourceTextWithoutEncoding2()
+        {
+            var tree1 = SyntaxFactory.ParseSyntaxTree("class A { public void F() { } }", encoding: Encoding.Unicode, path: "Foo.cs");
+            var tree2 = SyntaxFactory.ParseSyntaxTree("class B { public void F() { } }", encoding: null, path: "");
+            var tree3 = SyntaxFactory.ParseSyntaxTree("class C { public void F() { } }", encoding: new UTF8Encoding(true, false), path: "Bar.cs");
+            var tree4 = SyntaxFactory.ParseSyntaxTree(SourceText.From("class D { public void F() { } }", new UTF8Encoding(false, false)), path: "Baz.cs");
+
+            var comp = CSharpCompilation.Create("Compilation", new[] { tree1, tree2, tree3, tree4 }, new[] { MscorlibRef }, options: TestOptions.ReleaseDll);
+
+            var result = comp.Emit(new MemoryStream(), pdbStream: new MemoryStream());
+            result.Diagnostics.Verify();
+            Assert.True(result.Success);
+
+            var hash1 = CryptographicHashProvider.ComputeSha1(Encoding.Unicode.GetBytesWithPreamble(tree1.ToString()));
+            var hash3 = CryptographicHashProvider.ComputeSha1(new UTF8Encoding(true, false).GetBytesWithPreamble(tree3.ToString()));
+            var hash4 = CryptographicHashProvider.ComputeSha1(new UTF8Encoding(false, false).GetBytesWithPreamble(tree4.ToString()));
+
+            var checksum1 = string.Concat(hash1.Select(b => string.Format("{0,2:X}", b) + ", "));
+            var checksum3 = string.Concat(hash3.Select(b => string.Format("{0,2:X}", b) + ", "));
+            var checksum4 = string.Concat(hash4.Select(b => string.Format("{0,2:X}", b) + ", "));
+
+            comp.VerifyPdb(@"
+<symbols>
+  <files>
+    <file id=""1"" name=""Foo.cs"" language=""3f5162f8-07c6-11d3-9053-00c04fa302a1"" languageVendor=""994b45c4-e6e9-11d2-903f-00c04fa302a1"" documentType=""5a869d0b-6611-11d3-bd2a-0000f80849bd"" checkSumAlgorithmId=""ff1816ec-aa5e-4d10-87f7-6f4963833460"" checkSum=""" + checksum1 + @""" />
+    <file id=""2"" name=""Bar.cs"" language=""3f5162f8-07c6-11d3-9053-00c04fa302a1"" languageVendor=""994b45c4-e6e9-11d2-903f-00c04fa302a1"" documentType=""5a869d0b-6611-11d3-bd2a-0000f80849bd"" checkSumAlgorithmId=""ff1816ec-aa5e-4d10-87f7-6f4963833460"" checkSum=""" + checksum3 + @""" />
+    <file id=""3"" name=""Baz.cs"" language=""3f5162f8-07c6-11d3-9053-00c04fa302a1"" languageVendor=""994b45c4-e6e9-11d2-903f-00c04fa302a1"" documentType=""5a869d0b-6611-11d3-bd2a-0000f80849bd"" checkSumAlgorithmId=""ff1816ec-aa5e-4d10-87f7-6f4963833460"" checkSum=""" + checksum4 + @""" />
+  </files>
+</symbols>", options: PdbToXmlOptions.ExcludeMethods);
+        }
+
+        [Fact, WorkItem(846584, "DevDiv")]
+        public void RelativePathForExternalSource_Sha1()
+        {
+            var text1 = @"
+#pragma checksum ""..\Test2.cs"" ""{406ea660-64cf-4c82-b6f0-42d48172a799}"" ""BA8CBEA9C2EFABD90D53B616FB80A081""
+
+public class C
+{
+    public void InitializeComponent() {
+        #line 4 ""..\Test2.cs""
+        InitializeComponent();
+        #line default
+    }
+}
+";
+
+            var compilation = CreateCompilationWithMscorlib(
+                new[] { Parse(text1, @"C:\Folder1\Folder2\Test1.cs") },
+                options: TestOptions.DebugDll.WithSourceReferenceResolver(SourceFileResolver.Default));
+
+            compilation.VerifyPdb(@"
+<symbols>
+  <files>
+    <file id=""1"" name=""C:\Folder1\Folder2\Test1.cs"" language=""3f5162f8-07c6-11d3-9053-00c04fa302a1"" languageVendor=""994b45c4-e6e9-11d2-903f-00c04fa302a1"" documentType=""5a869d0b-6611-11d3-bd2a-0000f80849bd"" checkSumAlgorithmId=""ff1816ec-aa5e-4d10-87f7-6f4963833460"" checkSum=""40, A6, 20,  2, 2E, 60, 7D, 4F, 2D, A8, F4, A6, ED, 2E,  E, 49, 8D, 9F, D7, EB, "" />
+    <file id=""2"" name=""C:\Folder1\Test2.cs"" language=""3f5162f8-07c6-11d3-9053-00c04fa302a1"" languageVendor=""994b45c4-e6e9-11d2-903f-00c04fa302a1"" documentType=""5a869d0b-6611-11d3-bd2a-0000f80849bd"" checkSumAlgorithmId=""406ea660-64cf-4c82-b6f0-42d48172a799"" checkSum=""BA, 8C, BE, A9, C2, EF, AB, D9,  D, 53, B6, 16, FB, 80, A0, 81, "" />
+  </files>
+  <methods>
+    <method containingType=""C"" name=""InitializeComponent"">
+      <customDebugInfo>
+        <using>
+          <namespace usingCount=""0"" />
+        </using>
+      </customDebugInfo>
+      <sequencePoints>
+        <entry offset=""0x0"" startLine=""6"" startColumn=""39"" endLine=""6"" endColumn=""40"" document=""1"" />
+        <entry offset=""0x1"" startLine=""4"" startColumn=""9"" endLine=""4"" endColumn=""31"" document=""2"" />
+        <entry offset=""0x8"" startLine=""10"" startColumn=""5"" endLine=""10"" endColumn=""6"" document=""1"" />
+      </sequencePoints>
+    </method>
+  </methods>
+</symbols>");
+        }
+
+        [Fact]
+        public void SymWriterErrors()
+        {
+            var source0 =
+@"class C
+{
+}";
+            var compilation = CreateCompilationWithMscorlib(source0, options: TestOptions.DebugDll);
+
+            // Verify full metadata contains expected rows.
+            using (MemoryStream peStream = new MemoryStream(), pdbStream = new MemoryStream())
+            {
+                var result = compilation.Emit(
+                    peStream: peStream,
+                    pdbStream: pdbStream,
+                    xmlDocumentationStream: null,
+                    cancellationToken: default(CancellationToken),
+                    win32Resources: null,
+                    manifestResources: null,
+                    options: null,
+                    debugEntryPoint: null,
+                    getHostDiagnostics: null,
+                    testData: new CompilationTestData() { SymWriterFactory = () => new MockSymUnmanagedWriter() });
+
+                result.Diagnostics.Verify(
+                    // error CS0041: Unexpected error writing debug information -- 'The method or operation is not implemented.'
+                    Diagnostic(ErrorCode.FTL_DebugEmitFailure).WithArguments(new NotImplementedException().Message));
+
+                Assert.False(result.Success);
+            }
+        }
+
+        [Fact]
+        public void ExtendedCustomDebugInformation()
+        {
+            var source =
+@"class C
+{
+    static void M()
+    {
+        dynamic o = 1;
+    }
+}";
+            var comp = CreateCompilationWithMscorlib(source, options: TestOptions.DebugDll.WithExtendedCustomDebugInformation(extendedCustomDebugInformation: true));
+            comp.VerifyPdb(
+@"<symbols>
+  <methods>
+    <method containingType=""C"" name=""M"">
+      <customDebugInfo>
+        <using>
+          <namespace usingCount=""0"" />
+        </using>
+        <dynamicLocals>
+          <bucket flagCount=""1"" flags=""1"" slotId=""0"" localName=""o"" />
+        </dynamicLocals>
+        <encLocalSlotMap>
+          <slot kind=""0"" offset=""19"" />
+        </encLocalSlotMap>
+      </customDebugInfo>
+      <sequencePoints>
+        <entry offset=""0x0"" startLine=""4"" startColumn=""5"" endLine=""4"" endColumn=""6"" />
+        <entry offset=""0x1"" startLine=""5"" startColumn=""9"" endLine=""5"" endColumn=""23"" />
+        <entry offset=""0x8"" startLine=""6"" startColumn=""5"" endLine=""6"" endColumn=""6"" />
+      </sequencePoints>
+      <scope startOffset=""0x0"" endOffset=""0x9"">
+        <local name=""o"" il_index=""0"" il_start=""0x0"" il_end=""0x9"" attributes=""0"" />
+      </scope>
+    </method>
+  </methods>
+</symbols>");
+            comp = CreateCompilationWithMscorlib(source, options: TestOptions.DebugDll.WithExtendedCustomDebugInformation(extendedCustomDebugInformation: false));
+            comp.VerifyPdb(
+@"<symbols>
+  <methods>
+    <method containingType=""C"" name=""M"">
+      <customDebugInfo>
+        <using>
+          <namespace usingCount=""0"" />
+        </using>
+      </customDebugInfo>
+      <sequencePoints>
+        <entry offset=""0x0"" startLine=""4"" startColumn=""5"" endLine=""4"" endColumn=""6"" />
+        <entry offset=""0x1"" startLine=""5"" startColumn=""9"" endLine=""5"" endColumn=""23"" />
+        <entry offset=""0x8"" startLine=""6"" startColumn=""5"" endLine=""6"" endColumn=""6"" />
+      </sequencePoints>
+      <scope startOffset=""0x0"" endOffset=""0x9"">
+        <local name=""o"" il_index=""0"" il_start=""0x0"" il_end=""0x9"" attributes=""0"" />
+      </scope>
+    </method>
+  </methods>
+</symbols>");
+            comp = CreateCompilationWithMscorlib(source, options: TestOptions.ReleaseDll.WithExtendedCustomDebugInformation(extendedCustomDebugInformation: true));
+            comp.VerifyPdb(
+@"<symbols>
+  <methods>
+    <method containingType=""C"" name=""M"">
+      <customDebugInfo>
+        <using>
+          <namespace usingCount=""0"" />
+        </using>
+      </customDebugInfo>
+      <sequencePoints>
+        <entry offset=""0x0"" startLine=""6"" startColumn=""5"" endLine=""6"" endColumn=""6"" />
+      </sequencePoints>
+    </method>
+  </methods>
+</symbols>");
+            comp = CreateCompilationWithMscorlib(source, options: TestOptions.ReleaseDll.WithExtendedCustomDebugInformation(extendedCustomDebugInformation: false));
+            comp.VerifyPdb(
+@"<symbols>
+  <methods>
+    <method containingType=""C"" name=""M"">
+      <customDebugInfo>
+        <using>
+          <namespace usingCount=""0"" />
+        </using>
+      </customDebugInfo>
+      <sequencePoints>
+        <entry offset=""0x0"" startLine=""6"" startColumn=""5"" endLine=""6"" endColumn=""6"" />
+      </sequencePoints>
+    </method>
+  </methods>
+</symbols>");
+        }
+
+        [Fact, WorkItem(1067635)]
+        public void SuppressDynamicAndEncCDIForWinRT()
+        {
+            var source = @"
+public class C
+{
+    public static void F()
+    {
+        dynamic a = 1;
+        int b = 2;
+        foreach (var x in new[] { 1,2,3 })
+        {
+            System.Console.WriteLine(a * b);
+        }
+    }
+}
+";
+
+            var debug = CreateCompilationWithMscorlib(source, new[] { CSharpRef, SystemCoreRef }, options: TestOptions.DebugWinMD);
+            debug.VerifyPdb(@"
+<symbols>
+    <methods>
+    <method containingType=""C"" name=""F"">
+      <customDebugInfo>
+        <using>
+          <namespace usingCount=""0"" />
+        </using>
+      </customDebugInfo>
+      <sequencePoints>
+        <entry offset=""0x0"" startLine=""5"" startColumn=""5"" endLine=""5"" endColumn=""6"" />
+        <entry offset=""0x1"" startLine=""6"" startColumn=""9"" endLine=""6"" endColumn=""23"" />
+        <entry offset=""0x8"" startLine=""7"" startColumn=""9"" endLine=""7"" endColumn=""19"" />
+        <entry offset=""0xa"" startLine=""8"" startColumn=""9"" endLine=""8"" endColumn=""16"" />
+        <entry offset=""0xb"" startLine=""8"" startColumn=""27"" endLine=""8"" endColumn=""42"" />
+        <entry offset=""0x1f"" hidden=""true"" />
+        <entry offset=""0x24"" startLine=""8"" startColumn=""18"" endLine=""8"" endColumn=""23"" />
+        <entry offset=""0x29"" startLine=""9"" startColumn=""9"" endLine=""9"" endColumn=""10"" />
+        <entry offset=""0x2a"" startLine=""10"" startColumn=""13"" endLine=""10"" endColumn=""45"" />
+        <entry offset=""0xe6"" startLine=""11"" startColumn=""9"" endLine=""11"" endColumn=""10"" />
+        <entry offset=""0xe7"" hidden=""true"" />
+        <entry offset=""0xeb"" startLine=""8"" startColumn=""24"" endLine=""8"" endColumn=""26"" />
+        <entry offset=""0xf4"" startLine=""12"" startColumn=""5"" endLine=""12"" endColumn=""6"" />
+      </sequencePoints>
+      <scope startOffset=""0x0"" endOffset=""0xf5"">
+        <local name=""a"" il_index=""0"" il_start=""0x0"" il_end=""0xf5"" attributes=""0"" />
+        <local name=""b"" il_index=""1"" il_start=""0x0"" il_end=""0xf5"" attributes=""0"" />
+        <scope startOffset=""0x24"" endOffset=""0xe7"">
+          <local name=""x"" il_index=""4"" il_start=""0x24"" il_end=""0xe7"" attributes=""0"" />
+        </scope>
+      </scope>
+    </method>
+  </methods>
+</symbols>");
+
+            var release = CreateCompilationWithMscorlib(source, new[] { CSharpRef, SystemCoreRef }, options: TestOptions.ReleaseWinMD);
+            release.VerifyPdb(@"
+<symbols>
+  <methods>
+    <method containingType=""C"" name=""F"">
+      <customDebugInfo>
+        <using>
+          <namespace usingCount=""0"" />
+        </using>
+      </customDebugInfo>
+      <sequencePoints>
+        <entry offset=""0x0"" startLine=""6"" startColumn=""9"" endLine=""6"" endColumn=""23"" />
+        <entry offset=""0x7"" startLine=""7"" startColumn=""9"" endLine=""7"" endColumn=""19"" />
+        <entry offset=""0x9"" startLine=""8"" startColumn=""27"" endLine=""8"" endColumn=""42"" />
+        <entry offset=""0x1d"" hidden=""true"" />
+        <entry offset=""0x22"" startLine=""8"" startColumn=""18"" endLine=""8"" endColumn=""23"" />
+        <entry offset=""0x26"" startLine=""10"" startColumn=""13"" endLine=""10"" endColumn=""45"" />
+        <entry offset=""0xdd"" hidden=""true"" />
+        <entry offset=""0xe1"" startLine=""8"" startColumn=""24"" endLine=""8"" endColumn=""26"" />
+        <entry offset=""0xea"" startLine=""12"" startColumn=""5"" endLine=""12"" endColumn=""6"" />
+      </sequencePoints>
+      <scope startOffset=""0x0"" endOffset=""0xeb"">
+        <local name=""a"" il_index=""0"" il_start=""0x0"" il_end=""0xeb"" attributes=""0"" />
+        <local name=""b"" il_index=""1"" il_start=""0x0"" il_end=""0xeb"" attributes=""0"" />
+      </scope>
+    </method>
+  </methods>
+</symbols>");
+        }
+
+        [Fact]
+        public void DuplicateDocuments()
+        {
+            var source1 = @"class C { static void F() { } }";
+            var source2 = @"class D { static void F() { } }";
+
+            var tree1 = Parse(source1, @"foo.cs");
+            var tree2 = Parse(source2, @"foo.cs");
+
+            var comp = CreateCompilationWithMscorlib(new[] { tree1, tree2 });
+
+            // the first file wins (checksum CB 22 ...)
+            comp.VerifyPdb(@"
+<symbols>
+  <files>
+    <file id=""1"" name=""foo.cs"" language=""3f5162f8-07c6-11d3-9053-00c04fa302a1"" languageVendor=""994b45c4-e6e9-11d2-903f-00c04fa302a1"" documentType=""5a869d0b-6611-11d3-bd2a-0000f80849bd"" checkSumAlgorithmId=""ff1816ec-aa5e-4d10-87f7-6f4963833460"" checkSum=""CB, 22, D8,  3, D3, 27, 32, 64, 2C, BC, 7D, 67, 5D, E3, CB, AC, D1, 64, 25, 83, "" />
+  </files>
+  <methods>
+    <method containingType=""C"" name=""F"">
+      <customDebugInfo>
+        <using>
+          <namespace usingCount=""0"" />
+        </using>
+      </customDebugInfo>
+      <sequencePoints>
+        <entry offset=""0x0"" startLine=""1"" startColumn=""29"" endLine=""1"" endColumn=""30"" document=""1"" />
+      </sequencePoints>
+    </method>
+    <method containingType=""D"" name=""F"">
+      <customDebugInfo>
+        <forward declaringType=""C"" methodName=""F"" />
+      </customDebugInfo>
+      <sequencePoints>
+        <entry offset=""0x0"" startLine=""1"" startColumn=""29"" endLine=""1"" endColumn=""30"" document=""1"" />
+      </sequencePoints>
+    </method>
+  </methods>
+</symbols>
+");
+        }
+
+        [Fact]
+        public void CustomDebugEntryPoint_DLL()
+        {
+            var source = @"class C { static void F() { } }";
+
+            var c = CreateCompilationWithMscorlib(source, options: TestOptions.DebugDll);
+            var f = c.GetMember<MethodSymbol>("C.F");
+
+            c.VerifyPdb(@"
+<symbols>
+  <entryPoint declaringType=""C"" methodName=""F"" />
+  <methods/>
+</symbols>", debugEntryPoint: f, options: PdbToXmlOptions.ExcludeScopes | PdbToXmlOptions.ExcludeSequencePoints | PdbToXmlOptions.ExcludeCustomDebugInformation);
+
+            var peReader = new PEReader(c.EmitToArray(debugEntryPoint: f));
+            int peEntryPointToken = peReader.PEHeaders.CorHeader.EntryPointTokenOrRelativeVirtualAddress;
+
+            Assert.Equal(0, peEntryPointToken);
+        }
+
+        [Fact]
+        public void CustomDebugEntryPoint_EXE()
+        {
+            var source = @"class M { static void Main() { } } class C { static void F<S>() { } }";
+
+            var c = CreateCompilationWithMscorlib(source, options: TestOptions.DebugExe);
+            var f = c.GetMember<MethodSymbol>("C.F");
+
+            c.VerifyPdb(@"
+<symbols>
+  <entryPoint declaringType=""C"" methodName=""F"" />
+  <methods/>
+</symbols>", debugEntryPoint: f, options: PdbToXmlOptions.ExcludeScopes | PdbToXmlOptions.ExcludeSequencePoints | PdbToXmlOptions.ExcludeCustomDebugInformation);
+
+            var peReader = new PEReader(c.EmitToArray(debugEntryPoint: f));
+            int peEntryPointToken = peReader.PEHeaders.CorHeader.EntryPointTokenOrRelativeVirtualAddress;
+
+            var mdReader = peReader.GetMetadataReader();
+            var methodDef = mdReader.GetMethodDefinition((MethodDefinitionHandle)MetadataTokens.Handle(peEntryPointToken));
+            Assert.Equal("Main", mdReader.GetString(methodDef.Name));
+        }
+
+        [Fact]
+        public void CustomDebugEntryPoint_Errors()
+        {
+            var source1 = @"class C { static void F() { } } class D<T> { static void G<S>() {} }";
+            var source2 = @"class C { static void F() { } }";
+
+            var c1 = CreateCompilationWithMscorlib(source1, options: TestOptions.DebugDll);
+            var c2 = CreateCompilationWithMscorlib(source2, options: TestOptions.DebugDll);
+
+            var f1 = c1.GetMember<MethodSymbol>("C.F");
+            var f2 = c2.GetMember<MethodSymbol>("C.F");
+            var g = c1.GetMember<MethodSymbol>("D.G");
+            var d = c1.GetMember<NamedTypeSymbol>("D");
+            Assert.NotNull(f1);
+            Assert.NotNull(f2);
+            Assert.NotNull(g);
+            Assert.NotNull(d);
+
+            var stInt = c1.GetSpecialType(SpecialType.System_Int32);
+            var d_t_g_int = g.Construct(stInt);
+            var d_int = d.Construct(stInt);
+            var d_int_g = d_int.GetMember<MethodSymbol>("G");
+            var d_int_g_int = d_int_g.Construct(stInt);
+
+            var result = c1.Emit(new MemoryStream(), new MemoryStream(), debugEntryPoint: f2);
+            result.Diagnostics.Verify(
+                // error CS8096: Debug entry point must be a definition of a source method in the current compilation.
+                Diagnostic(ErrorCode.ERR_DebugEntryPointNotSourceMethodDefinition));
+
+            result = c1.Emit(new MemoryStream(), new MemoryStream(), debugEntryPoint: d_t_g_int);
+            result.Diagnostics.Verify(
+                // error CS8096: Debug entry point must be a definition of a source method in the current compilation.
+                Diagnostic(ErrorCode.ERR_DebugEntryPointNotSourceMethodDefinition));
+
+            result = c1.Emit(new MemoryStream(), new MemoryStream(), debugEntryPoint: d_int_g);
+            result.Diagnostics.Verify(
+                // error CS8096: Debug entry point must be a definition of a source method in the current compilation.
+                Diagnostic(ErrorCode.ERR_DebugEntryPointNotSourceMethodDefinition));
+
+            result = c1.Emit(new MemoryStream(), new MemoryStream(), debugEntryPoint: d_int_g_int);
+            result.Diagnostics.Verify(
+                // error CS8096: Debug entry point must be a definition of a source method in the current compilation.
+                Diagnostic(ErrorCode.ERR_DebugEntryPointNotSourceMethodDefinition));
+        }
+
+        #endregion
+
         #region Method Bodies
 
         [Fact]
@@ -43,13 +487,10 @@ class Program
         </encLocalSlotMap>
       </customDebugInfo>
       <sequencePoints>
-        <entry offset=""0x0"" startLine=""7"" startColumn=""5"" endLine=""7"" endColumn=""6"" document=""0"" />
-        <entry offset=""0x1"" startLine=""8"" startColumn=""9"" endLine=""8"" endColumn=""35"" document=""0"" />
-        <entry offset=""0x7"" startLine=""9"" startColumn=""5"" endLine=""9"" endColumn=""6"" document=""0"" />
+        <entry offset=""0x0"" startLine=""7"" startColumn=""5"" endLine=""7"" endColumn=""6"" />
+        <entry offset=""0x1"" startLine=""8"" startColumn=""9"" endLine=""8"" endColumn=""35"" />
+        <entry offset=""0x7"" startLine=""9"" startColumn=""5"" endLine=""9"" endColumn=""6"" />
       </sequencePoints>
-      <locals>
-        <local name=""p"" il_index=""0"" il_start=""0x0"" il_end=""0x8"" attributes=""0"" />
-      </locals>
       <scope startOffset=""0x0"" endOffset=""0x8"">
         <local name=""p"" il_index=""0"" il_start=""0x0"" il_end=""0x8"" attributes=""0"" />
       </scope>
@@ -101,27 +542,22 @@ class C
         </encLocalSlotMap>
       </customDebugInfo>
       <sequencePoints>
-        <entry offset=""0x0"" startLine=""5"" startColumn=""5"" endLine=""5"" endColumn=""6"" document=""0"" />
-        <entry offset=""0x1"" startLine=""6"" startColumn=""9"" endLine=""6"" endColumn=""28"" document=""0"" />
-        <entry offset=""0x8"" startLine=""7"" startColumn=""9"" endLine=""7"" endColumn=""58"" document=""0"" />
-        <entry offset=""0x14"" startLine=""8"" startColumn=""9"" endLine=""8"" endColumn=""10"" document=""0"" />
-        <entry offset=""0x15"" startLine=""10"" startColumn=""13"" endLine=""10"" endColumn=""14"" document=""0"" />
-        <entry offset=""0x16"" startLine=""12"" startColumn=""17"" endLine=""12"" endColumn=""33"" document=""0"" />
-        <entry offset=""0x1d"" startLine=""13"" startColumn=""17"" endLine=""13"" endColumn=""60"" document=""0"" />
-        <entry offset=""0x29"" startLine=""14"" startColumn=""13"" endLine=""14"" endColumn=""14"" document=""0"" />
-        <entry offset=""0x2a"" startLine=""15"" startColumn=""13"" endLine=""15"" endColumn=""14"" document=""0"" />
-        <entry offset=""0x2b"" startLine=""17"" startColumn=""17"" endLine=""17"" endColumn=""31"" document=""0"" />
-        <entry offset=""0x2d"" startLine=""18"" startColumn=""17"" endLine=""18"" endColumn=""62"" document=""0"" />
-        <entry offset=""0x3e"" startLine=""19"" startColumn=""13"" endLine=""19"" endColumn=""14"" document=""0"" />
-        <entry offset=""0x3f"" startLine=""20"" startColumn=""13"" endLine=""20"" endColumn=""45"" document=""0"" />
-        <entry offset=""0x4a"" startLine=""21"" startColumn=""9"" endLine=""21"" endColumn=""10"" document=""0"" />
-        <entry offset=""0x4b"" startLine=""22"" startColumn=""5"" endLine=""22"" endColumn=""6"" document=""0"" />
+        <entry offset=""0x0"" startLine=""5"" startColumn=""5"" endLine=""5"" endColumn=""6"" />
+        <entry offset=""0x1"" startLine=""6"" startColumn=""9"" endLine=""6"" endColumn=""28"" />
+        <entry offset=""0x8"" startLine=""7"" startColumn=""9"" endLine=""7"" endColumn=""58"" />
+        <entry offset=""0x14"" startLine=""8"" startColumn=""9"" endLine=""8"" endColumn=""10"" />
+        <entry offset=""0x15"" startLine=""10"" startColumn=""13"" endLine=""10"" endColumn=""14"" />
+        <entry offset=""0x16"" startLine=""12"" startColumn=""17"" endLine=""12"" endColumn=""33"" />
+        <entry offset=""0x1d"" startLine=""13"" startColumn=""17"" endLine=""13"" endColumn=""60"" />
+        <entry offset=""0x29"" startLine=""14"" startColumn=""13"" endLine=""14"" endColumn=""14"" />
+        <entry offset=""0x2a"" startLine=""15"" startColumn=""13"" endLine=""15"" endColumn=""14"" />
+        <entry offset=""0x2b"" startLine=""17"" startColumn=""17"" endLine=""17"" endColumn=""31"" />
+        <entry offset=""0x2d"" startLine=""18"" startColumn=""17"" endLine=""18"" endColumn=""62"" />
+        <entry offset=""0x3e"" startLine=""19"" startColumn=""13"" endLine=""19"" endColumn=""14"" />
+        <entry offset=""0x3f"" startLine=""20"" startColumn=""13"" endLine=""20"" endColumn=""45"" />
+        <entry offset=""0x4a"" startLine=""21"" startColumn=""9"" endLine=""21"" endColumn=""10"" />
+        <entry offset=""0x4b"" startLine=""22"" startColumn=""5"" endLine=""22"" endColumn=""6"" />
       </sequencePoints>
-      <locals>
-        <local name=""version"" il_index=""0"" il_start=""0x0"" il_end=""0x4c"" attributes=""0"" />
-        <local name=""foob"" il_index=""1"" il_start=""0x15"" il_end=""0x2a"" attributes=""0"" />
-        <local name=""foob1"" il_index=""2"" il_start=""0x2a"" il_end=""0x3f"" attributes=""0"" />
-      </locals>
       <scope startOffset=""0x0"" endOffset=""0x4c"">
         <local name=""version"" il_index=""0"" il_start=""0x0"" il_end=""0x4c"" attributes=""0"" />
         <scope startOffset=""0x15"" endOffset=""0x2a"">
@@ -191,14 +627,11 @@ class Program
         </encLocalSlotMap>
       </customDebugInfo>
       <sequencePoints>
-        <entry offset=""0x0"" startLine=""9"" startColumn=""5"" endLine=""9"" endColumn=""6"" document=""0"" />
-        <entry offset=""0x1"" startLine=""10"" startColumn=""9"" endLine=""10"" endColumn=""19"" document=""0"" />
-        <entry offset=""0x3"" startLine=""11"" startColumn=""9"" endLine=""11"" endColumn=""30"" document=""0"" />
-        <entry offset=""0xa"" startLine=""12"" startColumn=""5"" endLine=""12"" endColumn=""6"" document=""0"" />
+        <entry offset=""0x0"" startLine=""9"" startColumn=""5"" endLine=""9"" endColumn=""6"" />
+        <entry offset=""0x1"" startLine=""10"" startColumn=""9"" endLine=""10"" endColumn=""19"" />
+        <entry offset=""0x3"" startLine=""11"" startColumn=""9"" endLine=""11"" endColumn=""30"" />
+        <entry offset=""0xa"" startLine=""12"" startColumn=""5"" endLine=""12"" endColumn=""6"" />
       </sequencePoints>
-      <locals>
-        <local name=""x"" il_index=""0"" il_start=""0x0"" il_end=""0xb"" attributes=""0"" />
-      </locals>
       <scope startOffset=""0x0"" endOffset=""0xb"">
         <namespace name=""System"" />
         <namespace name=""System.Diagnostics"" />
@@ -213,14 +646,11 @@ class Program
         </encLocalSlotMap>
       </customDebugInfo>
       <sequencePoints>
-        <entry offset=""0x0"" startLine=""16"" startColumn=""5"" endLine=""16"" endColumn=""6"" document=""0"" />
-        <entry offset=""0x1"" startLine=""17"" startColumn=""9"" endLine=""17"" endColumn=""19"" document=""0"" />
-        <entry offset=""0x3"" startLine=""18"" startColumn=""9"" endLine=""18"" endColumn=""30"" document=""0"" />
-        <entry offset=""0xa"" startLine=""19"" startColumn=""5"" endLine=""19"" endColumn=""6"" document=""0"" />
+        <entry offset=""0x0"" startLine=""16"" startColumn=""5"" endLine=""16"" endColumn=""6"" />
+        <entry offset=""0x1"" startLine=""17"" startColumn=""9"" endLine=""17"" endColumn=""19"" />
+        <entry offset=""0x3"" startLine=""18"" startColumn=""9"" endLine=""18"" endColumn=""30"" />
+        <entry offset=""0xa"" startLine=""19"" startColumn=""5"" endLine=""19"" endColumn=""6"" />
       </sequencePoints>
-      <locals>
-        <local name=""y"" il_index=""0"" il_start=""0x0"" il_end=""0xb"" attributes=""0"" />
-      </locals>
       <scope startOffset=""0x0"" endOffset=""0xb"">
         <local name=""y"" il_index=""0"" il_start=""0x0"" il_end=""0xb"" attributes=""0"" />
       </scope>
@@ -233,14 +663,11 @@ class Program
         </encLocalSlotMap>
       </customDebugInfo>
       <sequencePoints>
-        <entry offset=""0x0"" startLine=""23"" startColumn=""5"" endLine=""23"" endColumn=""6"" document=""0"" />
-        <entry offset=""0x1"" startLine=""24"" startColumn=""9"" endLine=""24"" endColumn=""19"" document=""0"" />
-        <entry offset=""0x3"" startLine=""25"" startColumn=""9"" endLine=""25"" endColumn=""30"" document=""0"" />
-        <entry offset=""0xa"" startLine=""26"" startColumn=""5"" endLine=""26"" endColumn=""6"" document=""0"" />
+        <entry offset=""0x0"" startLine=""23"" startColumn=""5"" endLine=""23"" endColumn=""6"" />
+        <entry offset=""0x1"" startLine=""24"" startColumn=""9"" endLine=""24"" endColumn=""19"" />
+        <entry offset=""0x3"" startLine=""25"" startColumn=""9"" endLine=""25"" endColumn=""30"" />
+        <entry offset=""0xa"" startLine=""26"" startColumn=""5"" endLine=""26"" endColumn=""6"" />
       </sequencePoints>
-      <locals>
-        <local name=""z"" il_index=""0"" il_start=""0x0"" il_end=""0xb"" attributes=""0"" />
-      </locals>
       <scope startOffset=""0x0"" endOffset=""0xb"">
         <local name=""z"" il_index=""0"" il_start=""0x0"" il_end=""0xb"" attributes=""0"" />
       </scope>
@@ -271,7 +698,8 @@ class C
     };
 }";
             var c = CreateCompilationWithMscorlibAndSystemCore(source, options: TestOptions.DebugDll);
-            c.VerifyPdb(@"<symbols>
+            c.VerifyPdb(@"
+<symbols>
   <methods>
     <method containingType=""C"" name="".cctor"">
       <customDebugInfo>
@@ -288,9 +716,8 @@ class C
         </encLambdaMap>
       </customDebugInfo>
       <sequencePoints>
-        <entry offset=""0x0"" startLine=""4"" startColumn=""5"" endLine=""9"" endColumn=""7"" document=""0"" />
+        <entry offset=""0x0"" startLine=""4"" startColumn=""5"" endLine=""9"" endColumn=""7"" />
       </sequencePoints>
-      <locals />
       <scope startOffset=""0x0"" endOffset=""0x16"">
         <namespace name=""System"" />
       </scope>
@@ -300,30 +727,25 @@ class C
         <forward declaringType=""C"" methodName="".cctor"" />
       </customDebugInfo>
       <sequencePoints>
-        <entry offset=""0x0"" startLine=""7"" startColumn=""66"" endLine=""7"" endColumn=""70"" document=""0"" />
+        <entry offset=""0x0"" startLine=""7"" startColumn=""66"" endLine=""7"" endColumn=""70"" />
       </sequencePoints>
-      <locals />
     </method>
     <method containingType=""C+&lt;&gt;c"" name=""&lt;.cctor&gt;b__2_0"" parameterNames=""x"">
       <customDebugInfo>
         <forward declaringType=""C"" methodName="".cctor"" />
         <encLocalSlotMap>
-          <slot kind=""0"" offset=""29"" />
-          <slot kind=""0"" offset=""93"" />
-          <slot kind=""temp"" />
+          <slot kind=""0"" offset=""-118"" />
+          <slot kind=""0"" offset=""-54"" />
+          <slot kind=""21"" offset=""-147"" />
         </encLocalSlotMap>
       </customDebugInfo>
       <sequencePoints>
-        <entry offset=""0x0"" startLine=""5"" startColumn=""5"" endLine=""5"" endColumn=""6"" document=""0"" />
-        <entry offset=""0x1"" startLine=""6"" startColumn=""9"" endLine=""6"" endColumn=""38"" document=""0"" />
-        <entry offset=""0x21"" startLine=""7"" startColumn=""9"" endLine=""7"" endColumn=""71"" document=""0"" />
-        <entry offset=""0x41"" startLine=""8"" startColumn=""9"" endLine=""8"" endColumn=""27"" document=""0"" />
-        <entry offset=""0x51"" startLine=""9"" startColumn=""5"" endLine=""9"" endColumn=""6"" document=""0"" />
+        <entry offset=""0x0"" startLine=""5"" startColumn=""5"" endLine=""5"" endColumn=""6"" />
+        <entry offset=""0x1"" startLine=""6"" startColumn=""9"" endLine=""6"" endColumn=""38"" />
+        <entry offset=""0x21"" startLine=""7"" startColumn=""9"" endLine=""7"" endColumn=""71"" />
+        <entry offset=""0x41"" startLine=""8"" startColumn=""9"" endLine=""8"" endColumn=""27"" />
+        <entry offset=""0x51"" startLine=""9"" startColumn=""5"" endLine=""9"" endColumn=""6"" />
       </sequencePoints>
-      <locals>
-        <local name=""f"" il_index=""0"" il_start=""0x0"" il_end=""0x53"" attributes=""0"" />
-        <local name=""g"" il_index=""1"" il_start=""0x0"" il_end=""0x53"" attributes=""0"" />
-      </locals>
       <scope startOffset=""0x0"" endOffset=""0x53"">
         <local name=""f"" il_index=""0"" il_start=""0x0"" il_end=""0x53"" attributes=""0"" />
         <local name=""g"" il_index=""1"" il_start=""0x0"" il_end=""0x53"" attributes=""0"" />
@@ -334,27 +756,22 @@ class C
         <forward declaringType=""C"" methodName="".cctor"" />
       </customDebugInfo>
       <sequencePoints>
-        <entry offset=""0x0"" startLine=""6"" startColumn=""36"" endLine=""6"" endColumn=""37"" document=""0"" />
+        <entry offset=""0x0"" startLine=""6"" startColumn=""36"" endLine=""6"" endColumn=""37"" />
       </sequencePoints>
-      <locals />
     </method>
     <method containingType=""C+&lt;&gt;c"" name=""&lt;.cctor&gt;b__2_2"" parameterNames=""h"">
       <customDebugInfo>
         <forward declaringType=""C"" methodName="".cctor"" />
         <encLocalSlotMap>
-          <slot kind=""30"" offset=""0"" />
-          <slot kind=""temp"" />
+          <slot kind=""30"" offset=""-45"" />
         </encLocalSlotMap>
       </customDebugInfo>
       <sequencePoints>
-        <entry offset=""0x0"" hidden=""true"" document=""0"" />
-        <entry offset=""0xd"" startLine=""7"" startColumn=""61"" endLine=""7"" endColumn=""70"" document=""0"" />
+        <entry offset=""0x0"" hidden=""true"" />
+        <entry offset=""0xd"" startLine=""7"" startColumn=""61"" endLine=""7"" endColumn=""70"" />
       </sequencePoints>
-      <locals>
-        <local name=""CS$&lt;&gt;8__locals0"" il_index=""0"" il_start=""0x0"" il_end=""0x1e"" attributes=""0"" />
-      </locals>
-      <scope startOffset=""0x0"" endOffset=""0x1e"">
-        <local name=""CS$&lt;&gt;8__locals0"" il_index=""0"" il_start=""0x0"" il_end=""0x1e"" attributes=""0"" />
+      <scope startOffset=""0x0"" endOffset=""0x1a"">
+        <local name=""CS$&lt;&gt;8__locals0"" il_index=""0"" il_start=""0x0"" il_end=""0x1a"" attributes=""0"" />
       </scope>
     </method>
   </methods>
@@ -389,13 +806,10 @@ class C
         </encLocalSlotMap>
       </customDebugInfo>
       <sequencePoints>
-        <entry offset=""0x0"" startLine=""4"" startColumn=""44"" endLine=""4"" endColumn=""45"" document=""0"" />
-        <entry offset=""0x1"" startLine=""4"" startColumn=""57"" endLine=""4"" endColumn=""67"" document=""0"" />
-        <entry offset=""0x3"" startLine=""4"" startColumn=""79"" endLine=""4"" endColumn=""80"" document=""0"" />
+        <entry offset=""0x0"" startLine=""4"" startColumn=""44"" endLine=""4"" endColumn=""45"" />
+        <entry offset=""0x1"" startLine=""4"" startColumn=""57"" endLine=""4"" endColumn=""67"" />
+        <entry offset=""0x3"" startLine=""4"" startColumn=""79"" endLine=""4"" endColumn=""80"" />
       </sequencePoints>
-      <locals>
-        <local name=""a"" il_index=""0"" il_start=""0x0"" il_end=""0x4"" attributes=""0"" />
-      </locals>
       <scope startOffset=""0x0"" endOffset=""0x4"">
         <local name=""a"" il_index=""0"" il_start=""0x0"" il_end=""0x4"" attributes=""0"" />
       </scope>
@@ -408,13 +822,10 @@ class C
         </encLocalSlotMap>
       </customDebugInfo>
       <sequencePoints>
-        <entry offset=""0x0"" startLine=""5"" startColumn=""32"" endLine=""5"" endColumn=""33"" document=""0"" />
-        <entry offset=""0x1"" startLine=""5"" startColumn=""45"" endLine=""5"" endColumn=""55"" document=""0"" />
-        <entry offset=""0x3"" startLine=""5"" startColumn=""67"" endLine=""5"" endColumn=""68"" document=""0"" />
+        <entry offset=""0x0"" startLine=""5"" startColumn=""32"" endLine=""5"" endColumn=""33"" />
+        <entry offset=""0x1"" startLine=""5"" startColumn=""45"" endLine=""5"" endColumn=""55"" />
+        <entry offset=""0x3"" startLine=""5"" startColumn=""67"" endLine=""5"" endColumn=""68"" />
       </sequencePoints>
-      <locals>
-        <local name=""a"" il_index=""0"" il_start=""0x0"" il_end=""0x4"" attributes=""0"" />
-      </locals>
       <scope startOffset=""0x0"" endOffset=""0x4"">
         <local name=""a"" il_index=""0"" il_start=""0x0"" il_end=""0x4"" attributes=""0"" />
       </scope>
@@ -463,11 +874,10 @@ class C2
         </encLambdaMap>
       </customDebugInfo>
       <sequencePoints>
-        <entry offset=""0x0"" startLine=""5"" startColumn=""5"" endLine=""5"" endColumn=""39"" document=""0"" />
-        <entry offset=""0x15"" startLine=""6"" startColumn=""5"" endLine=""6"" endColumn=""63"" document=""0"" />
-        <entry offset=""0x2a"" startLine=""7"" startColumn=""5"" endLine=""7"" endColumn=""39"" document=""0"" />
+        <entry offset=""0x0"" startLine=""5"" startColumn=""5"" endLine=""5"" endColumn=""39"" />
+        <entry offset=""0x15"" startLine=""6"" startColumn=""5"" endLine=""6"" endColumn=""63"" />
+        <entry offset=""0x2a"" startLine=""7"" startColumn=""5"" endLine=""7"" endColumn=""39"" />
       </sequencePoints>
-      <locals />
       <scope startOffset=""0x0"" endOffset=""0x40"">
         <namespace name=""System"" />
       </scope>
@@ -489,11 +899,245 @@ class C2
         </encLambdaMap>
       </customDebugInfo>
       <sequencePoints>
-        <entry offset=""0x0"" startLine=""11"" startColumn=""5"" endLine=""11"" endColumn=""39"" document=""0"" />
-        <entry offset=""0x15"" startLine=""12"" startColumn=""5"" endLine=""12"" endColumn=""51"" document=""0"" />
-        <entry offset=""0x2a"" startLine=""13"" startColumn=""5"" endLine=""13"" endColumn=""39"" document=""0"" />
+        <entry offset=""0x0"" startLine=""11"" startColumn=""5"" endLine=""11"" endColumn=""39"" />
+        <entry offset=""0x15"" startLine=""12"" startColumn=""5"" endLine=""12"" endColumn=""51"" />
+        <entry offset=""0x2a"" startLine=""13"" startColumn=""5"" endLine=""13"" endColumn=""39"" />
       </sequencePoints>
-      <locals />
+    </method>
+  </methods>
+</symbols>");
+        }
+
+        #endregion
+
+        #region ReturnStatement
+
+        [Fact]
+        public void Return_Method1()
+        {
+            var source = @"
+class Program
+{
+    static int Main()
+    {
+        return 1;
+    }
+}
+";
+
+            var v = CompileAndVerify(source, options: TestOptions.DebugDll);
+
+            // In order to place a breakpoint on the closing brace we need to save the return expression value to 
+            // a local and then load it again (since sequence point needs an empty stack). This variable has to be marked as long-lived.
+            v.VerifyIL("Program.Main", @"
+{
+  // Code size        7 (0x7)
+  .maxstack  1
+  .locals init (int V_0)
+ -IL_0000:  nop
+ -IL_0001:  ldc.i4.1
+  IL_0002:  stloc.0
+  IL_0003:  br.s       IL_0005
+ -IL_0005:  ldloc.0
+  IL_0006:  ret
+}", sequencePoints: "Program.Main");
+
+            v.VerifyPdb("Program.Main", @"
+<symbols>
+  <methods>
+    <method containingType=""Program"" name=""Main"">
+      <customDebugInfo>
+        <using>
+          <namespace usingCount=""0"" />
+        </using>
+        <encLocalSlotMap>
+          <slot kind=""21"" offset=""0"" />
+        </encLocalSlotMap>
+      </customDebugInfo>
+      <sequencePoints>
+        <entry offset=""0x0"" startLine=""5"" startColumn=""5"" endLine=""5"" endColumn=""6"" />
+        <entry offset=""0x1"" startLine=""6"" startColumn=""9"" endLine=""6"" endColumn=""18"" />
+        <entry offset=""0x5"" startLine=""7"" startColumn=""5"" endLine=""7"" endColumn=""6"" />
+      </sequencePoints>
+    </method>
+  </methods>
+</symbols>");
+        }
+
+        [Fact]
+        public void Return_Property1()
+        {
+            var source = @"
+class C
+{
+    static int P
+    {
+        get { return 1; }
+    }
+}
+";
+
+            var v = CompileAndVerify(source, options: TestOptions.DebugDll);
+
+            // In order to place a breakpoint on the closing brace we need to save the return expression value to 
+            // a local and then load it again (since sequence point needs an empty stack). This variable has to be marked as long-lived.
+            v.VerifyIL("C.P.get", @"
+{
+  // Code size        7 (0x7)
+  .maxstack  1
+  .locals init (int V_0)
+ -IL_0000:  nop
+ -IL_0001:  ldc.i4.1
+  IL_0002:  stloc.0
+  IL_0003:  br.s       IL_0005
+ -IL_0005:  ldloc.0
+  IL_0006:  ret
+}", sequencePoints: "C.get_P");
+
+            v.VerifyPdb("C.get_P", @"
+<symbols>
+  <methods>
+    <method containingType=""C"" name=""get_P"">
+      <customDebugInfo>
+        <using>
+          <namespace usingCount=""0"" />
+        </using>
+        <encLocalSlotMap>
+          <slot kind=""21"" offset=""0"" />
+        </encLocalSlotMap>
+      </customDebugInfo>
+      <sequencePoints>
+        <entry offset=""0x0"" startLine=""6"" startColumn=""13"" endLine=""6"" endColumn=""14"" />
+        <entry offset=""0x1"" startLine=""6"" startColumn=""15"" endLine=""6"" endColumn=""24"" />
+        <entry offset=""0x5"" startLine=""6"" startColumn=""25"" endLine=""6"" endColumn=""26"" />
+      </sequencePoints>
+    </method>
+  </methods>
+</symbols>");
+        }
+
+        [Fact]
+        public void Return_Void1()
+        {
+            var source = @"
+class Program
+{
+    static void Main()
+    {
+        return;
+    }
+}
+";
+
+            var v = CompileAndVerify(source, options: TestOptions.DebugDll);
+
+            v.VerifyIL("Program.Main", @"
+{
+  // Code size        4 (0x4)
+  .maxstack  0
+ -IL_0000:  nop
+ -IL_0001:  br.s       IL_0003
+ -IL_0003:  ret
+}", sequencePoints: "Program.Main");
+        }
+
+        [Fact]
+        public void Return_ExpressionBodied1()
+        {
+            var source = @"
+class Program
+{
+    static int Main() => 1;
+}
+";
+
+            var v = CompileAndVerify(source, options: TestOptions.DebugDll);
+
+            v.VerifyIL("Program.Main", @"
+{
+  // Code size        2 (0x2)
+  .maxstack  1
+ -IL_0000:  ldc.i4.1
+  IL_0001:  ret
+}", sequencePoints: "Program.Main");
+        }
+
+        [Fact]
+        public void Return_FromExceptionHandler1()
+        {
+            var source = @"
+using System;
+
+class Program
+{
+    static int Main() 
+    {
+        try
+        {
+            Console.WriteLine();
+            return 1;
+        }
+        catch (Exception)
+        {
+            return 2;
+        }
+    }
+}
+";
+            var v = CompileAndVerify(source, options: TestOptions.DebugDll);
+
+            v.VerifyIL("Program.Main", @"
+{
+  // Code size       20 (0x14)
+  .maxstack  1
+  .locals init (int V_0)
+ -IL_0000:  nop
+  .try
+  {
+   -IL_0001:  nop
+   -IL_0002:  call       ""void System.Console.WriteLine()""
+    IL_0007:  nop
+   -IL_0008:  ldc.i4.1
+    IL_0009:  stloc.0
+    IL_000a:  leave.s    IL_0012
+  }
+  catch System.Exception
+  {
+   -IL_000c:  pop
+   -IL_000d:  nop
+   -IL_000e:  ldc.i4.2
+    IL_000f:  stloc.0
+    IL_0010:  leave.s    IL_0012
+  }
+ -IL_0012:  ldloc.0
+  IL_0013:  ret
+}", sequencePoints: "Program.Main");
+
+            v.VerifyPdb("Program.Main", @"
+<symbols>
+  <methods>
+    <method containingType=""Program"" name=""Main"">
+      <customDebugInfo>
+        <using>
+          <namespace usingCount=""1"" />
+        </using>
+        <encLocalSlotMap>
+          <slot kind=""21"" offset=""0"" />
+        </encLocalSlotMap>
+      </customDebugInfo>
+      <sequencePoints>
+        <entry offset=""0x0"" startLine=""7"" startColumn=""5"" endLine=""7"" endColumn=""6"" />
+        <entry offset=""0x1"" startLine=""9"" startColumn=""9"" endLine=""9"" endColumn=""10"" />
+        <entry offset=""0x2"" startLine=""10"" startColumn=""13"" endLine=""10"" endColumn=""33"" />
+        <entry offset=""0x8"" startLine=""11"" startColumn=""13"" endLine=""11"" endColumn=""22"" />
+        <entry offset=""0xc"" startLine=""13"" startColumn=""9"" endLine=""13"" endColumn=""26"" />
+        <entry offset=""0xd"" startLine=""14"" startColumn=""9"" endLine=""14"" endColumn=""10"" />
+        <entry offset=""0xe"" startLine=""15"" startColumn=""13"" endLine=""15"" endColumn=""22"" />
+        <entry offset=""0x12"" startLine=""17"" startColumn=""5"" endLine=""17"" endColumn=""6"" />
+      </sequencePoints>
+      <scope startOffset=""0x0"" endOffset=""0x14"">
+        <namespace name=""System"" />
+      </scope>
     </method>
   </methods>
 </symbols>");
@@ -555,38 +1199,30 @@ class C
         </encLocalSlotMap>
       </customDebugInfo>
       <sequencePoints>
-        <entry offset=""0x0"" startLine=""5"" startColumn=""5"" endLine=""5"" endColumn=""6"" document=""0"" />
-        <entry offset=""0x1"" startLine=""6"" startColumn=""9"" endLine=""6"" endColumn=""23"" document=""0"" />
-        <entry offset=""0x3"" startLine=""7"" startColumn=""9"" endLine=""7"" endColumn=""15"" document=""0"" />
-        <entry offset=""0x5"" hidden=""true"" document=""0"" />
-        <entry offset=""0x8"" startLine=""8"" startColumn=""9"" endLine=""8"" endColumn=""10"" document=""0"" />
-        <entry offset=""0x9"" startLine=""9"" startColumn=""13"" endLine=""9"" endColumn=""31"" document=""0"" />
-        <entry offset=""0xf"" startLine=""10"" startColumn=""13"" endLine=""10"" endColumn=""41"" document=""0"" />
-        <entry offset=""0x16"" startLine=""11"" startColumn=""9"" endLine=""11"" endColumn=""10"" document=""0"" />
-        <entry offset=""0x19"" startLine=""13"" startColumn=""9"" endLine=""13"" endColumn=""10"" document=""0"" />
-        <entry offset=""0x1a"" startLine=""14"" startColumn=""13"" endLine=""14"" endColumn=""32"" document=""0"" />
-        <entry offset=""0x20"" startLine=""15"" startColumn=""13"" endLine=""15"" endColumn=""23"" document=""0"" />
-        <entry offset=""0x23"" hidden=""true"" document=""0"" />
-        <entry offset=""0x25"" startLine=""18"" startColumn=""13"" endLine=""18"" endColumn=""14"" document=""0"" />
-        <entry offset=""0x26"" startLine=""19"" startColumn=""17"" endLine=""19"" endColumn=""26"" document=""0"" />
-        <entry offset=""0x2a"" startLine=""19"" startColumn=""28"" endLine=""19"" endColumn=""33"" document=""0"" />
-        <entry offset=""0x2d"" startLine=""20"" startColumn=""17"" endLine=""20"" endColumn=""45"" document=""0"" />
-        <entry offset=""0x35"" startLine=""21"" startColumn=""17"" endLine=""21"" endColumn=""27"" document=""0"" />
-        <entry offset=""0x3c"" startLine=""22"" startColumn=""13"" endLine=""22"" endColumn=""14"" document=""0"" />
-        <entry offset=""0x3d"" startLine=""17"" startColumn=""13"" endLine=""17"" endColumn=""28"" document=""0"" />
-        <entry offset=""0x45"" hidden=""true"" document=""0"" />
-        <entry offset=""0x49"" startLine=""24"" startColumn=""13"" endLine=""24"" endColumn=""23"" document=""0"" />
-        <entry offset=""0x4f"" startLine=""25"" startColumn=""9"" endLine=""25"" endColumn=""10"" document=""0"" />
-        <entry offset=""0x50"" startLine=""26"" startColumn=""5"" endLine=""26"" endColumn=""6"" document=""0"" />
+        <entry offset=""0x0"" startLine=""5"" startColumn=""5"" endLine=""5"" endColumn=""6"" />
+        <entry offset=""0x1"" startLine=""6"" startColumn=""9"" endLine=""6"" endColumn=""23"" />
+        <entry offset=""0x3"" startLine=""7"" startColumn=""9"" endLine=""7"" endColumn=""15"" />
+        <entry offset=""0x5"" hidden=""true"" />
+        <entry offset=""0x8"" startLine=""8"" startColumn=""9"" endLine=""8"" endColumn=""10"" />
+        <entry offset=""0x9"" startLine=""9"" startColumn=""13"" endLine=""9"" endColumn=""31"" />
+        <entry offset=""0xf"" startLine=""10"" startColumn=""13"" endLine=""10"" endColumn=""41"" />
+        <entry offset=""0x16"" startLine=""11"" startColumn=""9"" endLine=""11"" endColumn=""10"" />
+        <entry offset=""0x19"" startLine=""13"" startColumn=""9"" endLine=""13"" endColumn=""10"" />
+        <entry offset=""0x1a"" startLine=""14"" startColumn=""13"" endLine=""14"" endColumn=""32"" />
+        <entry offset=""0x20"" startLine=""15"" startColumn=""13"" endLine=""15"" endColumn=""23"" />
+        <entry offset=""0x23"" hidden=""true"" />
+        <entry offset=""0x25"" startLine=""18"" startColumn=""13"" endLine=""18"" endColumn=""14"" />
+        <entry offset=""0x26"" startLine=""19"" startColumn=""17"" endLine=""19"" endColumn=""26"" />
+        <entry offset=""0x2a"" startLine=""19"" startColumn=""28"" endLine=""19"" endColumn=""33"" />
+        <entry offset=""0x2d"" startLine=""20"" startColumn=""17"" endLine=""20"" endColumn=""45"" />
+        <entry offset=""0x35"" startLine=""21"" startColumn=""17"" endLine=""21"" endColumn=""27"" />
+        <entry offset=""0x3c"" startLine=""22"" startColumn=""13"" endLine=""22"" endColumn=""14"" />
+        <entry offset=""0x3d"" startLine=""17"" startColumn=""13"" endLine=""17"" endColumn=""28"" />
+        <entry offset=""0x45"" hidden=""true"" />
+        <entry offset=""0x49"" startLine=""24"" startColumn=""13"" endLine=""24"" endColumn=""23"" />
+        <entry offset=""0x4f"" startLine=""25"" startColumn=""9"" endLine=""25"" endColumn=""10"" />
+        <entry offset=""0x50"" startLine=""26"" startColumn=""5"" endLine=""26"" endColumn=""6"" />
       </sequencePoints>
-      <locals>
-        <local name=""b"" il_index=""0"" il_start=""0x0"" il_end=""0x51"" attributes=""0"" />
-        <local name=""s"" il_index=""2"" il_start=""0x8"" il_end=""0x17"" attributes=""0"" />
-        <local name=""s"" il_index=""3"" il_start=""0x19"" il_end=""0x50"" attributes=""0"" />
-        <local name=""i"" il_index=""4"" il_start=""0x19"" il_end=""0x50"" attributes=""0"" />
-        <local name=""j"" il_index=""5"" il_start=""0x25"" il_end=""0x3d"" attributes=""0"" />
-        <local name=""k"" il_index=""6"" il_start=""0x25"" il_end=""0x3d"" attributes=""0"" />
-      </locals>
       <scope startOffset=""0x0"" endOffset=""0x51"">
         <local name=""b"" il_index=""0"" il_start=""0x0"" il_end=""0x51"" attributes=""0"" />
         <scope startOffset=""0x8"" endOffset=""0x17"">
@@ -655,9 +1291,9 @@ public class SeqPointForWhile
             var c = CreateCompilationWithMscorlibAndSystemCore(source, options: TestOptions.ReleaseExe);
 
             // Offset 0x01 should be:
-            //  <entry offset=""0x1"" hidden=""true"" document=""0"" />
+            //  <entry offset=""0x1"" hidden=""true"" />
             // Move original offset 0x01 to 0x33
-            //  <entry offset=""0x33"" startLine=""14"" startColumn=""9"" endLine=""14"" endColumn=""22"" document=""0"" />
+            //  <entry offset=""0x33"" startLine=""14"" startColumn=""9"" endLine=""14"" endColumn=""22"" />
             // 
             // Note: 16707566 == 0x00FEEFEE
             c.VerifyPdb(@"
@@ -671,11 +1307,10 @@ public class SeqPointForWhile
         </using>
       </customDebugInfo>
       <sequencePoints>
-        <entry offset=""0x0"" startLine=""7"" startColumn=""9"" endLine=""7"" endColumn=""55"" document=""0"" />
-        <entry offset=""0x5"" startLine=""8"" startColumn=""9"" endLine=""8"" endColumn=""24"" document=""0"" />
-        <entry offset=""0xf"" startLine=""9"" startColumn=""5"" endLine=""9"" endColumn=""6"" document=""0"" />
+        <entry offset=""0x0"" startLine=""7"" startColumn=""9"" endLine=""7"" endColumn=""55"" />
+        <entry offset=""0x5"" startLine=""8"" startColumn=""9"" endLine=""8"" endColumn=""24"" />
+        <entry offset=""0xf"" startLine=""9"" startColumn=""5"" endLine=""9"" endColumn=""6"" />
       </sequencePoints>
-      <locals />
       <scope startOffset=""0x0"" endOffset=""0x10"">
         <namespace name=""System"" />
       </scope>
@@ -685,23 +1320,20 @@ public class SeqPointForWhile
         <forward declaringType=""SeqPointForWhile"" methodName=""Main"" />
       </customDebugInfo>
       <sequencePoints>
-        <entry offset=""0x0"" hidden=""true"" document=""0"" />
-        <entry offset=""0x2"" startLine=""16"" startColumn=""13"" endLine=""16"" endColumn=""30"" document=""0"" />
-        <entry offset=""0x7"" startLine=""18"" startColumn=""13"" endLine=""18"" endColumn=""25"" document=""0"" />
-        <entry offset=""0xc"" startLine=""22"" startColumn=""18"" endLine=""22"" endColumn=""29"" document=""0"" />
-        <entry offset=""0x11"" startLine=""24"" startColumn=""17"" endLine=""24"" endColumn=""27"" document=""0"" />
-        <entry offset=""0x13"" startLine=""25"" startColumn=""17"" endLine=""25"" endColumn=""27"" document=""0"" />
-        <entry offset=""0x1a"" startLine=""26"" startColumn=""13"" endLine=""26"" endColumn=""14"" document=""0"" />
-        <entry offset=""0x1c"" startLine=""29"" startColumn=""17"" endLine=""29"" endColumn=""27"" document=""0"" />
-        <entry offset=""0x1d"" startLine=""30"" startColumn=""17"" endLine=""30"" endColumn=""38"" document=""0"" />
-        <entry offset=""0x22"" startLine=""31"" startColumn=""17"" endLine=""31"" endColumn=""23"" document=""0"" />
-        <entry offset=""0x24"" startLine=""14"" startColumn=""9"" endLine=""14"" endColumn=""22"" document=""0"" />
-        <entry offset=""0x28"" startLine=""34"" startColumn=""9"" endLine=""34"" endColumn=""20"" document=""0"" />
-        <entry offset=""0x2f"" startLine=""35"" startColumn=""5"" endLine=""35"" endColumn=""6"" document=""0"" />
+        <entry offset=""0x0"" hidden=""true"" />
+        <entry offset=""0x2"" startLine=""16"" startColumn=""13"" endLine=""16"" endColumn=""30"" />
+        <entry offset=""0x7"" startLine=""18"" startColumn=""13"" endLine=""18"" endColumn=""25"" />
+        <entry offset=""0xc"" startLine=""22"" startColumn=""18"" endLine=""22"" endColumn=""29"" />
+        <entry offset=""0x11"" startLine=""24"" startColumn=""17"" endLine=""24"" endColumn=""27"" />
+        <entry offset=""0x13"" startLine=""25"" startColumn=""17"" endLine=""25"" endColumn=""27"" />
+        <entry offset=""0x1a"" startLine=""26"" startColumn=""13"" endLine=""26"" endColumn=""14"" />
+        <entry offset=""0x1c"" startLine=""29"" startColumn=""17"" endLine=""29"" endColumn=""27"" />
+        <entry offset=""0x1d"" startLine=""30"" startColumn=""17"" endLine=""30"" endColumn=""38"" />
+        <entry offset=""0x22"" startLine=""31"" startColumn=""17"" endLine=""31"" endColumn=""23"" />
+        <entry offset=""0x24"" startLine=""14"" startColumn=""9"" endLine=""14"" endColumn=""22"" />
+        <entry offset=""0x28"" startLine=""34"" startColumn=""9"" endLine=""34"" endColumn=""20"" />
+        <entry offset=""0x2f"" startLine=""35"" startColumn=""5"" endLine=""35"" endColumn=""6"" />
       </sequencePoints>
-      <locals>
-        <local name=""x"" il_index=""0"" il_start=""0x11"" il_end=""0x1a"" attributes=""0"" />
-      </locals>
       <scope startOffset=""0x0"" endOffset=""0x30"">
         <scope startOffset=""0x11"" endOffset=""0x1a"">
           <local name=""x"" il_index=""0"" il_start=""0x11"" il_end=""0x1a"" attributes=""0"" />
@@ -746,20 +1378,17 @@ class C
         </encLocalSlotMap>
       </customDebugInfo>
       <sequencePoints>
-        <entry offset=""0x0"" startLine=""8"" startColumn=""5"" endLine=""8"" endColumn=""6"" document=""0"" />
-        <entry offset=""0x1"" startLine=""9"" startColumn=""14"" endLine=""9"" endColumn=""23"" document=""0"" />
-        <entry offset=""0x3"" hidden=""true"" document=""0"" />
-        <entry offset=""0x5"" startLine=""10"" startColumn=""9"" endLine=""10"" endColumn=""10"" document=""0"" />
-        <entry offset=""0x6"" startLine=""11"" startColumn=""13"" endLine=""11"" endColumn=""41"" document=""0"" />
-        <entry offset=""0xd"" startLine=""12"" startColumn=""9"" endLine=""12"" endColumn=""10"" document=""0"" />
-        <entry offset=""0xe"" startLine=""9"" startColumn=""31"" endLine=""9"" endColumn=""35"" document=""0"" />
-        <entry offset=""0x15"" startLine=""9"" startColumn=""25"" endLine=""9"" endColumn=""29"" document=""0"" />
-        <entry offset=""0x1c"" hidden=""true"" document=""0"" />
-        <entry offset=""0x1f"" startLine=""13"" startColumn=""5"" endLine=""13"" endColumn=""6"" document=""0"" />
+        <entry offset=""0x0"" startLine=""8"" startColumn=""5"" endLine=""8"" endColumn=""6"" />
+        <entry offset=""0x1"" startLine=""9"" startColumn=""14"" endLine=""9"" endColumn=""23"" />
+        <entry offset=""0x3"" hidden=""true"" />
+        <entry offset=""0x5"" startLine=""10"" startColumn=""9"" endLine=""10"" endColumn=""10"" />
+        <entry offset=""0x6"" startLine=""11"" startColumn=""13"" endLine=""11"" endColumn=""41"" />
+        <entry offset=""0xd"" startLine=""12"" startColumn=""9"" endLine=""12"" endColumn=""10"" />
+        <entry offset=""0xe"" startLine=""9"" startColumn=""31"" endLine=""9"" endColumn=""35"" />
+        <entry offset=""0x15"" startLine=""9"" startColumn=""25"" endLine=""9"" endColumn=""29"" />
+        <entry offset=""0x1c"" hidden=""true"" />
+        <entry offset=""0x1f"" startLine=""13"" startColumn=""5"" endLine=""13"" endColumn=""6"" />
       </sequencePoints>
-      <locals>
-        <local name=""i"" il_index=""0"" il_start=""0x1"" il_end=""0x1f"" attributes=""0"" />
-      </locals>
       <scope startOffset=""0x0"" endOffset=""0x20"">
         <scope startOffset=""0x1"" endOffset=""0x1f"">
           <local name=""i"" il_index=""0"" il_start=""0x1"" il_end=""0x1f"" attributes=""0"" />
@@ -795,14 +1424,13 @@ class C
         </using>
       </customDebugInfo>
       <sequencePoints>
-        <entry offset=""0x0"" startLine=""5"" startColumn=""5"" endLine=""5"" endColumn=""6"" document=""0"" />
-        <entry offset=""0x1"" hidden=""true"" document=""0"" />
-        <entry offset=""0x3"" startLine=""7"" startColumn=""9"" endLine=""7"" endColumn=""10"" document=""0"" />
-        <entry offset=""0x4"" startLine=""8"" startColumn=""13"" endLine=""8"" endColumn=""41"" document=""0"" />
-        <entry offset=""0xb"" startLine=""9"" startColumn=""9"" endLine=""9"" endColumn=""10"" document=""0"" />
-        <entry offset=""0xc"" hidden=""true"" document=""0"" />
+        <entry offset=""0x0"" startLine=""5"" startColumn=""5"" endLine=""5"" endColumn=""6"" />
+        <entry offset=""0x1"" hidden=""true"" />
+        <entry offset=""0x3"" startLine=""7"" startColumn=""9"" endLine=""7"" endColumn=""10"" />
+        <entry offset=""0x4"" startLine=""8"" startColumn=""13"" endLine=""8"" endColumn=""41"" />
+        <entry offset=""0xb"" startLine=""9"" startColumn=""9"" endLine=""9"" endColumn=""10"" />
+        <entry offset=""0xc"" hidden=""true"" />
       </sequencePoints>
-      <locals />
     </method>
   </methods>
 </symbols>
@@ -839,18 +1467,15 @@ class C
         </encLocalSlotMap>
       </customDebugInfo>
       <sequencePoints>
-        <entry offset=""0x0"" startLine=""5"" startColumn=""5"" endLine=""5"" endColumn=""6"" document=""0"" />
-        <entry offset=""0x1"" startLine=""6"" startColumn=""9"" endLine=""6"" endColumn=""19"" document=""0"" />
-        <entry offset=""0x3"" hidden=""true"" document=""0"" />
-        <entry offset=""0x5"" startLine=""8"" startColumn=""9"" endLine=""8"" endColumn=""10"" document=""0"" />
-        <entry offset=""0x6"" startLine=""9"" startColumn=""13"" endLine=""9"" endColumn=""41"" document=""0"" />
-        <entry offset=""0xd"" startLine=""10"" startColumn=""9"" endLine=""10"" endColumn=""10"" document=""0"" />
-        <entry offset=""0xe"" startLine=""7"" startColumn=""16"" endLine=""7"" endColumn=""19"" document=""0"" />
-        <entry offset=""0x14"" hidden=""true"" document=""0"" />
+        <entry offset=""0x0"" startLine=""5"" startColumn=""5"" endLine=""5"" endColumn=""6"" />
+        <entry offset=""0x1"" startLine=""6"" startColumn=""9"" endLine=""6"" endColumn=""19"" />
+        <entry offset=""0x3"" hidden=""true"" />
+        <entry offset=""0x5"" startLine=""8"" startColumn=""9"" endLine=""8"" endColumn=""10"" />
+        <entry offset=""0x6"" startLine=""9"" startColumn=""13"" endLine=""9"" endColumn=""41"" />
+        <entry offset=""0xd"" startLine=""10"" startColumn=""9"" endLine=""10"" endColumn=""10"" />
+        <entry offset=""0xe"" startLine=""7"" startColumn=""16"" endLine=""7"" endColumn=""19"" />
+        <entry offset=""0x14"" hidden=""true"" />
       </sequencePoints>
-      <locals>
-        <local name=""i"" il_index=""0"" il_start=""0x0"" il_end=""0x16"" attributes=""0"" />
-      </locals>
       <scope startOffset=""0x0"" endOffset=""0x16"">
         <local name=""i"" il_index=""0"" il_start=""0x0"" il_end=""0x16"" attributes=""0"" />
       </scope>
@@ -905,15 +1530,14 @@ public class C
         </using>
       </customDebugInfo>
       <sequencePoints>
-        <entry offset=""0x0"" startLine=""6"" startColumn=""27"" endLine=""6"" endColumn=""34"" document=""0"" />
-        <entry offset=""0x8"" hidden=""true"" document=""0"" />
-        <entry offset=""0xa"" startLine=""6"" startColumn=""18"" endLine=""6"" endColumn=""23"" document=""0"" />
-        <entry offset=""0x11"" startLine=""8"" startColumn=""13"" endLine=""8"" endColumn=""41"" document=""0"" />
-        <entry offset=""0x16"" hidden=""true"" document=""0"" />
-        <entry offset=""0x1a"" startLine=""6"" startColumn=""24"" endLine=""6"" endColumn=""26"" document=""0"" />
-        <entry offset=""0x23"" startLine=""10"" startColumn=""5"" endLine=""10"" endColumn=""6"" document=""0"" />
+        <entry offset=""0x0"" startLine=""6"" startColumn=""27"" endLine=""6"" endColumn=""34"" />
+        <entry offset=""0x8"" hidden=""true"" />
+        <entry offset=""0xa"" startLine=""6"" startColumn=""18"" endLine=""6"" endColumn=""23"" />
+        <entry offset=""0x11"" startLine=""8"" startColumn=""13"" endLine=""8"" endColumn=""41"" />
+        <entry offset=""0x16"" hidden=""true"" />
+        <entry offset=""0x1a"" startLine=""6"" startColumn=""24"" endLine=""6"" endColumn=""26"" />
+        <entry offset=""0x23"" startLine=""10"" startColumn=""5"" endLine=""10"" endColumn=""6"" />
       </sequencePoints>
-      <locals />
     </method>
   </methods>
 </symbols>");
@@ -965,21 +1589,18 @@ public class C
         </encLocalSlotMap>
       </customDebugInfo>
       <sequencePoints>
-        <entry offset=""0x0"" startLine=""5"" startColumn=""5"" endLine=""5"" endColumn=""6"" document=""0"" />
-        <entry offset=""0x1"" startLine=""6"" startColumn=""9"" endLine=""6"" endColumn=""16"" document=""0"" />
-        <entry offset=""0x2"" startLine=""6"" startColumn=""27"" endLine=""6"" endColumn=""37"" document=""0"" />
-        <entry offset=""0xb"" hidden=""true"" document=""0"" />
-        <entry offset=""0xd"" startLine=""6"" startColumn=""18"" endLine=""6"" endColumn=""23"" document=""0"" />
-        <entry offset=""0x11"" startLine=""7"" startColumn=""9"" endLine=""7"" endColumn=""10"" document=""0"" />
-        <entry offset=""0x12"" startLine=""8"" startColumn=""13"" endLine=""8"" endColumn=""41"" document=""0"" />
-        <entry offset=""0x19"" startLine=""9"" startColumn=""9"" endLine=""9"" endColumn=""10"" document=""0"" />
-        <entry offset=""0x1a"" hidden=""true"" document=""0"" />
-        <entry offset=""0x1e"" startLine=""6"" startColumn=""24"" endLine=""6"" endColumn=""26"" document=""0"" />
-        <entry offset=""0x24"" startLine=""10"" startColumn=""5"" endLine=""10"" endColumn=""6"" document=""0"" />
+        <entry offset=""0x0"" startLine=""5"" startColumn=""5"" endLine=""5"" endColumn=""6"" />
+        <entry offset=""0x1"" startLine=""6"" startColumn=""9"" endLine=""6"" endColumn=""16"" />
+        <entry offset=""0x2"" startLine=""6"" startColumn=""27"" endLine=""6"" endColumn=""37"" />
+        <entry offset=""0xb"" hidden=""true"" />
+        <entry offset=""0xd"" startLine=""6"" startColumn=""18"" endLine=""6"" endColumn=""23"" />
+        <entry offset=""0x11"" startLine=""7"" startColumn=""9"" endLine=""7"" endColumn=""10"" />
+        <entry offset=""0x12"" startLine=""8"" startColumn=""13"" endLine=""8"" endColumn=""41"" />
+        <entry offset=""0x19"" startLine=""9"" startColumn=""9"" endLine=""9"" endColumn=""10"" />
+        <entry offset=""0x1a"" hidden=""true"" />
+        <entry offset=""0x1e"" startLine=""6"" startColumn=""24"" endLine=""6"" endColumn=""26"" />
+        <entry offset=""0x24"" startLine=""10"" startColumn=""5"" endLine=""10"" endColumn=""6"" />
       </sequencePoints>
-      <locals>
-        <local name=""x"" il_index=""2"" il_start=""0xd"" il_end=""0x1a"" attributes=""0"" />
-      </locals>
       <scope startOffset=""0x0"" endOffset=""0x25"">
         <scope startOffset=""0xd"" endOffset=""0x1a"">
           <local name=""x"" il_index=""2"" il_start=""0xd"" il_end=""0x1a"" attributes=""0"" />
@@ -1109,7 +1730,7 @@ class C
     }
 }
 ";
-            var v = CompileAndVerify(source, options: TestOptions.DebugDll);
+            var v = CompileAndVerify(source, options: TestOptions.DebugDll.WithModuleName("MODULE"));
 
             // Stepping:
             //   After "continue", step to "in".
@@ -1135,7 +1756,7 @@ class C
   IL_0003:  ldc.i4.2
   IL_0004:  newobj     ""int[*,*,*]..ctor""
   IL_0009:  dup
-  IL_000a:  ldtoken    ""<PrivateImplementationDetails>.__StaticArrayInitTypeSize=32 <PrivateImplementationDetails>.$$method0x6000001-EB196F988F4F427D318CA25B68671CF3A4510012""
+  IL_000a:  ldtoken    ""<PrivateImplementationDetails>.__StaticArrayInitTypeSize=32 <PrivateImplementationDetails>.EB196F988F4F427D318CA25B68671CF3A4510012""
   IL_000f:  call       ""void System.Runtime.CompilerServices.RuntimeHelpers.InitializeArray(System.Array, System.RuntimeFieldHandle)""
   IL_0014:  stloc.0
  -IL_0015:  nop
@@ -1342,28 +1963,25 @@ class Program
         </encLocalSlotMap>
       </customDebugInfo>
       <sequencePoints>
-        <entry offset=""0x0"" startLine=""11"" startColumn=""9"" endLine=""11"" endColumn=""10"" document=""0"" />
-        <entry offset=""0x1"" startLine=""12"" startColumn=""13"" endLine=""12"" endColumn=""20"" document=""0"" />
-        <entry offset=""0x2"" startLine=""12"" startColumn=""31"" endLine=""12"" endColumn=""47"" document=""0"" />
-        <entry offset=""0x12"" hidden=""true"" document=""0"" />
-        <entry offset=""0x14"" startLine=""12"" startColumn=""22"" endLine=""12"" endColumn=""27"" document=""0"" />
-        <entry offset=""0x1b"" startLine=""13"" startColumn=""13"" endLine=""13"" endColumn=""14"" document=""0"" />
-        <entry offset=""0x1c"" startLine=""14"" startColumn=""17"" endLine=""14"" endColumn=""33"" document=""0"" />
-        <entry offset=""0x23"" hidden=""true"" document=""0"" />
-        <entry offset=""0x29"" startLine=""17"" startColumn=""25"" endLine=""17"" endColumn=""31"" document=""0"" />
-        <entry offset=""0x2b"" startLine=""20"" startColumn=""25"" endLine=""20"" endColumn=""42"" document=""0"" />
-        <entry offset=""0x35"" hidden=""true"" document=""0"" />
-        <entry offset=""0x38"" startLine=""21"" startColumn=""25"" endLine=""21"" endColumn=""26"" document=""0"" />
-        <entry offset=""0x39"" startLine=""22"" startColumn=""25"" endLine=""22"" endColumn=""26"" document=""0"" />
-        <entry offset=""0x3a"" startLine=""24"" startColumn=""25"" endLine=""24"" endColumn=""31"" document=""0"" />
-        <entry offset=""0x3c"" startLine=""26"" startColumn=""13"" endLine=""26"" endColumn=""14"" document=""0"" />
-        <entry offset=""0x3d"" startLine=""12"" startColumn=""28"" endLine=""12"" endColumn=""30"" document=""0"" />
-        <entry offset=""0x47"" hidden=""true"" document=""0"" />
-        <entry offset=""0x52"" startLine=""27"" startColumn=""9"" endLine=""27"" endColumn=""10"" document=""0"" />
+        <entry offset=""0x0"" startLine=""11"" startColumn=""9"" endLine=""11"" endColumn=""10"" />
+        <entry offset=""0x1"" startLine=""12"" startColumn=""13"" endLine=""12"" endColumn=""20"" />
+        <entry offset=""0x2"" startLine=""12"" startColumn=""31"" endLine=""12"" endColumn=""47"" />
+        <entry offset=""0x12"" hidden=""true"" />
+        <entry offset=""0x14"" startLine=""12"" startColumn=""22"" endLine=""12"" endColumn=""27"" />
+        <entry offset=""0x1b"" startLine=""13"" startColumn=""13"" endLine=""13"" endColumn=""14"" />
+        <entry offset=""0x1c"" startLine=""14"" startColumn=""17"" endLine=""14"" endColumn=""33"" />
+        <entry offset=""0x23"" hidden=""true"" />
+        <entry offset=""0x29"" startLine=""17"" startColumn=""25"" endLine=""17"" endColumn=""31"" />
+        <entry offset=""0x2b"" startLine=""20"" startColumn=""25"" endLine=""20"" endColumn=""42"" />
+        <entry offset=""0x35"" hidden=""true"" />
+        <entry offset=""0x38"" startLine=""21"" startColumn=""25"" endLine=""21"" endColumn=""26"" />
+        <entry offset=""0x39"" startLine=""22"" startColumn=""25"" endLine=""22"" endColumn=""26"" />
+        <entry offset=""0x3a"" startLine=""24"" startColumn=""25"" endLine=""24"" endColumn=""31"" />
+        <entry offset=""0x3c"" startLine=""26"" startColumn=""13"" endLine=""26"" endColumn=""14"" />
+        <entry offset=""0x3d"" startLine=""12"" startColumn=""28"" endLine=""12"" endColumn=""30"" />
+        <entry offset=""0x47"" hidden=""true"" />
+        <entry offset=""0x52"" startLine=""27"" startColumn=""9"" endLine=""27"" endColumn=""10"" />
       </sequencePoints>
-      <locals>
-        <local name=""i"" il_index=""1"" il_start=""0x14"" il_end=""0x3d"" attributes=""0"" />
-      </locals>
       <scope startOffset=""0x0"" endOffset=""0x53"">
         <namespace name=""System"" />
         <namespace name=""System.Collections.Generic"" />
@@ -1436,14 +2054,11 @@ public class SeqPointForWhile
         </encLocalSlotMap>
       </customDebugInfo>
       <sequencePoints>
-        <entry offset=""0x0"" startLine=""6"" startColumn=""5"" endLine=""6"" endColumn=""6"" document=""0"" />
-        <entry offset=""0x1"" startLine=""7"" startColumn=""9"" endLine=""7"" endColumn=""55"" document=""0"" />
-        <entry offset=""0x7"" startLine=""8"" startColumn=""9"" endLine=""8"" endColumn=""24"" document=""0"" />
-        <entry offset=""0x13"" startLine=""9"" startColumn=""5"" endLine=""9"" endColumn=""6"" document=""0"" />
+        <entry offset=""0x0"" startLine=""6"" startColumn=""5"" endLine=""6"" endColumn=""6"" />
+        <entry offset=""0x1"" startLine=""7"" startColumn=""9"" endLine=""7"" endColumn=""55"" />
+        <entry offset=""0x7"" startLine=""8"" startColumn=""9"" endLine=""8"" endColumn=""24"" />
+        <entry offset=""0x13"" startLine=""9"" startColumn=""5"" endLine=""9"" endColumn=""6"" />
       </sequencePoints>
-      <locals>
-        <local name=""obj"" il_index=""0"" il_start=""0x0"" il_end=""0x14"" attributes=""0"" />
-      </locals>
       <scope startOffset=""0x0"" endOffset=""0x14"">
         <namespace name=""System"" />
         <local name=""obj"" il_index=""0"" il_start=""0x0"" il_end=""0x14"" attributes=""0"" />
@@ -1459,27 +2074,26 @@ public class SeqPointForWhile
         </encLocalSlotMap>
       </customDebugInfo>
       <sequencePoints>
-        <entry offset=""0x0"" startLine=""13"" startColumn=""5"" endLine=""13"" endColumn=""6"" document=""0"" />
-        <entry offset=""0x1"" startLine=""15"" startColumn=""9"" endLine=""15"" endColumn=""10"" document=""0"" />
-        <entry offset=""0x2"" startLine=""16"" startColumn=""13"" endLine=""16"" endColumn=""30"" document=""0"" />
-        <entry offset=""0x7"" startLine=""18"" startColumn=""13"" endLine=""18"" endColumn=""25"" document=""0"" />
-        <entry offset=""0xd"" hidden=""true"" document=""0"" />
-        <entry offset=""0x10"" startLine=""19"" startColumn=""13"" endLine=""19"" endColumn=""14"" document=""0"" />
-        <entry offset=""0x11"" startLine=""20"" startColumn=""17"" endLine=""20"" endColumn=""26"" document=""0"" />
-        <entry offset=""0x13"" startLine=""22"" startColumn=""18"" endLine=""22"" endColumn=""29"" document=""0"" />
-        <entry offset=""0x19"" hidden=""true"" document=""0"" />
-        <entry offset=""0x1c"" startLine=""23"" startColumn=""13"" endLine=""23"" endColumn=""14"" document=""0"" />
-        <entry offset=""0x1d"" startLine=""24"" startColumn=""17"" endLine=""24"" endColumn=""27"" document=""0"" />
-        <entry offset=""0x24"" startLine=""25"" startColumn=""13"" endLine=""25"" endColumn=""14"" document=""0"" />
-        <entry offset=""0x27"" startLine=""27"" startColumn=""13"" endLine=""27"" endColumn=""14"" document=""0"" />
-        <entry offset=""0x28"" startLine=""28"" startColumn=""17"" endLine=""28"" endColumn=""23"" document=""0"" />
-        <entry offset=""0x2a"" startLine=""30"" startColumn=""9"" endLine=""30"" endColumn=""10"" document=""0"" />
-        <entry offset=""0x2b"" startLine=""30"" startColumn=""11"" endLine=""30"" endColumn=""25"" document=""0"" />
-        <entry offset=""0x30"" hidden=""true"" document=""0"" />
-        <entry offset=""0x33"" startLine=""32"" startColumn=""9"" endLine=""32"" endColumn=""20"" document=""0"" />
-        <entry offset=""0x3a"" startLine=""33"" startColumn=""5"" endLine=""33"" endColumn=""6"" document=""0"" />
+        <entry offset=""0x0"" startLine=""13"" startColumn=""5"" endLine=""13"" endColumn=""6"" />
+        <entry offset=""0x1"" startLine=""15"" startColumn=""9"" endLine=""15"" endColumn=""10"" />
+        <entry offset=""0x2"" startLine=""16"" startColumn=""13"" endLine=""16"" endColumn=""30"" />
+        <entry offset=""0x7"" startLine=""18"" startColumn=""13"" endLine=""18"" endColumn=""25"" />
+        <entry offset=""0xd"" hidden=""true"" />
+        <entry offset=""0x10"" startLine=""19"" startColumn=""13"" endLine=""19"" endColumn=""14"" />
+        <entry offset=""0x11"" startLine=""20"" startColumn=""17"" endLine=""20"" endColumn=""26"" />
+        <entry offset=""0x13"" startLine=""22"" startColumn=""18"" endLine=""22"" endColumn=""29"" />
+        <entry offset=""0x19"" hidden=""true"" />
+        <entry offset=""0x1c"" startLine=""23"" startColumn=""13"" endLine=""23"" endColumn=""14"" />
+        <entry offset=""0x1d"" startLine=""24"" startColumn=""17"" endLine=""24"" endColumn=""27"" />
+        <entry offset=""0x24"" startLine=""25"" startColumn=""13"" endLine=""25"" endColumn=""14"" />
+        <entry offset=""0x27"" startLine=""27"" startColumn=""13"" endLine=""27"" endColumn=""14"" />
+        <entry offset=""0x28"" startLine=""28"" startColumn=""17"" endLine=""28"" endColumn=""23"" />
+        <entry offset=""0x2a"" startLine=""30"" startColumn=""9"" endLine=""30"" endColumn=""10"" />
+        <entry offset=""0x2b"" startLine=""30"" startColumn=""11"" endLine=""30"" endColumn=""25"" />
+        <entry offset=""0x30"" hidden=""true"" />
+        <entry offset=""0x33"" startLine=""32"" startColumn=""9"" endLine=""32"" endColumn=""20"" />
+        <entry offset=""0x3a"" startLine=""33"" startColumn=""5"" endLine=""33"" endColumn=""6"" />
       </sequencePoints>
-      <locals />
     </method>
   </methods>
 </symbols>");
@@ -1558,24 +2172,22 @@ public class SeqPointForWhile
         </using>
       </customDebugInfo>
       <sequencePoints>
-        <entry offset=""0x0"" startLine=""6"" startColumn=""9"" endLine=""6"" endColumn=""25"" document=""0"" />
-        <entry offset=""0x7"" startLine=""7"" startColumn=""9"" endLine=""7"" endColumn=""10"" document=""0"" />
-        <entry offset=""0x8"" startLine=""8"" startColumn=""13"" endLine=""8"" endColumn=""27"" document=""0"" />
-        <entry offset=""0x10"" startLine=""9"" startColumn=""9"" endLine=""9"" endColumn=""10"" document=""0"" />
+        <entry offset=""0x0"" startLine=""6"" startColumn=""9"" endLine=""6"" endColumn=""25"" />
+        <entry offset=""0x7"" startLine=""7"" startColumn=""9"" endLine=""7"" endColumn=""10"" />
+        <entry offset=""0x8"" startLine=""8"" startColumn=""13"" endLine=""8"" endColumn=""27"" />
+        <entry offset=""0x10"" startLine=""9"" startColumn=""9"" endLine=""9"" endColumn=""10"" />
       </sequencePoints>
-      <locals />
     </method>
     <method containingType=""NS.MyClass"" name="".ctor"" parameterNames=""values"">
       <customDebugInfo>
         <forward declaringType=""NS.MyClass"" methodName="".ctor"" />
       </customDebugInfo>
       <sequencePoints>
-        <entry offset=""0x0"" startLine=""11"" startColumn=""9"" endLine=""11"" endColumn=""44"" document=""0"" />
-        <entry offset=""0x7"" startLine=""12"" startColumn=""9"" endLine=""12"" endColumn=""10"" document=""0"" />
-        <entry offset=""0x8"" startLine=""13"" startColumn=""13"" endLine=""13"" endColumn=""57"" document=""0"" />
-        <entry offset=""0x19"" startLine=""14"" startColumn=""9"" endLine=""14"" endColumn=""10"" document=""0"" />
+        <entry offset=""0x0"" startLine=""11"" startColumn=""9"" endLine=""11"" endColumn=""44"" />
+        <entry offset=""0x7"" startLine=""12"" startColumn=""9"" endLine=""12"" endColumn=""10"" />
+        <entry offset=""0x8"" startLine=""13"" startColumn=""13"" endLine=""13"" endColumn=""57"" />
+        <entry offset=""0x19"" startLine=""14"" startColumn=""9"" endLine=""14"" endColumn=""10"" />
       </sequencePoints>
-      <locals />
     </method>
     <method containingType=""NS.MyClass"" name=""Main"">
       <customDebugInfo>
@@ -1585,25 +2197,19 @@ public class SeqPointForWhile
           <slot kind=""0"" offset=""29"" />
           <slot kind=""0"" offset=""56"" />
           <slot kind=""0"" offset=""126"" />
-          <slot kind=""temp"" />
+          <slot kind=""21"" offset=""0"" />
         </encLocalSlotMap>
       </customDebugInfo>
       <sequencePoints>
-        <entry offset=""0x0"" startLine=""17"" startColumn=""9"" endLine=""17"" endColumn=""10"" document=""0"" />
-        <entry offset=""0x1"" startLine=""18"" startColumn=""13"" endLine=""18"" endColumn=""25"" document=""0"" />
-        <entry offset=""0x3"" startLine=""18"" startColumn=""27"" endLine=""18"" endColumn=""35"" document=""0"" />
-        <entry offset=""0x5"" startLine=""19"" startColumn=""13"" endLine=""19"" endColumn=""26"" document=""0"" />
-        <entry offset=""0x7"" startLine=""22"" startColumn=""13"" endLine=""22"" endColumn=""40"" document=""0"" />
-        <entry offset=""0xd"" startLine=""25"" startColumn=""13"" endLine=""25"" endColumn=""48"" document=""0"" />
-        <entry offset=""0x25"" startLine=""27"" startColumn=""13"" endLine=""27"" endColumn=""36"" document=""0"" />
-        <entry offset=""0x32"" startLine=""28"" startColumn=""9"" endLine=""28"" endColumn=""10"" document=""0"" />
+        <entry offset=""0x0"" startLine=""17"" startColumn=""9"" endLine=""17"" endColumn=""10"" />
+        <entry offset=""0x1"" startLine=""18"" startColumn=""13"" endLine=""18"" endColumn=""25"" />
+        <entry offset=""0x3"" startLine=""18"" startColumn=""27"" endLine=""18"" endColumn=""35"" />
+        <entry offset=""0x5"" startLine=""19"" startColumn=""13"" endLine=""19"" endColumn=""26"" />
+        <entry offset=""0x7"" startLine=""22"" startColumn=""13"" endLine=""22"" endColumn=""40"" />
+        <entry offset=""0xd"" startLine=""25"" startColumn=""13"" endLine=""25"" endColumn=""48"" />
+        <entry offset=""0x25"" startLine=""27"" startColumn=""13"" endLine=""27"" endColumn=""36"" />
+        <entry offset=""0x32"" startLine=""28"" startColumn=""9"" endLine=""28"" endColumn=""10"" />
       </sequencePoints>
-      <locals>
-        <local name=""intI"" il_index=""0"" il_start=""0x0"" il_end=""0x35"" attributes=""0"" />
-        <local name=""intJ"" il_index=""1"" il_start=""0x0"" il_end=""0x35"" attributes=""0"" />
-        <local name=""intK"" il_index=""2"" il_start=""0x0"" il_end=""0x35"" attributes=""0"" />
-        <local name=""mc"" il_index=""3"" il_start=""0x0"" il_end=""0x35"" attributes=""0"" />
-      </locals>
       <scope startOffset=""0x0"" endOffset=""0x35"">
         <local name=""intI"" il_index=""0"" il_start=""0x0"" il_end=""0x35"" attributes=""0"" />
         <local name=""intJ"" il_index=""1"" il_start=""0x0"" il_end=""0x35"" attributes=""0"" />
@@ -1712,13 +2318,12 @@ public class Derived : Base
         </using>
       </customDebugInfo>
       <sequencePoints>
-        <entry offset=""0x0"" startLine=""7"" startColumn=""5"" endLine=""7"" endColumn=""6"" document=""0"" />
-        <entry offset=""0x1"" startLine=""7"" startColumn=""5"" endLine=""7"" endColumn=""6"" document=""0"" />
-        <entry offset=""0x2"" startLine=""8"" startColumn=""9"" endLine=""8"" endColumn=""29"" document=""0"" />
-        <entry offset=""0xa"" startLine=""9"" startColumn=""5"" endLine=""9"" endColumn=""6"" document=""0"" />
-        <entry offset=""0x12"" startLine=""9"" startColumn=""5"" endLine=""9"" endColumn=""6"" document=""0"" />
+        <entry offset=""0x0"" startLine=""7"" startColumn=""5"" endLine=""7"" endColumn=""6"" />
+        <entry offset=""0x1"" startLine=""7"" startColumn=""5"" endLine=""7"" endColumn=""6"" />
+        <entry offset=""0x2"" startLine=""8"" startColumn=""9"" endLine=""8"" endColumn=""29"" />
+        <entry offset=""0xa"" startLine=""9"" startColumn=""5"" endLine=""9"" endColumn=""6"" />
+        <entry offset=""0x12"" startLine=""9"" startColumn=""5"" endLine=""9"" endColumn=""6"" />
       </sequencePoints>
-      <locals />
       <scope startOffset=""0x0"" endOffset=""0x13"">
         <namespace name=""System"" />
       </scope>
@@ -1728,13 +2333,12 @@ public class Derived : Base
         <forward declaringType=""Base"" methodName=""Finalize"" />
       </customDebugInfo>
       <sequencePoints>
-        <entry offset=""0x0"" startLine=""15"" startColumn=""5"" endLine=""15"" endColumn=""6"" document=""0"" />
-        <entry offset=""0x1"" startLine=""15"" startColumn=""5"" endLine=""15"" endColumn=""6"" document=""0"" />
-        <entry offset=""0x2"" startLine=""16"" startColumn=""9"" endLine=""16"" endColumn=""29"" document=""0"" />
-        <entry offset=""0xa"" startLine=""17"" startColumn=""5"" endLine=""17"" endColumn=""6"" document=""0"" />
-        <entry offset=""0x12"" startLine=""17"" startColumn=""5"" endLine=""17"" endColumn=""6"" document=""0"" />
+        <entry offset=""0x0"" startLine=""15"" startColumn=""5"" endLine=""15"" endColumn=""6"" />
+        <entry offset=""0x1"" startLine=""15"" startColumn=""5"" endLine=""15"" endColumn=""6"" />
+        <entry offset=""0x2"" startLine=""16"" startColumn=""9"" endLine=""16"" endColumn=""29"" />
+        <entry offset=""0xa"" startLine=""17"" startColumn=""5"" endLine=""17"" endColumn=""6"" />
+        <entry offset=""0x12"" startLine=""17"" startColumn=""5"" endLine=""17"" endColumn=""6"" />
       </sequencePoints>
-      <locals />
     </method>
   </methods>
 </symbols>");
@@ -1785,7 +2389,6 @@ public partial class C
         <entry offset=""0x0"" startLine=""4"" startColumn=""5"" endLine=""4"" endColumn=""15"" document=""2"" />
         <entry offset=""0x7"" startLine=""4"" startColumn=""5"" endLine=""4"" endColumn=""15"" document=""1"" />
       </sequencePoints>
-      <locals />
     </method>
   </methods>
 </symbols>");
@@ -1886,7 +2489,6 @@ public partial class C
         <entry offset=""0x9e"" startLine=""14"" startColumn=""9"" endLine=""14"" endColumn=""33"" document=""1"" />
         <entry offset=""0xa9"" startLine=""15"" startColumn=""5"" endLine=""15"" endColumn=""6"" document=""1"" />
       </sequencePoints>
-      <locals />
       <scope startOffset=""0x0"" endOffset=""0xaa"">
         <namespace name=""System"" />
       </scope>
@@ -1919,18 +2521,16 @@ class C
         </encLambdaMap>
       </customDebugInfo>
       <sequencePoints>
-        <entry offset=""0x0"" startLine=""4"" startColumn=""5"" endLine=""4"" endColumn=""50"" document=""0"" />
+        <entry offset=""0x0"" startLine=""4"" startColumn=""5"" endLine=""4"" endColumn=""50"" />
       </sequencePoints>
-      <locals />
     </method>
     <method containingType=""C+&lt;&gt;c"" name=""&lt;.ctor&gt;b__1_0"" parameterNames=""z"">
       <customDebugInfo>
         <forward declaringType=""C"" methodName="".ctor"" />
       </customDebugInfo>
       <sequencePoints>
-        <entry offset=""0x0"" startLine=""4"" startColumn=""43"" endLine=""4"" endColumn=""44"" document=""0"" />
+        <entry offset=""0x0"" startLine=""4"" startColumn=""43"" endLine=""4"" endColumn=""44"" />
       </sequencePoints>
-      <locals />
     </method>
   </methods>
 </symbols>");
@@ -1956,10 +2556,9 @@ class C
         </using>
       </customDebugInfo>
       <sequencePoints>
-        <entry offset=""0x0"" startLine=""4"" startColumn=""5"" endLine=""4"" endColumn=""14"" document=""0"" />
-        <entry offset=""0x7"" startLine=""4"" startColumn=""16"" endLine=""4"" endColumn=""21"" document=""0"" />
+        <entry offset=""0x0"" startLine=""4"" startColumn=""5"" endLine=""4"" endColumn=""14"" />
+        <entry offset=""0x7"" startLine=""4"" startColumn=""16"" endLine=""4"" endColumn=""21"" />
       </sequencePoints>
-      <locals />
     </method>
   </methods>
 </symbols>");
@@ -1988,39 +2587,33 @@ public class C
   <methods>
     <method containingType=""C"" name=""get_AutoProp1"">
       <sequencePoints>
-        <entry offset=""0x0"" startLine=""4"" startColumn=""35"" endLine=""4"" endColumn=""39"" document=""0"" />
+        <entry offset=""0x0"" startLine=""4"" startColumn=""35"" endLine=""4"" endColumn=""39"" />
       </sequencePoints>
-      <locals />
     </method>
     <method containingType=""C"" name=""set_AutoProp1"" parameterNames=""value"">
       <sequencePoints>
-        <entry offset=""0x0"" startLine=""4"" startColumn=""40"" endLine=""4"" endColumn=""52"" document=""0"" />
+        <entry offset=""0x0"" startLine=""4"" startColumn=""40"" endLine=""4"" endColumn=""52"" />
       </sequencePoints>
-      <locals />
     </method>
     <method containingType=""C"" name=""get_AutoProp2"">
       <sequencePoints>
-        <entry offset=""0x0"" startLine=""5"" startColumn=""33"" endLine=""5"" endColumn=""37"" document=""0"" />
+        <entry offset=""0x0"" startLine=""5"" startColumn=""33"" endLine=""5"" endColumn=""37"" />
       </sequencePoints>
-      <locals />
     </method>
     <method containingType=""C"" name=""set_AutoProp2"" parameterNames=""value"">
       <sequencePoints>
-        <entry offset=""0x0"" startLine=""5"" startColumn=""38"" endLine=""5"" endColumn=""42"" document=""0"" />
+        <entry offset=""0x0"" startLine=""5"" startColumn=""38"" endLine=""5"" endColumn=""42"" />
       </sequencePoints>
-      <locals />
     </method>
     <method containingType=""C"" name=""get_AutoProp3"">
       <sequencePoints>
-        <entry offset=""0x0"" startLine=""6"" startColumn=""38"" endLine=""6"" endColumn=""51"" document=""0"" />
+        <entry offset=""0x0"" startLine=""6"" startColumn=""38"" endLine=""6"" endColumn=""51"" />
       </sequencePoints>
-      <locals />
     </method>
     <method containingType=""C"" name=""set_AutoProp3"" parameterNames=""value"">
       <sequencePoints>
-        <entry offset=""0x0"" startLine=""6"" startColumn=""52"" endLine=""6"" endColumn=""56"" document=""0"" />
+        <entry offset=""0x0"" startLine=""6"" startColumn=""52"" endLine=""6"" endColumn=""56"" />
       </sequencePoints>
-      <locals />
     </method>
   </methods>
 </symbols>");
@@ -2088,10 +2681,9 @@ public class C
         </using>
       </customDebugInfo>
       <sequencePoints>
-        <entry offset=""0x0"" startLine=""4"" startColumn=""5"" endLine=""4"" endColumn=""6"" document=""0"" />
-        <entry offset=""0x1"" startLine=""5"" startColumn=""5"" endLine=""5"" endColumn=""6"" document=""0"" />
+        <entry offset=""0x0"" startLine=""4"" startColumn=""5"" endLine=""4"" endColumn=""6"" />
+        <entry offset=""0x1"" startLine=""5"" startColumn=""5"" endLine=""5"" endColumn=""6"" />
       </sequencePoints>
-      <locals />
     </method>
   </methods>
 </symbols>");
@@ -2120,11 +2712,10 @@ public class C
         </using>
       </customDebugInfo>
       <sequencePoints>
-        <entry offset=""0x0"" startLine=""4"" startColumn=""5"" endLine=""4"" endColumn=""6"" document=""0"" />
-        <entry offset=""0x1"" startLine=""5"" startColumn=""9"" endLine=""5"" endColumn=""16"" document=""0"" />
-        <entry offset=""0x3"" startLine=""6"" startColumn=""5"" endLine=""6"" endColumn=""6"" document=""0"" />
+        <entry offset=""0x0"" startLine=""4"" startColumn=""5"" endLine=""4"" endColumn=""6"" />
+        <entry offset=""0x1"" startLine=""5"" startColumn=""9"" endLine=""5"" endColumn=""16"" />
+        <entry offset=""0x3"" startLine=""6"" startColumn=""5"" endLine=""6"" endColumn=""6"" />
       </sequencePoints>
-      <locals />
     </method>
   </methods>
 </symbols>");
@@ -2192,8 +2783,8 @@ public class SeqPointAfterReturn
             var c = CreateCompilationWithMscorlibAndSystemCore(source, options: TestOptions.DebugDll);
 
             // Expected are current actual output plus Two extra expected SeqPt:
-            //  <entry offset=""0x73"" startLine=""25"" startColumn=""5"" endLine=""25"" endColumn=""6"" document=""0"" />
-            //  <entry offset=""0x22"" startLine=""52"" startColumn=""5"" endLine=""52"" endColumn=""6"" document=""0"" />
+            //  <entry offset=""0x73"" startLine=""25"" startColumn=""5"" endLine=""25"" endColumn=""6"" />
+            //  <entry offset=""0x22"" startLine=""52"" startColumn=""5"" endLine=""52"" endColumn=""6"" />
             // 
             // Note: NOT include other differences between Roslyn and Dev10, as they are filed in separated bugs
             c.VerifyPdb(@"
@@ -2211,35 +2802,31 @@ public class SeqPointAfterReturn
           <slot kind=""1"" offset=""138"" />
           <slot kind=""1"" offset=""238"" />
           <slot kind=""1"" offset=""330"" />
-          <slot kind=""temp"" />
+          <slot kind=""21"" offset=""0"" />
         </encLocalSlotMap>
       </customDebugInfo>
       <sequencePoints>
-        <entry offset=""0x0"" startLine=""6"" startColumn=""5"" endLine=""6"" endColumn=""6"" document=""0"" />
-        <entry offset=""0x1"" startLine=""7"" startColumn=""9"" endLine=""7"" endColumn=""21"" document=""0"" />
-        <entry offset=""0x3"" startLine=""8"" startColumn=""9"" endLine=""8"" endColumn=""25"" document=""0"" />
-        <entry offset=""0xb"" startLine=""9"" startColumn=""9"" endLine=""9"" endColumn=""29"" document=""0"" />
-        <entry offset=""0x1b"" hidden=""true"" document=""0"" />
-        <entry offset=""0x1e"" startLine=""10"" startColumn=""13"" endLine=""10"" endColumn=""21"" document=""0"" />
-        <entry offset=""0x20"" startLine=""12"" startColumn=""9"" endLine=""12"" endColumn=""24"" document=""0"" />
-        <entry offset=""0x28"" startLine=""13"" startColumn=""9"" endLine=""13"" endColumn=""28"" document=""0"" />
-        <entry offset=""0x38"" hidden=""true"" document=""0"" />
-        <entry offset=""0x3b"" startLine=""14"" startColumn=""13"" endLine=""14"" endColumn=""27"" document=""0"" />
-        <entry offset=""0x3f"" startLine=""16"" startColumn=""9"" endLine=""16"" endColumn=""40"" document=""0"" />
-        <entry offset=""0x47"" startLine=""17"" startColumn=""9"" endLine=""17"" endColumn=""27"" document=""0"" />
-        <entry offset=""0x54"" hidden=""true"" document=""0"" />
-        <entry offset=""0x58"" startLine=""18"" startColumn=""13"" endLine=""18"" endColumn=""27"" document=""0"" />
-        <entry offset=""0x5c"" startLine=""20"" startColumn=""9"" endLine=""20"" endColumn=""33"" document=""0"" />
-        <entry offset=""0x64"" startLine=""21"" startColumn=""9"" endLine=""21"" endColumn=""28"" document=""0"" />
-        <entry offset=""0x71"" hidden=""true"" document=""0"" />
-        <entry offset=""0x75"" startLine=""22"" startColumn=""13"" endLine=""22"" endColumn=""27"" document=""0"" />
-        <entry offset=""0x79"" startLine=""24"" startColumn=""9"" endLine=""24"" endColumn=""20"" document=""0"" />
-        <entry offset=""0x7e"" startLine=""25"" startColumn=""5"" endLine=""25"" endColumn=""6"" document=""0"" />
+        <entry offset=""0x0"" startLine=""6"" startColumn=""5"" endLine=""6"" endColumn=""6"" />
+        <entry offset=""0x1"" startLine=""7"" startColumn=""9"" endLine=""7"" endColumn=""21"" />
+        <entry offset=""0x3"" startLine=""8"" startColumn=""9"" endLine=""8"" endColumn=""25"" />
+        <entry offset=""0xb"" startLine=""9"" startColumn=""9"" endLine=""9"" endColumn=""29"" />
+        <entry offset=""0x1b"" hidden=""true"" />
+        <entry offset=""0x1e"" startLine=""10"" startColumn=""13"" endLine=""10"" endColumn=""21"" />
+        <entry offset=""0x20"" startLine=""12"" startColumn=""9"" endLine=""12"" endColumn=""24"" />
+        <entry offset=""0x28"" startLine=""13"" startColumn=""9"" endLine=""13"" endColumn=""28"" />
+        <entry offset=""0x38"" hidden=""true"" />
+        <entry offset=""0x3b"" startLine=""14"" startColumn=""13"" endLine=""14"" endColumn=""27"" />
+        <entry offset=""0x3f"" startLine=""16"" startColumn=""9"" endLine=""16"" endColumn=""40"" />
+        <entry offset=""0x47"" startLine=""17"" startColumn=""9"" endLine=""17"" endColumn=""27"" />
+        <entry offset=""0x54"" hidden=""true"" />
+        <entry offset=""0x58"" startLine=""18"" startColumn=""13"" endLine=""18"" endColumn=""27"" />
+        <entry offset=""0x5c"" startLine=""20"" startColumn=""9"" endLine=""20"" endColumn=""33"" />
+        <entry offset=""0x64"" startLine=""21"" startColumn=""9"" endLine=""21"" endColumn=""28"" />
+        <entry offset=""0x71"" hidden=""true"" />
+        <entry offset=""0x75"" startLine=""22"" startColumn=""13"" endLine=""22"" endColumn=""27"" />
+        <entry offset=""0x79"" startLine=""24"" startColumn=""9"" endLine=""24"" endColumn=""20"" />
+        <entry offset=""0x7e"" startLine=""25"" startColumn=""5"" endLine=""25"" endColumn=""6"" />
       </sequencePoints>
-      <locals>
-        <local name=""ret"" il_index=""0"" il_start=""0x0"" il_end=""0x81"" attributes=""0"" />
-        <local name=""rets"" il_index=""1"" il_start=""0x0"" il_end=""0x81"" attributes=""0"" />
-      </locals>
       <scope startOffset=""0x0"" endOffset=""0x81"">
         <namespace name=""System"" />
         <local name=""ret"" il_index=""0"" il_start=""0x0"" il_end=""0x81"" attributes=""0"" />
@@ -2255,21 +2842,18 @@ public class SeqPointAfterReturn
         </encLocalSlotMap>
       </customDebugInfo>
       <sequencePoints>
-        <entry offset=""0x0"" startLine=""29"" startColumn=""5"" endLine=""29"" endColumn=""6"" document=""0"" />
-        <entry offset=""0x1"" startLine=""30"" startColumn=""9"" endLine=""30"" endColumn=""30"" document=""0"" />
-        <entry offset=""0x5"" startLine=""31"" startColumn=""9"" endLine=""31"" endColumn=""20"" document=""0"" />
-        <entry offset=""0xa"" hidden=""true"" document=""0"" />
-        <entry offset=""0xd"" startLine=""32"" startColumn=""9"" endLine=""32"" endColumn=""10"" document=""0"" />
-        <entry offset=""0xe"" startLine=""33"" startColumn=""13"" endLine=""33"" endColumn=""28"" document=""0"" />
-        <entry offset=""0x18"" startLine=""34"" startColumn=""9"" endLine=""34"" endColumn=""10"" document=""0"" />
-        <entry offset=""0x1b"" startLine=""36"" startColumn=""9"" endLine=""36"" endColumn=""10"" document=""0"" />
-        <entry offset=""0x1c"" startLine=""37"" startColumn=""13"" endLine=""37"" endColumn=""27"" document=""0"" />
-        <entry offset=""0x26"" startLine=""38"" startColumn=""9"" endLine=""38"" endColumn=""10"" document=""0"" />
-        <entry offset=""0x27"" startLine=""39"" startColumn=""5"" endLine=""39"" endColumn=""6"" document=""0"" />
+        <entry offset=""0x0"" startLine=""29"" startColumn=""5"" endLine=""29"" endColumn=""6"" />
+        <entry offset=""0x1"" startLine=""30"" startColumn=""9"" endLine=""30"" endColumn=""30"" />
+        <entry offset=""0x5"" startLine=""31"" startColumn=""9"" endLine=""31"" endColumn=""20"" />
+        <entry offset=""0xa"" hidden=""true"" />
+        <entry offset=""0xd"" startLine=""32"" startColumn=""9"" endLine=""32"" endColumn=""10"" />
+        <entry offset=""0xe"" startLine=""33"" startColumn=""13"" endLine=""33"" endColumn=""28"" />
+        <entry offset=""0x18"" startLine=""34"" startColumn=""9"" endLine=""34"" endColumn=""10"" />
+        <entry offset=""0x1b"" startLine=""36"" startColumn=""9"" endLine=""36"" endColumn=""10"" />
+        <entry offset=""0x1c"" startLine=""37"" startColumn=""13"" endLine=""37"" endColumn=""27"" />
+        <entry offset=""0x26"" startLine=""38"" startColumn=""9"" endLine=""38"" endColumn=""10"" />
+        <entry offset=""0x27"" startLine=""39"" startColumn=""5"" endLine=""39"" endColumn=""6"" />
       </sequencePoints>
-      <locals>
-        <local name=""x"" il_index=""0"" il_start=""0x0"" il_end=""0x28"" attributes=""0"" />
-      </locals>
       <scope startOffset=""0x0"" endOffset=""0x28"">
         <local name=""x"" il_index=""0"" il_start=""0x0"" il_end=""0x28"" attributes=""0"" />
       </scope>
@@ -2280,23 +2864,20 @@ public class SeqPointAfterReturn
         <encLocalSlotMap>
           <slot kind=""0"" offset=""15"" />
           <slot kind=""1"" offset=""42"" />
-          <slot kind=""temp"" />
+          <slot kind=""21"" offset=""0"" />
         </encLocalSlotMap>
       </customDebugInfo>
       <sequencePoints>
-        <entry offset=""0x0"" startLine=""42"" startColumn=""5"" endLine=""42"" endColumn=""6"" document=""0"" />
-        <entry offset=""0x1"" startLine=""43"" startColumn=""9"" endLine=""43"" endColumn=""30"" document=""0"" />
-        <entry offset=""0x5"" startLine=""44"" startColumn=""9"" endLine=""44"" endColumn=""20"" document=""0"" />
-        <entry offset=""0xa"" hidden=""true"" document=""0"" />
-        <entry offset=""0xd"" startLine=""45"" startColumn=""9"" endLine=""45"" endColumn=""10"" document=""0"" />
-        <entry offset=""0xe"" startLine=""46"" startColumn=""13"" endLine=""46"" endColumn=""27"" document=""0"" />
-        <entry offset=""0x16"" startLine=""49"" startColumn=""9"" endLine=""49"" endColumn=""10"" document=""0"" />
-        <entry offset=""0x17"" startLine=""50"" startColumn=""13"" endLine=""50"" endColumn=""26"" document=""0"" />
-        <entry offset=""0x1f"" startLine=""52"" startColumn=""5"" endLine=""52"" endColumn=""6"" document=""0"" />
+        <entry offset=""0x0"" startLine=""42"" startColumn=""5"" endLine=""42"" endColumn=""6"" />
+        <entry offset=""0x1"" startLine=""43"" startColumn=""9"" endLine=""43"" endColumn=""30"" />
+        <entry offset=""0x5"" startLine=""44"" startColumn=""9"" endLine=""44"" endColumn=""20"" />
+        <entry offset=""0xa"" hidden=""true"" />
+        <entry offset=""0xd"" startLine=""45"" startColumn=""9"" endLine=""45"" endColumn=""10"" />
+        <entry offset=""0xe"" startLine=""46"" startColumn=""13"" endLine=""46"" endColumn=""27"" />
+        <entry offset=""0x16"" startLine=""49"" startColumn=""9"" endLine=""49"" endColumn=""10"" />
+        <entry offset=""0x17"" startLine=""50"" startColumn=""13"" endLine=""50"" endColumn=""26"" />
+        <entry offset=""0x1f"" startLine=""52"" startColumn=""5"" endLine=""52"" endColumn=""6"" />
       </sequencePoints>
-      <locals>
-        <local name=""x"" il_index=""0"" il_start=""0x0"" il_end=""0x21"" attributes=""0"" />
-      </locals>
       <scope startOffset=""0x0"" endOffset=""0x21"">
         <local name=""x"" il_index=""0"" il_start=""0x0"" il_end=""0x21"" attributes=""0"" />
       </scope>
@@ -2356,30 +2937,26 @@ class Test
         <encLocalSlotMap>
           <slot kind=""0"" offset=""15"" />
           <slot kind=""0"" offset=""147"" />
-          <slot kind=""temp"" />
+          <slot kind=""21"" offset=""0"" />
         </encLocalSlotMap>
       </customDebugInfo>
       <sequencePoints>
-        <entry offset=""0x0"" startLine=""5"" startColumn=""5"" endLine=""5"" endColumn=""6"" document=""0"" />
-        <entry offset=""0x1"" startLine=""6"" startColumn=""9"" endLine=""6"" endColumn=""21"" document=""0"" />
-        <entry offset=""0x3"" startLine=""8"" startColumn=""9"" endLine=""8"" endColumn=""10"" document=""0"" />
-        <entry offset=""0x4"" startLine=""9"" startColumn=""13"" endLine=""9"" endColumn=""42"" document=""0"" />
-        <entry offset=""0xa"" startLine=""11"" startColumn=""9"" endLine=""11"" endColumn=""35"" document=""0"" />
-        <entry offset=""0xb"" startLine=""12"" startColumn=""9"" endLine=""12"" endColumn=""10"" document=""0"" />
-        <entry offset=""0xc"" startLine=""13"" startColumn=""13"" endLine=""13"" endColumn=""21"" document=""0"" />
-        <entry offset=""0xe"" startLine=""14"" startColumn=""9"" endLine=""14"" endColumn=""10"" document=""0"" />
-        <entry offset=""0x11"" hidden=""true"" document=""0"" />
-        <entry offset=""0x12"" startLine=""17"" startColumn=""9"" endLine=""17"" endColumn=""10"" document=""0"" />
-        <entry offset=""0x13"" startLine=""18"" startColumn=""13"" endLine=""18"" endColumn=""42"" document=""0"" />
-        <entry offset=""0x19"" startLine=""20"" startColumn=""9"" endLine=""20"" endColumn=""14"" document=""0"" />
-        <entry offset=""0x1a"" startLine=""21"" startColumn=""9"" endLine=""21"" endColumn=""10"" document=""0"" />
-        <entry offset=""0x1b"" startLine=""22"" startColumn=""13"" endLine=""22"" endColumn=""24"" document=""0"" />
-        <entry offset=""0x1f"" startLine=""25"" startColumn=""5"" endLine=""25"" endColumn=""6"" document=""0"" />
+        <entry offset=""0x0"" startLine=""5"" startColumn=""5"" endLine=""5"" endColumn=""6"" />
+        <entry offset=""0x1"" startLine=""6"" startColumn=""9"" endLine=""6"" endColumn=""21"" />
+        <entry offset=""0x3"" startLine=""8"" startColumn=""9"" endLine=""8"" endColumn=""10"" />
+        <entry offset=""0x4"" startLine=""9"" startColumn=""13"" endLine=""9"" endColumn=""42"" />
+        <entry offset=""0xa"" startLine=""11"" startColumn=""9"" endLine=""11"" endColumn=""35"" />
+        <entry offset=""0xb"" startLine=""12"" startColumn=""9"" endLine=""12"" endColumn=""10"" />
+        <entry offset=""0xc"" startLine=""13"" startColumn=""13"" endLine=""13"" endColumn=""21"" />
+        <entry offset=""0xe"" startLine=""14"" startColumn=""9"" endLine=""14"" endColumn=""10"" />
+        <entry offset=""0x11"" hidden=""true"" />
+        <entry offset=""0x12"" startLine=""17"" startColumn=""9"" endLine=""17"" endColumn=""10"" />
+        <entry offset=""0x13"" startLine=""18"" startColumn=""13"" endLine=""18"" endColumn=""42"" />
+        <entry offset=""0x19"" startLine=""20"" startColumn=""9"" endLine=""20"" endColumn=""14"" />
+        <entry offset=""0x1a"" startLine=""21"" startColumn=""9"" endLine=""21"" endColumn=""10"" />
+        <entry offset=""0x1b"" startLine=""22"" startColumn=""13"" endLine=""22"" endColumn=""24"" />
+        <entry offset=""0x1f"" startLine=""25"" startColumn=""5"" endLine=""25"" endColumn=""6"" />
       </sequencePoints>
-      <locals>
-        <local name=""ret"" il_index=""0"" il_start=""0x0"" il_end=""0x21"" attributes=""0"" />
-        <local name=""e"" il_index=""1"" il_start=""0xa"" il_end=""0x11"" attributes=""0"" />
-      </locals>
       <scope startOffset=""0x0"" endOffset=""0x21"">
         <local name=""ret"" il_index=""0"" il_start=""0x0"" il_end=""0x21"" attributes=""0"" />
         <scope startOffset=""0xa"" endOffset=""0x11"">
@@ -2391,56 +2968,151 @@ class Test
 </symbols>");
         }
 
-        [Fact]
-        public void ExceptionHandling_Filter1()
+        [Fact, WorkItem(2911, "https://github.com/dotnet/roslyn/issues/2911")]
+        public void ExceptionHandling_Filter_Debug1()
         {
             var source = @"
+using System;
+using System.IO;
+
 class Test
 {
+    static string filter(Exception e)
+    {
+        return null;
+    }
+
     static void Main()
     {
         try
         {
-            throw new System.Exception();
+            throw new InvalidOperationException();
         }
-        catch (System.Exception e) when (e.Message != null)
-        { 
-            System.Console.WriteLine();
+        catch (IOException e) when (filter(e) != null)
+        {
+            Console.WriteLine();
+        }
+        catch (Exception e) when (filter(e) != null)
+        {
+            Console.WriteLine();
         }
     }
 }
 ";
-            var c = CreateCompilationWithMscorlibAndSystemCore(source, options: TestOptions.DebugDll);
-            c.VerifyPdb("Test.Main", @"
+            var v = CompileAndVerify(CreateCompilationWithMscorlibAndSystemCore(source, options: TestOptions.DebugDll));
+
+            v.VerifyIL("Test.Main", @"
+{
+  // Code size       89 (0x59)
+  .maxstack  2
+  .locals init (System.IO.IOException V_0, //e
+                bool V_1,
+                System.Exception V_2, //e
+                bool V_3)
+ -IL_0000:  nop
+  .try
+  {
+   -IL_0001:  nop
+   -IL_0002:  newobj     ""System.InvalidOperationException..ctor()""
+    IL_0007:  throw
+  }
+  filter
+  {
+   ~IL_0008:  isinst     ""System.IO.IOException""
+    IL_000d:  dup
+    IL_000e:  brtrue.s   IL_0014
+    IL_0010:  pop
+    IL_0011:  ldc.i4.0
+    IL_0012:  br.s       IL_0023
+    IL_0014:  stloc.0
+   -IL_0015:  ldloc.0
+    IL_0016:  call       ""string Test.filter(System.Exception)""
+    IL_001b:  ldnull
+    IL_001c:  cgt.un
+    IL_001e:  stloc.1
+   ~IL_001f:  ldloc.1
+    IL_0020:  ldc.i4.0
+    IL_0021:  cgt.un
+    IL_0023:  endfilter
+  }  // end filter
+  {  // handler
+   ~IL_0025:  pop
+   -IL_0026:  nop
+   -IL_0027:  call       ""void System.Console.WriteLine()""
+    IL_002c:  nop
+   -IL_002d:  nop
+    IL_002e:  leave.s    IL_0058
+  }
+  filter
+  {
+   ~IL_0030:  isinst     ""System.Exception""
+    IL_0035:  dup
+    IL_0036:  brtrue.s   IL_003c
+    IL_0038:  pop
+    IL_0039:  ldc.i4.0
+    IL_003a:  br.s       IL_004b
+    IL_003c:  stloc.2
+   -IL_003d:  ldloc.2
+    IL_003e:  call       ""string Test.filter(System.Exception)""
+    IL_0043:  ldnull
+    IL_0044:  cgt.un
+    IL_0046:  stloc.3
+   ~IL_0047:  ldloc.3
+    IL_0048:  ldc.i4.0
+    IL_0049:  cgt.un
+    IL_004b:  endfilter
+  }  // end filter
+  {  // handler
+   ~IL_004d:  pop
+   -IL_004e:  nop
+   -IL_004f:  call       ""void System.Console.WriteLine()""
+    IL_0054:  nop
+   -IL_0055:  nop
+    IL_0056:  leave.s    IL_0058
+  }
+ -IL_0058:  ret
+}
+", sequencePoints: "Test.Main");
+
+            v.VerifyPdb("Test.Main", @"
 <symbols>
   <methods>
     <method containingType=""Test"" name=""Main"">
       <customDebugInfo>
-        <using>
-          <namespace usingCount=""0"" />
-        </using>
+        <forward declaringType=""Test"" methodName=""filter"" parameterNames=""e"" />
         <encLocalSlotMap>
-          <slot kind=""0"" offset=""95"" />
+          <slot kind=""0"" offset=""104"" />
+          <slot kind=""1"" offset=""120"" />
+          <slot kind=""0"" offset=""216"" />
+          <slot kind=""1"" offset=""230"" />
         </encLocalSlotMap>
       </customDebugInfo>
       <sequencePoints>
-        <entry offset=""0x0"" startLine=""5"" startColumn=""5"" endLine=""5"" endColumn=""6"" document=""0"" />
-        <entry offset=""0x1"" startLine=""7"" startColumn=""9"" endLine=""7"" endColumn=""10"" document=""0"" />
-        <entry offset=""0x2"" startLine=""8"" startColumn=""13"" endLine=""8"" endColumn=""42"" document=""0"" />
-        <entry offset=""0x8"" hidden=""true"" document=""0"" />
-        <entry offset=""0x15"" startLine=""10"" startColumn=""36"" endLine=""10"" endColumn=""60"" document=""0"" />
-        <entry offset=""0x23"" hidden=""true"" document=""0"" />
-        <entry offset=""0x24"" startLine=""11"" startColumn=""9"" endLine=""11"" endColumn=""10"" document=""0"" />
-        <entry offset=""0x25"" startLine=""12"" startColumn=""13"" endLine=""12"" endColumn=""40"" document=""0"" />
-        <entry offset=""0x2b"" startLine=""13"" startColumn=""9"" endLine=""13"" endColumn=""10"" document=""0"" />
-        <entry offset=""0x2e"" startLine=""14"" startColumn=""5"" endLine=""14"" endColumn=""6"" document=""0"" />
+        <entry offset=""0x0"" startLine=""13"" startColumn=""5"" endLine=""13"" endColumn=""6"" />
+        <entry offset=""0x1"" startLine=""15"" startColumn=""9"" endLine=""15"" endColumn=""10"" />
+        <entry offset=""0x2"" startLine=""16"" startColumn=""13"" endLine=""16"" endColumn=""51"" />
+        <entry offset=""0x8"" hidden=""true"" />
+        <entry offset=""0x15"" startLine=""18"" startColumn=""31"" endLine=""18"" endColumn=""55"" />
+        <entry offset=""0x1f"" hidden=""true"" />
+        <entry offset=""0x25"" hidden=""true"" />
+        <entry offset=""0x26"" startLine=""19"" startColumn=""9"" endLine=""19"" endColumn=""10"" />
+        <entry offset=""0x27"" startLine=""20"" startColumn=""13"" endLine=""20"" endColumn=""33"" />
+        <entry offset=""0x2d"" startLine=""21"" startColumn=""9"" endLine=""21"" endColumn=""10"" />
+        <entry offset=""0x30"" hidden=""true"" />
+        <entry offset=""0x3d"" startLine=""22"" startColumn=""29"" endLine=""22"" endColumn=""53"" />
+        <entry offset=""0x47"" hidden=""true"" />
+        <entry offset=""0x4d"" hidden=""true"" />
+        <entry offset=""0x4e"" startLine=""23"" startColumn=""9"" endLine=""23"" endColumn=""10"" />
+        <entry offset=""0x4f"" startLine=""24"" startColumn=""13"" endLine=""24"" endColumn=""33"" />
+        <entry offset=""0x55"" startLine=""25"" startColumn=""9"" endLine=""25"" endColumn=""10"" />
+        <entry offset=""0x58"" startLine=""26"" startColumn=""5"" endLine=""26"" endColumn=""6"" />
       </sequencePoints>
-      <locals>
-        <local name=""e"" il_index=""0"" il_start=""0x8"" il_end=""0x2e"" attributes=""0"" />
-      </locals>
-      <scope startOffset=""0x0"" endOffset=""0x2f"">
-        <scope startOffset=""0x8"" endOffset=""0x2e"">
-          <local name=""e"" il_index=""0"" il_start=""0x8"" il_end=""0x2e"" attributes=""0"" />
+      <scope startOffset=""0x0"" endOffset=""0x59"">
+        <scope startOffset=""0x8"" endOffset=""0x30"">
+          <local name=""e"" il_index=""0"" il_start=""0x8"" il_end=""0x30"" attributes=""0"" />
+        </scope>
+        <scope startOffset=""0x30"" endOffset=""0x58"">
+          <local name=""e"" il_index=""2"" il_start=""0x30"" il_end=""0x58"" attributes=""0"" />
         </scope>
       </scope>
     </method>
@@ -2448,8 +3120,8 @@ class Test
 </symbols>");
         }
 
-        [Fact]
-        public void ExceptionHandling_Filter2()
+        [Fact, WorkItem(2911, "https://github.com/dotnet/roslyn/issues/2911")]
+        public void ExceptionHandling_Filter_Debug2()
         {
             var source = @"
 class Test
@@ -2472,9 +3144,204 @@ class Test
     }
 }
 ";
-            var c = CreateCompilationWithMscorlibAndSystemCore(source, options: TestOptions.DebugDll);
-            c.VerifyPdb("Test.Main", @"
-<symbols>
+            var v = CompileAndVerify(CreateCompilationWithMscorlibAndSystemCore(source, options: TestOptions.DebugDll));
+            v.VerifyIL("Test.Main", @"
+{
+  // Code size       33 (0x21)
+  .maxstack  2
+  .locals init (bool V_0)
+ -IL_0000:  nop
+  .try
+  {
+   -IL_0001:  nop
+   -IL_0002:  newobj     ""System.Exception..ctor()""
+    IL_0007:  throw
+  }
+  filter
+  {
+   ~IL_0008:  pop
+   -IL_0009:  call       ""bool Test.F()""
+    IL_000e:  stloc.0
+   ~IL_000f:  ldloc.0
+    IL_0010:  ldc.i4.0
+    IL_0011:  cgt.un
+    IL_0013:  endfilter
+  }  // end filter
+  {  // handler
+   ~IL_0015:  pop
+   -IL_0016:  nop
+   -IL_0017:  call       ""void System.Console.WriteLine()""
+    IL_001c:  nop
+   -IL_001d:  nop
+    IL_001e:  leave.s    IL_0020
+  }
+ -IL_0020:  ret
+}
+", sequencePoints: "Test.Main");
+
+            v.VerifyPdb("Test.Main", @"<symbols>
+  <methods>
+    <method containingType=""Test"" name=""Main"">
+      <customDebugInfo>
+        <using>
+          <namespace usingCount=""0"" />
+        </using>
+        <encLocalSlotMap>
+          <slot kind=""1"" offset=""95"" />
+        </encLocalSlotMap>
+      </customDebugInfo>
+      <sequencePoints>
+        <entry offset=""0x0"" startLine=""5"" startColumn=""5"" endLine=""5"" endColumn=""6"" />
+        <entry offset=""0x1"" startLine=""7"" startColumn=""9"" endLine=""7"" endColumn=""10"" />
+        <entry offset=""0x2"" startLine=""8"" startColumn=""13"" endLine=""8"" endColumn=""42"" />
+        <entry offset=""0x8"" hidden=""true"" />
+        <entry offset=""0x9"" startLine=""10"" startColumn=""15"" endLine=""10"" endColumn=""25"" />
+        <entry offset=""0xf"" hidden=""true"" />
+        <entry offset=""0x15"" hidden=""true"" />
+        <entry offset=""0x16"" startLine=""11"" startColumn=""9"" endLine=""11"" endColumn=""10"" />
+        <entry offset=""0x17"" startLine=""12"" startColumn=""13"" endLine=""12"" endColumn=""40"" />
+        <entry offset=""0x1d"" startLine=""13"" startColumn=""9"" endLine=""13"" endColumn=""10"" />
+        <entry offset=""0x20"" startLine=""14"" startColumn=""5"" endLine=""14"" endColumn=""6"" />
+      </sequencePoints>
+    </method>
+  </methods>
+</symbols>");
+        }
+
+        [Fact, WorkItem(2911, "https://github.com/dotnet/roslyn/issues/2911")]
+        public void ExceptionHandling_Filter_Debug3()
+        {
+            var source = @"
+class Test
+{
+    static bool a = true;
+
+    static void Main()
+    {
+        try
+        {
+            throw new System.Exception();
+        }
+        catch when (a)
+        { 
+            System.Console.WriteLine();
+        }
+    }
+}
+";
+            var v = CompileAndVerify(CreateCompilationWithMscorlibAndSystemCore(source, options: TestOptions.DebugDll));
+            v.VerifyIL("Test.Main", @"
+{
+  // Code size       33 (0x21)
+  .maxstack  2
+  .locals init (bool V_0)
+ -IL_0000:  nop
+  .try
+  {
+   -IL_0001:  nop
+   -IL_0002:  newobj     ""System.Exception..ctor()""
+    IL_0007:  throw
+  }
+  filter
+  {
+   ~IL_0008:  pop
+   -IL_0009:  ldsfld     ""bool Test.a""
+    IL_000e:  stloc.0
+   ~IL_000f:  ldloc.0
+    IL_0010:  ldc.i4.0
+    IL_0011:  cgt.un
+    IL_0013:  endfilter
+  }  // end filter
+  {  // handler
+   ~IL_0015:  pop
+   -IL_0016:  nop
+   -IL_0017:  call       ""void System.Console.WriteLine()""
+    IL_001c:  nop
+   -IL_001d:  nop
+    IL_001e:  leave.s    IL_0020
+  }
+ -IL_0020:  ret
+}
+", sequencePoints: "Test.Main");
+
+            v.VerifyPdb("Test.Main", @"<symbols>
+  <methods>
+    <method containingType=""Test"" name=""Main"">
+      <customDebugInfo>
+        <using>
+          <namespace usingCount=""0"" />
+        </using>
+        <encLocalSlotMap>
+          <slot kind=""1"" offset=""95"" />
+        </encLocalSlotMap>
+      </customDebugInfo>
+      <sequencePoints>
+        <entry offset=""0x0"" startLine=""7"" startColumn=""5"" endLine=""7"" endColumn=""6"" />
+        <entry offset=""0x1"" startLine=""9"" startColumn=""9"" endLine=""9"" endColumn=""10"" />
+        <entry offset=""0x2"" startLine=""10"" startColumn=""13"" endLine=""10"" endColumn=""42"" />
+        <entry offset=""0x8"" hidden=""true"" />
+        <entry offset=""0x9"" startLine=""12"" startColumn=""15"" endLine=""12"" endColumn=""23"" />
+        <entry offset=""0xf"" hidden=""true"" />
+        <entry offset=""0x15"" hidden=""true"" />
+        <entry offset=""0x16"" startLine=""13"" startColumn=""9"" endLine=""13"" endColumn=""10"" />
+        <entry offset=""0x17"" startLine=""14"" startColumn=""13"" endLine=""14"" endColumn=""40"" />
+        <entry offset=""0x1d"" startLine=""15"" startColumn=""9"" endLine=""15"" endColumn=""10"" />
+        <entry offset=""0x20"" startLine=""16"" startColumn=""5"" endLine=""16"" endColumn=""6"" />
+      </sequencePoints>
+    </method>
+  </methods>
+</symbols>");
+        }
+
+        [Fact, WorkItem(2911, "https://github.com/dotnet/roslyn/issues/2911")]
+        public void ExceptionHandling_Filter_Release3()
+        {
+            var source = @"
+class Test
+{
+    static bool a = true;
+
+    static void Main()
+    {
+        try
+        {
+            throw new System.Exception();
+        }
+        catch when (a)
+        { 
+            System.Console.WriteLine();
+        }
+    }
+}
+";
+            var v = CompileAndVerify(CreateCompilationWithMscorlibAndSystemCore(source, options: TestOptions.ReleaseDll));
+            v.VerifyIL("Test.Main", @"
+{
+  // Code size       26 (0x1a)
+  .maxstack  2
+  .try
+  {
+   -IL_0000:  newobj     ""System.Exception..ctor()""
+    IL_0005:  throw
+  }
+  filter
+  {
+   ~IL_0006:  pop
+   -IL_0007:  ldsfld     ""bool Test.a""
+    IL_000c:  ldc.i4.0
+    IL_000d:  cgt.un
+    IL_000f:  endfilter
+  }  // end filter
+  {  // handler
+   ~IL_0011:  pop
+   -IL_0012:  call       ""void System.Console.WriteLine()""
+   -IL_0017:  leave.s    IL_0019
+  }
+ -IL_0019:  ret
+}
+", sequencePoints: "Test.Main");
+
+            v.VerifyPdb("Test.Main", @"<symbols>
   <methods>
     <method containingType=""Test"" name=""Main"">
       <customDebugInfo>
@@ -2483,18 +3350,14 @@ class Test
         </using>
       </customDebugInfo>
       <sequencePoints>
-        <entry offset=""0x0"" startLine=""5"" startColumn=""5"" endLine=""5"" endColumn=""6"" document=""0"" />
-        <entry offset=""0x1"" startLine=""7"" startColumn=""9"" endLine=""7"" endColumn=""10"" document=""0"" />
-        <entry offset=""0x2"" startLine=""8"" startColumn=""13"" endLine=""8"" endColumn=""42"" document=""0"" />
-        <entry offset=""0x8"" hidden=""true"" document=""0"" />
-        <entry offset=""0x15"" startLine=""10"" startColumn=""15"" endLine=""10"" endColumn=""25"" document=""0"" />
-        <entry offset=""0x1f"" hidden=""true"" document=""0"" />
-        <entry offset=""0x20"" startLine=""11"" startColumn=""9"" endLine=""11"" endColumn=""10"" document=""0"" />
-        <entry offset=""0x21"" startLine=""12"" startColumn=""13"" endLine=""12"" endColumn=""40"" document=""0"" />
-        <entry offset=""0x27"" startLine=""13"" startColumn=""9"" endLine=""13"" endColumn=""10"" document=""0"" />
-        <entry offset=""0x2a"" startLine=""14"" startColumn=""5"" endLine=""14"" endColumn=""6"" document=""0"" />
+        <entry offset=""0x0"" startLine=""10"" startColumn=""13"" endLine=""10"" endColumn=""42"" />
+        <entry offset=""0x6"" hidden=""true"" />
+        <entry offset=""0x7"" startLine=""12"" startColumn=""15"" endLine=""12"" endColumn=""23"" />
+        <entry offset=""0x11"" hidden=""true"" />
+        <entry offset=""0x12"" startLine=""14"" startColumn=""13"" endLine=""14"" endColumn=""40"" />
+        <entry offset=""0x17"" startLine=""15"" startColumn=""9"" endLine=""15"" endColumn=""10"" />
+        <entry offset=""0x19"" startLine=""16"" startColumn=""5"" endLine=""16"" endColumn=""6"" />
       </sequencePoints>
-      <locals />
     </method>
   </methods>
 </symbols>");
@@ -2546,26 +3409,22 @@ class Program
         </encLocalSlotMap>
       </customDebugInfo>
       <sequencePoints>
-        <entry offset=""0x0"" startLine=""8"" startColumn=""5"" endLine=""8"" endColumn=""6"" document=""0"" />
-        <entry offset=""0x1"" startLine=""9"" startColumn=""9"" endLine=""9"" endColumn=""27"" document=""0"" />
-        <entry offset=""0x3"" startLine=""10"" startColumn=""9"" endLine=""10"" endColumn=""50"" document=""0"" />
-        <entry offset=""0xa"" startLine=""12"" startColumn=""9"" endLine=""12"" endColumn=""22"" document=""0"" />
-        <entry offset=""0xf"" hidden=""true"" document=""0"" />
-        <entry offset=""0x12"" startLine=""13"" startColumn=""9"" endLine=""13"" endColumn=""10"" document=""0"" />
-        <entry offset=""0x13"" startLine=""14"" startColumn=""13"" endLine=""14"" endColumn=""35"" document=""0"" />
-        <entry offset=""0x19"" hidden=""true"" document=""0"" />
-        <entry offset=""0x1a"" startLine=""17"" startColumn=""9"" endLine=""17"" endColumn=""10"" document=""0"" />
-        <entry offset=""0x1b"" startLine=""18"" startColumn=""13"" endLine=""18"" endColumn=""33"" document=""0"" />
-        <entry offset=""0x21"" startLine=""19"" startColumn=""9"" endLine=""19"" endColumn=""10"" document=""0"" />
-        <entry offset=""0x24"" startLine=""20"" startColumn=""9"" endLine=""20"" endColumn=""14"" document=""0"" />
-        <entry offset=""0x25"" startLine=""21"" startColumn=""9"" endLine=""21"" endColumn=""10"" document=""0"" />
-        <entry offset=""0x26"" startLine=""22"" startColumn=""9"" endLine=""22"" endColumn=""10"" document=""0"" />
-        <entry offset=""0x29"" startLine=""23"" startColumn=""5"" endLine=""23"" endColumn=""6"" document=""0"" />
+        <entry offset=""0x0"" startLine=""8"" startColumn=""5"" endLine=""8"" endColumn=""6"" />
+        <entry offset=""0x1"" startLine=""9"" startColumn=""9"" endLine=""9"" endColumn=""27"" />
+        <entry offset=""0x3"" startLine=""10"" startColumn=""9"" endLine=""10"" endColumn=""50"" />
+        <entry offset=""0xa"" startLine=""12"" startColumn=""9"" endLine=""12"" endColumn=""22"" />
+        <entry offset=""0xf"" hidden=""true"" />
+        <entry offset=""0x12"" startLine=""13"" startColumn=""9"" endLine=""13"" endColumn=""10"" />
+        <entry offset=""0x13"" startLine=""14"" startColumn=""13"" endLine=""14"" endColumn=""35"" />
+        <entry offset=""0x19"" hidden=""true"" />
+        <entry offset=""0x1a"" startLine=""17"" startColumn=""9"" endLine=""17"" endColumn=""10"" />
+        <entry offset=""0x1b"" startLine=""18"" startColumn=""13"" endLine=""18"" endColumn=""33"" />
+        <entry offset=""0x21"" startLine=""19"" startColumn=""9"" endLine=""19"" endColumn=""10"" />
+        <entry offset=""0x24"" startLine=""20"" startColumn=""9"" endLine=""20"" endColumn=""14"" />
+        <entry offset=""0x25"" startLine=""21"" startColumn=""9"" endLine=""21"" endColumn=""10"" />
+        <entry offset=""0x26"" startLine=""22"" startColumn=""9"" endLine=""22"" endColumn=""10"" />
+        <entry offset=""0x29"" startLine=""23"" startColumn=""5"" endLine=""23"" endColumn=""6"" />
       </sequencePoints>
-      <locals>
-        <local name=""str"" il_index=""0"" il_start=""0x0"" il_end=""0x2a"" attributes=""0"" />
-        <local name=""isEmpty"" il_index=""1"" il_start=""0x0"" il_end=""0x2a"" attributes=""0"" />
-      </locals>
       <scope startOffset=""0x0"" endOffset=""0x2a"">
         <namespace name=""System"" />
         <namespace name=""System.Collections.Generic"" />
@@ -2635,31 +3494,25 @@ class C
         </encLocalSlotMap>
       </customDebugInfo>
       <sequencePoints>
-        <entry offset=""0x0"" startLine=""21"" startColumn=""5"" endLine=""21"" endColumn=""6"" document=""0"" />
-        <entry offset=""0x1"" startLine=""22"" startColumn=""16"" endLine=""22"" endColumn=""60"" document=""0"" />
-        <entry offset=""0xc"" startLine=""22"" startColumn=""62"" endLine=""22"" endColumn=""90"" document=""0"" />
-        <entry offset=""0x17"" startLine=""23"" startColumn=""13"" endLine=""23"" endColumn=""47"" document=""0"" />
-        <entry offset=""0x24"" hidden=""true"" document=""0"" />
-        <entry offset=""0x2f"" hidden=""true"" document=""0"" />
-        <entry offset=""0x31"" hidden=""true"" document=""0"" />
-        <entry offset=""0x3c"" startLine=""25"" startColumn=""16"" endLine=""25"" endColumn=""60"" document=""0"" />
-        <entry offset=""0x47"" startLine=""25"" startColumn=""62"" endLine=""25"" endColumn=""90"" document=""0"" />
-        <entry offset=""0x52"" startLine=""26"" startColumn=""9"" endLine=""26"" endColumn=""10"" document=""0"" />
-        <entry offset=""0x53"" startLine=""27"" startColumn=""13"" endLine=""27"" endColumn=""48"" document=""0"" />
-        <entry offset=""0x5e"" startLine=""28"" startColumn=""9"" endLine=""28"" endColumn=""10"" document=""0"" />
-        <entry offset=""0x61"" hidden=""true"" document=""0"" />
-        <entry offset=""0x6c"" hidden=""true"" document=""0"" />
-        <entry offset=""0x6e"" hidden=""true"" document=""0"" />
-        <entry offset=""0x79"" startLine=""31"" startColumn=""9"" endLine=""31"" endColumn=""10"" document=""0"" />
-        <entry offset=""0x7a"" startLine=""33"" startColumn=""9"" endLine=""33"" endColumn=""10"" document=""0"" />
-        <entry offset=""0x7b"" startLine=""34"" startColumn=""5"" endLine=""34"" endColumn=""6"" document=""0"" />
+        <entry offset=""0x0"" startLine=""21"" startColumn=""5"" endLine=""21"" endColumn=""6"" />
+        <entry offset=""0x1"" startLine=""22"" startColumn=""16"" endLine=""22"" endColumn=""60"" />
+        <entry offset=""0xc"" startLine=""22"" startColumn=""62"" endLine=""22"" endColumn=""90"" />
+        <entry offset=""0x17"" startLine=""23"" startColumn=""13"" endLine=""23"" endColumn=""47"" />
+        <entry offset=""0x24"" hidden=""true"" />
+        <entry offset=""0x2f"" hidden=""true"" />
+        <entry offset=""0x31"" hidden=""true"" />
+        <entry offset=""0x3c"" startLine=""25"" startColumn=""16"" endLine=""25"" endColumn=""60"" />
+        <entry offset=""0x47"" startLine=""25"" startColumn=""62"" endLine=""25"" endColumn=""90"" />
+        <entry offset=""0x52"" startLine=""26"" startColumn=""9"" endLine=""26"" endColumn=""10"" />
+        <entry offset=""0x53"" startLine=""27"" startColumn=""13"" endLine=""27"" endColumn=""48"" />
+        <entry offset=""0x5e"" startLine=""28"" startColumn=""9"" endLine=""28"" endColumn=""10"" />
+        <entry offset=""0x61"" hidden=""true"" />
+        <entry offset=""0x6c"" hidden=""true"" />
+        <entry offset=""0x6e"" hidden=""true"" />
+        <entry offset=""0x79"" startLine=""31"" startColumn=""9"" endLine=""31"" endColumn=""10"" />
+        <entry offset=""0x7a"" startLine=""33"" startColumn=""9"" endLine=""33"" endColumn=""10"" />
+        <entry offset=""0x7b"" startLine=""34"" startColumn=""5"" endLine=""34"" endColumn=""6"" />
       </sequencePoints>
-      <locals>
-        <local name=""a"" il_index=""0"" il_start=""0x1"" il_end=""0x3c"" attributes=""0"" />
-        <local name=""b"" il_index=""1"" il_start=""0x1"" il_end=""0x3c"" attributes=""0"" />
-        <local name=""c"" il_index=""2"" il_start=""0x3c"" il_end=""0x79"" attributes=""0"" />
-        <local name=""d"" il_index=""3"" il_start=""0x3c"" il_end=""0x79"" attributes=""0"" />
-      </locals>
       <scope startOffset=""0x0"" endOffset=""0x7c"">
         <scope startOffset=""0x1"" endOffset=""0x3c"">
           <local name=""a"" il_index=""0"" il_start=""0x1"" il_end=""0x3c"" attributes=""0"" />
@@ -2707,13 +3560,10 @@ class Program
         </encLocalSlotMap>
       </customDebugInfo>
       <sequencePoints>
-        <entry offset=""0x0"" startLine=""5"" startColumn=""5"" endLine=""5"" endColumn=""6"" document=""0"" />
-        <entry offset=""0x1"" startLine=""6"" startColumn=""9"" endLine=""6"" endColumn=""24"" document=""0"" />
-        <entry offset=""0x7"" startLine=""7"" startColumn=""5"" endLine=""7"" endColumn=""6"" document=""0"" />
+        <entry offset=""0x0"" startLine=""5"" startColumn=""5"" endLine=""5"" endColumn=""6"" />
+        <entry offset=""0x1"" startLine=""6"" startColumn=""9"" endLine=""6"" endColumn=""24"" />
+        <entry offset=""0x7"" startLine=""7"" startColumn=""5"" endLine=""7"" endColumn=""6"" />
       </sequencePoints>
-      <locals>
-        <local name=""o"" il_index=""0"" il_start=""0x0"" il_end=""0x8"" attributes=""0"" />
-      </locals>
       <scope startOffset=""0x0"" endOffset=""0x8"">
         <local name=""o"" il_index=""0"" il_start=""0x0"" il_end=""0x8"" attributes=""0"" />
       </scope>
@@ -2748,13 +3598,10 @@ class Program
         </encLocalSlotMap>
       </customDebugInfo>
       <sequencePoints>
-        <entry offset=""0x0"" startLine=""5"" startColumn=""5"" endLine=""5"" endColumn=""6"" document=""0"" />
-        <entry offset=""0x1"" startLine=""6"" startColumn=""9"" endLine=""6"" endColumn=""31"" document=""0"" />
-        <entry offset=""0x8"" startLine=""7"" startColumn=""5"" endLine=""7"" endColumn=""6"" document=""0"" />
+        <entry offset=""0x0"" startLine=""5"" startColumn=""5"" endLine=""5"" endColumn=""6"" />
+        <entry offset=""0x1"" startLine=""6"" startColumn=""9"" endLine=""6"" endColumn=""31"" />
+        <entry offset=""0x8"" startLine=""7"" startColumn=""5"" endLine=""7"" endColumn=""6"" />
       </sequencePoints>
-      <locals>
-        <local name=""o"" il_index=""0"" il_start=""0x0"" il_end=""0x9"" attributes=""0"" />
-      </locals>
       <scope startOffset=""0x0"" endOffset=""0x9"">
         <local name=""o"" il_index=""0"" il_start=""0x0"" il_end=""0x9"" attributes=""0"" />
       </scope>
@@ -2804,20 +3651,16 @@ unsafe class C
         </encLocalSlotMap>
       </customDebugInfo>
       <sequencePoints>
-        <entry offset=""0x0"" startLine=""9"" startColumn=""5"" endLine=""9"" endColumn=""6"" document=""0"" />
-        <entry offset=""0x1"" startLine=""10"" startColumn=""9"" endLine=""10"" endColumn=""23"" document=""0"" />
-        <entry offset=""0x7"" startLine=""11"" startColumn=""16"" endLine=""11"" endColumn=""29"" document=""0"" />
-        <entry offset=""0xe"" startLine=""12"" startColumn=""9"" endLine=""12"" endColumn=""10"" document=""0"" />
-        <entry offset=""0xf"" startLine=""13"" startColumn=""13"" endLine=""13"" endColumn=""20"" document=""0"" />
-        <entry offset=""0x13"" startLine=""14"" startColumn=""9"" endLine=""14"" endColumn=""10"" document=""0"" />
-        <entry offset=""0x14"" hidden=""true"" document=""0"" />
-        <entry offset=""0x17"" startLine=""15"" startColumn=""9"" endLine=""15"" endColumn=""32"" document=""0"" />
-        <entry offset=""0x23"" startLine=""16"" startColumn=""5"" endLine=""16"" endColumn=""6"" document=""0"" />
+        <entry offset=""0x0"" startLine=""9"" startColumn=""5"" endLine=""9"" endColumn=""6"" />
+        <entry offset=""0x1"" startLine=""10"" startColumn=""9"" endLine=""10"" endColumn=""23"" />
+        <entry offset=""0x7"" startLine=""11"" startColumn=""16"" endLine=""11"" endColumn=""29"" />
+        <entry offset=""0xe"" startLine=""12"" startColumn=""9"" endLine=""12"" endColumn=""10"" />
+        <entry offset=""0xf"" startLine=""13"" startColumn=""13"" endLine=""13"" endColumn=""20"" />
+        <entry offset=""0x13"" startLine=""14"" startColumn=""9"" endLine=""14"" endColumn=""10"" />
+        <entry offset=""0x14"" hidden=""true"" />
+        <entry offset=""0x17"" startLine=""15"" startColumn=""9"" endLine=""15"" endColumn=""32"" />
+        <entry offset=""0x23"" startLine=""16"" startColumn=""5"" endLine=""16"" endColumn=""6"" />
       </sequencePoints>
-      <locals>
-        <local name=""c"" il_index=""0"" il_start=""0x0"" il_end=""0x24"" attributes=""0"" />
-        <local name=""p"" il_index=""1"" il_start=""0x7"" il_end=""0x17"" attributes=""0"" />
-      </locals>
       <scope startOffset=""0x0"" endOffset=""0x24"">
         <namespace name=""System"" />
         <local name=""c"" il_index=""0"" il_start=""0x0"" il_end=""0x24"" attributes=""0"" />
@@ -2862,17 +3705,14 @@ unsafe class C
         </encLocalSlotMap>
       </customDebugInfo>
       <sequencePoints>
-        <entry offset=""0x0"" startLine=""7"" startColumn=""5"" endLine=""7"" endColumn=""6"" document=""0"" />
-        <entry offset=""0x7"" startLine=""8"" startColumn=""16"" endLine=""8"" endColumn=""33"" document=""0"" />
-        <entry offset=""0x15"" startLine=""9"" startColumn=""9"" endLine=""9"" endColumn=""10"" document=""0"" />
-        <entry offset=""0x16"" startLine=""10"" startColumn=""13"" endLine=""10"" endColumn=""35"" document=""0"" />
-        <entry offset=""0x1e"" startLine=""11"" startColumn=""9"" endLine=""11"" endColumn=""10"" document=""0"" />
-        <entry offset=""0x1f"" hidden=""true"" document=""0"" />
-        <entry offset=""0x21"" startLine=""12"" startColumn=""5"" endLine=""12"" endColumn=""6"" document=""0"" />
+        <entry offset=""0x0"" startLine=""7"" startColumn=""5"" endLine=""7"" endColumn=""6"" />
+        <entry offset=""0x7"" startLine=""8"" startColumn=""16"" endLine=""8"" endColumn=""33"" />
+        <entry offset=""0x15"" startLine=""9"" startColumn=""9"" endLine=""9"" endColumn=""10"" />
+        <entry offset=""0x16"" startLine=""10"" startColumn=""13"" endLine=""10"" endColumn=""35"" />
+        <entry offset=""0x1e"" startLine=""11"" startColumn=""9"" endLine=""11"" endColumn=""10"" />
+        <entry offset=""0x1f"" hidden=""true"" />
+        <entry offset=""0x21"" startLine=""12"" startColumn=""5"" endLine=""12"" endColumn=""6"" />
       </sequencePoints>
-      <locals>
-        <local name=""p"" il_index=""0"" il_start=""0x1"" il_end=""0x21"" attributes=""0"" />
-      </locals>
       <scope startOffset=""0x0"" endOffset=""0x22"">
         <namespace name=""System"" />
         <scope startOffset=""0x1"" endOffset=""0x21"">
@@ -2925,21 +3765,17 @@ unsafe class C
         </encLocalSlotMap>
       </customDebugInfo>
       <sequencePoints>
-        <entry offset=""0x0"" startLine=""9"" startColumn=""5"" endLine=""9"" endColumn=""6"" document=""0"" />
-        <entry offset=""0x1"" startLine=""10"" startColumn=""9"" endLine=""10"" endColumn=""23"" document=""0"" />
-        <entry offset=""0x7"" startLine=""11"" startColumn=""9"" endLine=""11"" endColumn=""31"" document=""0"" />
-        <entry offset=""0x15"" startLine=""12"" startColumn=""16"" endLine=""12"" endColumn=""28"" document=""0"" />
-        <entry offset=""0x31"" startLine=""13"" startColumn=""9"" endLine=""13"" endColumn=""10"" document=""0"" />
-        <entry offset=""0x32"" startLine=""14"" startColumn=""13"" endLine=""14"" endColumn=""20"" document=""0"" />
-        <entry offset=""0x3f"" startLine=""15"" startColumn=""9"" endLine=""15"" endColumn=""10"" document=""0"" />
-        <entry offset=""0x40"" hidden=""true"" document=""0"" />
-        <entry offset=""0x43"" startLine=""16"" startColumn=""9"" endLine=""16"" endColumn=""31"" document=""0"" />
-        <entry offset=""0x51"" startLine=""17"" startColumn=""5"" endLine=""17"" endColumn=""6"" document=""0"" />
+        <entry offset=""0x0"" startLine=""9"" startColumn=""5"" endLine=""9"" endColumn=""6"" />
+        <entry offset=""0x1"" startLine=""10"" startColumn=""9"" endLine=""10"" endColumn=""23"" />
+        <entry offset=""0x7"" startLine=""11"" startColumn=""9"" endLine=""11"" endColumn=""31"" />
+        <entry offset=""0x15"" startLine=""12"" startColumn=""16"" endLine=""12"" endColumn=""28"" />
+        <entry offset=""0x31"" startLine=""13"" startColumn=""9"" endLine=""13"" endColumn=""10"" />
+        <entry offset=""0x32"" startLine=""14"" startColumn=""13"" endLine=""14"" endColumn=""20"" />
+        <entry offset=""0x3f"" startLine=""15"" startColumn=""9"" endLine=""15"" endColumn=""10"" />
+        <entry offset=""0x40"" hidden=""true"" />
+        <entry offset=""0x43"" startLine=""16"" startColumn=""9"" endLine=""16"" endColumn=""31"" />
+        <entry offset=""0x51"" startLine=""17"" startColumn=""5"" endLine=""17"" endColumn=""6"" />
       </sequencePoints>
-      <locals>
-        <local name=""c"" il_index=""0"" il_start=""0x0"" il_end=""0x52"" attributes=""0"" />
-        <local name=""p"" il_index=""1"" il_start=""0x15"" il_end=""0x43"" attributes=""0"" />
-      </locals>
       <scope startOffset=""0x0"" endOffset=""0x52"">
         <namespace name=""System"" />
         <local name=""c"" il_index=""0"" il_start=""0x0"" il_end=""0x52"" attributes=""0"" />
@@ -2953,9 +3789,8 @@ unsafe class C
         <forward declaringType=""C"" methodName=""Main"" />
       </customDebugInfo>
       <sequencePoints>
-        <entry offset=""0x0"" startLine=""6"" startColumn=""5"" endLine=""6"" endColumn=""26"" document=""0"" />
+        <entry offset=""0x0"" startLine=""6"" startColumn=""5"" endLine=""6"" endColumn=""26"" />
       </sequencePoints>
-      <locals />
     </method>
   </methods>
 </symbols>");
@@ -3002,23 +3837,18 @@ unsafe class C
         </encLocalSlotMap>
       </customDebugInfo>
       <sequencePoints>
-        <entry offset=""0x0"" startLine=""10"" startColumn=""5"" endLine=""10"" endColumn=""6"" document=""0"" />
-        <entry offset=""0x1"" startLine=""11"" startColumn=""9"" endLine=""11"" endColumn=""23"" document=""0"" />
-        <entry offset=""0x7"" startLine=""12"" startColumn=""16"" endLine=""12"" endColumn=""29"" document=""0"" />
-        <entry offset=""0xe"" startLine=""12"" startColumn=""31"" endLine=""12"" endColumn=""39"" document=""0"" />
-        <entry offset=""0x15"" startLine=""13"" startColumn=""9"" endLine=""13"" endColumn=""10"" document=""0"" />
-        <entry offset=""0x16"" startLine=""14"" startColumn=""13"" endLine=""14"" endColumn=""20"" document=""0"" />
-        <entry offset=""0x1a"" startLine=""15"" startColumn=""13"" endLine=""15"" endColumn=""20"" document=""0"" />
-        <entry offset=""0x1e"" startLine=""16"" startColumn=""9"" endLine=""16"" endColumn=""10"" document=""0"" />
-        <entry offset=""0x1f"" hidden=""true"" document=""0"" />
-        <entry offset=""0x25"" startLine=""17"" startColumn=""9"" endLine=""17"" endColumn=""38"" document=""0"" />
-        <entry offset=""0x38"" startLine=""18"" startColumn=""5"" endLine=""18"" endColumn=""6"" document=""0"" />
+        <entry offset=""0x0"" startLine=""10"" startColumn=""5"" endLine=""10"" endColumn=""6"" />
+        <entry offset=""0x1"" startLine=""11"" startColumn=""9"" endLine=""11"" endColumn=""23"" />
+        <entry offset=""0x7"" startLine=""12"" startColumn=""16"" endLine=""12"" endColumn=""29"" />
+        <entry offset=""0xe"" startLine=""12"" startColumn=""31"" endLine=""12"" endColumn=""39"" />
+        <entry offset=""0x15"" startLine=""13"" startColumn=""9"" endLine=""13"" endColumn=""10"" />
+        <entry offset=""0x16"" startLine=""14"" startColumn=""13"" endLine=""14"" endColumn=""20"" />
+        <entry offset=""0x1a"" startLine=""15"" startColumn=""13"" endLine=""15"" endColumn=""20"" />
+        <entry offset=""0x1e"" startLine=""16"" startColumn=""9"" endLine=""16"" endColumn=""10"" />
+        <entry offset=""0x1f"" hidden=""true"" />
+        <entry offset=""0x25"" startLine=""17"" startColumn=""9"" endLine=""17"" endColumn=""38"" />
+        <entry offset=""0x38"" startLine=""18"" startColumn=""5"" endLine=""18"" endColumn=""6"" />
       </sequencePoints>
-      <locals>
-        <local name=""c"" il_index=""0"" il_start=""0x0"" il_end=""0x39"" attributes=""0"" />
-        <local name=""p"" il_index=""1"" il_start=""0x7"" il_end=""0x25"" attributes=""0"" />
-        <local name=""q"" il_index=""2"" il_start=""0x7"" il_end=""0x25"" attributes=""0"" />
-      </locals>
       <scope startOffset=""0x0"" endOffset=""0x39"">
         <namespace name=""System"" />
         <local name=""c"" il_index=""0"" il_start=""0x0"" il_end=""0x39"" attributes=""0"" />
@@ -3068,20 +3898,16 @@ unsafe class C
         </encLocalSlotMap>
       </customDebugInfo>
       <sequencePoints>
-        <entry offset=""0x0"" startLine=""7"" startColumn=""5"" endLine=""7"" endColumn=""6"" document=""0"" />
-        <entry offset=""0x7"" startLine=""8"" startColumn=""16"" endLine=""8"" endColumn=""33"" document=""0"" />
-        <entry offset=""0x1b"" startLine=""8"" startColumn=""35"" endLine=""8"" endColumn=""48"" document=""0"" />
-        <entry offset=""0x29"" startLine=""9"" startColumn=""9"" endLine=""9"" endColumn=""10"" document=""0"" />
-        <entry offset=""0x2a"" startLine=""10"" startColumn=""13"" endLine=""10"" endColumn=""31"" document=""0"" />
-        <entry offset=""0x32"" startLine=""11"" startColumn=""13"" endLine=""11"" endColumn=""31"" document=""0"" />
-        <entry offset=""0x3a"" startLine=""12"" startColumn=""9"" endLine=""12"" endColumn=""10"" document=""0"" />
-        <entry offset=""0x3b"" hidden=""true"" document=""0"" />
-        <entry offset=""0x3f"" startLine=""13"" startColumn=""5"" endLine=""13"" endColumn=""6"" document=""0"" />
+        <entry offset=""0x0"" startLine=""7"" startColumn=""5"" endLine=""7"" endColumn=""6"" />
+        <entry offset=""0x7"" startLine=""8"" startColumn=""16"" endLine=""8"" endColumn=""33"" />
+        <entry offset=""0x1b"" startLine=""8"" startColumn=""35"" endLine=""8"" endColumn=""48"" />
+        <entry offset=""0x29"" startLine=""9"" startColumn=""9"" endLine=""9"" endColumn=""10"" />
+        <entry offset=""0x2a"" startLine=""10"" startColumn=""13"" endLine=""10"" endColumn=""31"" />
+        <entry offset=""0x32"" startLine=""11"" startColumn=""13"" endLine=""11"" endColumn=""31"" />
+        <entry offset=""0x3a"" startLine=""12"" startColumn=""9"" endLine=""12"" endColumn=""10"" />
+        <entry offset=""0x3b"" hidden=""true"" />
+        <entry offset=""0x3f"" startLine=""13"" startColumn=""5"" endLine=""13"" endColumn=""6"" />
       </sequencePoints>
-      <locals>
-        <local name=""p"" il_index=""0"" il_start=""0x1"" il_end=""0x3f"" attributes=""0"" />
-        <local name=""q"" il_index=""1"" il_start=""0x1"" il_end=""0x3f"" attributes=""0"" />
-      </locals>
       <scope startOffset=""0x0"" endOffset=""0x40"">
         <namespace name=""System"" />
         <scope startOffset=""0x1"" endOffset=""0x3f"">
@@ -3139,26 +3965,21 @@ unsafe class C
         </encLocalSlotMap>
       </customDebugInfo>
       <sequencePoints>
-        <entry offset=""0x0"" startLine=""10"" startColumn=""5"" endLine=""10"" endColumn=""6"" document=""0"" />
-        <entry offset=""0x1"" startLine=""11"" startColumn=""9"" endLine=""11"" endColumn=""23"" document=""0"" />
-        <entry offset=""0x7"" startLine=""12"" startColumn=""9"" endLine=""12"" endColumn=""31"" document=""0"" />
-        <entry offset=""0x15"" startLine=""13"" startColumn=""9"" endLine=""13"" endColumn=""31"" document=""0"" />
-        <entry offset=""0x23"" startLine=""14"" startColumn=""16"" endLine=""14"" endColumn=""28"" document=""0"" />
-        <entry offset=""0x3f"" startLine=""14"" startColumn=""30"" endLine=""14"" endColumn=""37"" document=""0"" />
-        <entry offset=""0x5e"" startLine=""15"" startColumn=""9"" endLine=""15"" endColumn=""10"" document=""0"" />
-        <entry offset=""0x5f"" startLine=""16"" startColumn=""13"" endLine=""16"" endColumn=""20"" document=""0"" />
-        <entry offset=""0x63"" startLine=""17"" startColumn=""13"" endLine=""17"" endColumn=""20"" document=""0"" />
-        <entry offset=""0x67"" startLine=""18"" startColumn=""9"" endLine=""18"" endColumn=""10"" document=""0"" />
-        <entry offset=""0x68"" hidden=""true"" document=""0"" />
-        <entry offset=""0x6e"" startLine=""19"" startColumn=""9"" endLine=""19"" endColumn=""31"" document=""0"" />
-        <entry offset=""0x7c"" startLine=""20"" startColumn=""9"" endLine=""20"" endColumn=""31"" document=""0"" />
-        <entry offset=""0x8a"" startLine=""21"" startColumn=""5"" endLine=""21"" endColumn=""6"" document=""0"" />
+        <entry offset=""0x0"" startLine=""10"" startColumn=""5"" endLine=""10"" endColumn=""6"" />
+        <entry offset=""0x1"" startLine=""11"" startColumn=""9"" endLine=""11"" endColumn=""23"" />
+        <entry offset=""0x7"" startLine=""12"" startColumn=""9"" endLine=""12"" endColumn=""31"" />
+        <entry offset=""0x15"" startLine=""13"" startColumn=""9"" endLine=""13"" endColumn=""31"" />
+        <entry offset=""0x23"" startLine=""14"" startColumn=""16"" endLine=""14"" endColumn=""28"" />
+        <entry offset=""0x3f"" startLine=""14"" startColumn=""30"" endLine=""14"" endColumn=""37"" />
+        <entry offset=""0x5e"" startLine=""15"" startColumn=""9"" endLine=""15"" endColumn=""10"" />
+        <entry offset=""0x5f"" startLine=""16"" startColumn=""13"" endLine=""16"" endColumn=""20"" />
+        <entry offset=""0x63"" startLine=""17"" startColumn=""13"" endLine=""17"" endColumn=""20"" />
+        <entry offset=""0x67"" startLine=""18"" startColumn=""9"" endLine=""18"" endColumn=""10"" />
+        <entry offset=""0x68"" hidden=""true"" />
+        <entry offset=""0x6e"" startLine=""19"" startColumn=""9"" endLine=""19"" endColumn=""31"" />
+        <entry offset=""0x7c"" startLine=""20"" startColumn=""9"" endLine=""20"" endColumn=""31"" />
+        <entry offset=""0x8a"" startLine=""21"" startColumn=""5"" endLine=""21"" endColumn=""6"" />
       </sequencePoints>
-      <locals>
-        <local name=""c"" il_index=""0"" il_start=""0x0"" il_end=""0x8b"" attributes=""0"" />
-        <local name=""p"" il_index=""1"" il_start=""0x23"" il_end=""0x6e"" attributes=""0"" />
-        <local name=""q"" il_index=""2"" il_start=""0x23"" il_end=""0x6e"" attributes=""0"" />
-      </locals>
       <scope startOffset=""0x0"" endOffset=""0x8b"">
         <namespace name=""System"" />
         <local name=""c"" il_index=""0"" il_start=""0x0"" il_end=""0x8b"" attributes=""0"" />
@@ -3173,10 +3994,9 @@ unsafe class C
         <forward declaringType=""C"" methodName=""Main"" />
       </customDebugInfo>
       <sequencePoints>
-        <entry offset=""0x0"" startLine=""6"" startColumn=""5"" endLine=""6"" endColumn=""26"" document=""0"" />
-        <entry offset=""0xc"" startLine=""7"" startColumn=""5"" endLine=""7"" endColumn=""26"" document=""0"" />
+        <entry offset=""0x0"" startLine=""6"" startColumn=""5"" endLine=""6"" endColumn=""26"" />
+        <entry offset=""0xc"" startLine=""7"" startColumn=""5"" endLine=""7"" endColumn=""26"" />
       </sequencePoints>
-      <locals />
     </method>
   </methods>
 </symbols>");
@@ -3224,25 +4044,19 @@ unsafe class C
         </encLocalSlotMap>
       </customDebugInfo>
       <sequencePoints>
-        <entry offset=""0x0"" startLine=""10"" startColumn=""5"" endLine=""10"" endColumn=""6"" document=""0"" />
-        <entry offset=""0x1"" startLine=""11"" startColumn=""9"" endLine=""11"" endColumn=""23"" document=""0"" />
-        <entry offset=""0x7"" startLine=""12"" startColumn=""16"" endLine=""12"" endColumn=""30"" document=""0"" />
-        <entry offset=""0xe"" startLine=""12"" startColumn=""32"" endLine=""12"" endColumn=""39"" document=""0"" />
-        <entry offset=""0x34"" startLine=""12"" startColumn=""41"" endLine=""12"" endColumn=""52"" document=""0"" />
-        <entry offset=""0x43"" startLine=""13"" startColumn=""9"" endLine=""13"" endColumn=""10"" document=""0"" />
-        <entry offset=""0x44"" startLine=""14"" startColumn=""13"" endLine=""14"" endColumn=""36"" document=""0"" />
-        <entry offset=""0x4d"" startLine=""15"" startColumn=""13"" endLine=""15"" endColumn=""36"" document=""0"" />
-        <entry offset=""0x56"" startLine=""16"" startColumn=""13"" endLine=""16"" endColumn=""36"" document=""0"" />
-        <entry offset=""0x5e"" startLine=""17"" startColumn=""9"" endLine=""17"" endColumn=""10"" document=""0"" />
-        <entry offset=""0x5f"" hidden=""true"" document=""0"" />
-        <entry offset=""0x68"" startLine=""18"" startColumn=""5"" endLine=""18"" endColumn=""6"" document=""0"" />
+        <entry offset=""0x0"" startLine=""10"" startColumn=""5"" endLine=""10"" endColumn=""6"" />
+        <entry offset=""0x1"" startLine=""11"" startColumn=""9"" endLine=""11"" endColumn=""23"" />
+        <entry offset=""0x7"" startLine=""12"" startColumn=""16"" endLine=""12"" endColumn=""30"" />
+        <entry offset=""0xe"" startLine=""12"" startColumn=""32"" endLine=""12"" endColumn=""39"" />
+        <entry offset=""0x34"" startLine=""12"" startColumn=""41"" endLine=""12"" endColumn=""52"" />
+        <entry offset=""0x43"" startLine=""13"" startColumn=""9"" endLine=""13"" endColumn=""10"" />
+        <entry offset=""0x44"" startLine=""14"" startColumn=""13"" endLine=""14"" endColumn=""36"" />
+        <entry offset=""0x4d"" startLine=""15"" startColumn=""13"" endLine=""15"" endColumn=""36"" />
+        <entry offset=""0x56"" startLine=""16"" startColumn=""13"" endLine=""16"" endColumn=""36"" />
+        <entry offset=""0x5e"" startLine=""17"" startColumn=""9"" endLine=""17"" endColumn=""10"" />
+        <entry offset=""0x5f"" hidden=""true"" />
+        <entry offset=""0x68"" startLine=""18"" startColumn=""5"" endLine=""18"" endColumn=""6"" />
       </sequencePoints>
-      <locals>
-        <local name=""c"" il_index=""0"" il_start=""0x0"" il_end=""0x69"" attributes=""0"" />
-        <local name=""p"" il_index=""1"" il_start=""0x7"" il_end=""0x68"" attributes=""0"" />
-        <local name=""q"" il_index=""2"" il_start=""0x7"" il_end=""0x68"" attributes=""0"" />
-        <local name=""r"" il_index=""3"" il_start=""0x7"" il_end=""0x68"" attributes=""0"" />
-      </locals>
       <scope startOffset=""0x0"" endOffset=""0x69"">
         <namespace name=""System"" />
         <local name=""c"" il_index=""0"" il_start=""0x0"" il_end=""0x69"" attributes=""0"" />
@@ -3258,10 +4072,9 @@ unsafe class C
         <forward declaringType=""C"" methodName=""Main"" />
       </customDebugInfo>
       <sequencePoints>
-        <entry offset=""0x0"" startLine=""6"" startColumn=""5"" endLine=""6"" endColumn=""18"" document=""0"" />
-        <entry offset=""0x8"" startLine=""7"" startColumn=""5"" endLine=""7"" endColumn=""28"" document=""0"" />
+        <entry offset=""0x0"" startLine=""6"" startColumn=""5"" endLine=""6"" endColumn=""18"" />
+        <entry offset=""0x8"" startLine=""7"" startColumn=""5"" endLine=""7"" endColumn=""28"" />
       </sequencePoints>
-      <locals />
     </method>
   </methods>
 </symbols>");
@@ -3306,7 +4119,6 @@ unsafe class C
         <entry offset=""0x1"" startLine=""57"" startColumn=""9"" endLine=""57"" endColumn=""26"" document=""1"" />
         <entry offset=""0x8"" startLine=""58"" startColumn=""5"" endLine=""58"" endColumn=""6"" document=""1"" />
       </sequencePoints>
-      <locals />
       <scope startOffset=""0x0"" endOffset=""0x9"">
         <namespace name=""System"" />
       </scope>
@@ -3346,11 +4158,10 @@ unsafe class C
         </using>
       </customDebugInfo>
       <sequencePoints>
-        <entry offset=""0x0"" startLine=""11"" startColumn=""5"" endLine=""11"" endColumn=""6"" document=""0"" />
-        <entry offset=""0x1"" startLine=""12"" startColumn=""9"" endLine=""12"" endColumn=""26"" document=""0"" />
-        <entry offset=""0x8"" startLine=""13"" startColumn=""5"" endLine=""13"" endColumn=""6"" document=""0"" />
+        <entry offset=""0x0"" startLine=""11"" startColumn=""5"" endLine=""11"" endColumn=""6"" />
+        <entry offset=""0x1"" startLine=""12"" startColumn=""9"" endLine=""12"" endColumn=""26"" />
+        <entry offset=""0x8"" startLine=""13"" startColumn=""5"" endLine=""13"" endColumn=""6"" />
       </sequencePoints>
-      <locals />
       <scope startOffset=""0x0"" endOffset=""0x9"">
         <namespace name=""System"" />
       </scope>
@@ -3410,41 +4221,36 @@ public class C
         </encLocalSlotMap>
       </customDebugInfo>
       <sequencePoints>
-        <entry offset=""0x0"" startLine=""6"" startColumn=""5"" endLine=""6"" endColumn=""6"" document=""0"" />
-        <entry offset=""0x1"" startLine=""7"" startColumn=""9"" endLine=""7"" endColumn=""16"" document=""0"" />
-        <entry offset=""0x2"" startLine=""7"" startColumn=""27"" endLine=""7"" endColumn=""51"" document=""0"" />
-        <entry offset=""0x16"" hidden=""true"" document=""0"" />
-        <entry offset=""0x18"" startLine=""7"" startColumn=""18"" endLine=""7"" endColumn=""23"" document=""0"" />
-        <entry offset=""0x1c"" startLine=""8"" startColumn=""9"" endLine=""8"" endColumn=""10"" document=""0"" />
-        <entry offset=""0x1d"" startLine=""9"" startColumn=""13"" endLine=""9"" endColumn=""34"" document=""0"" />
-        <entry offset=""0x24"" startLine=""10"" startColumn=""9"" endLine=""10"" endColumn=""10"" document=""0"" />
-        <entry offset=""0x25"" hidden=""true"" document=""0"" />
-        <entry offset=""0x29"" startLine=""7"" startColumn=""24"" endLine=""7"" endColumn=""26"" document=""0"" />
-        <entry offset=""0x2f"" hidden=""true"" document=""0"" />
-        <entry offset=""0x30"" hidden=""true"" document=""0"" />
-        <entry offset=""0x45"" hidden=""true"" document=""0"" />
-        <entry offset=""0x47"" hidden=""true"" document=""0"" />
-        <entry offset=""0x4d"" hidden=""true"" document=""0"" />
-        <entry offset=""0x4e"" hidden=""true"" document=""0"" />
-        <entry offset=""0x56"" hidden=""true"" document=""0"" />
-        <entry offset=""0x57"" hidden=""true"" document=""0"" />
-        <entry offset=""0x5d"" hidden=""true"" document=""0"" />
-        <entry offset=""0x64"" startLine=""19"" startColumn=""9"" endLine=""19"" endColumn=""16"" document=""0"" />
-        <entry offset=""0x65"" startLine=""19"" startColumn=""27"" endLine=""19"" endColumn=""51"" document=""0"" />
-        <entry offset=""0x7b"" hidden=""true"" document=""0"" />
-        <entry offset=""0x7d"" startLine=""19"" startColumn=""18"" endLine=""19"" endColumn=""23"" document=""0"" />
-        <entry offset=""0x84"" startLine=""20"" startColumn=""9"" endLine=""20"" endColumn=""10"" document=""0"" />
-        <entry offset=""0x85"" startLine=""21"" startColumn=""13"" endLine=""21"" endColumn=""34"" document=""0"" />
-        <entry offset=""0x8d"" startLine=""22"" startColumn=""9"" endLine=""22"" endColumn=""10"" document=""0"" />
-        <entry offset=""0x8e"" hidden=""true"" document=""0"" />
-        <entry offset=""0x94"" startLine=""19"" startColumn=""24"" endLine=""19"" endColumn=""26"" document=""0"" />
-        <entry offset=""0x9c"" startLine=""23"" startColumn=""5"" endLine=""23"" endColumn=""6"" document=""0"" />
+        <entry offset=""0x0"" startLine=""6"" startColumn=""5"" endLine=""6"" endColumn=""6"" />
+        <entry offset=""0x1"" startLine=""7"" startColumn=""9"" endLine=""7"" endColumn=""16"" />
+        <entry offset=""0x2"" startLine=""7"" startColumn=""27"" endLine=""7"" endColumn=""51"" />
+        <entry offset=""0x16"" hidden=""true"" />
+        <entry offset=""0x18"" startLine=""7"" startColumn=""18"" endLine=""7"" endColumn=""23"" />
+        <entry offset=""0x1c"" startLine=""8"" startColumn=""9"" endLine=""8"" endColumn=""10"" />
+        <entry offset=""0x1d"" startLine=""9"" startColumn=""13"" endLine=""9"" endColumn=""34"" />
+        <entry offset=""0x24"" startLine=""10"" startColumn=""9"" endLine=""10"" endColumn=""10"" />
+        <entry offset=""0x25"" hidden=""true"" />
+        <entry offset=""0x29"" startLine=""7"" startColumn=""24"" endLine=""7"" endColumn=""26"" />
+        <entry offset=""0x2f"" hidden=""true"" />
+        <entry offset=""0x30"" hidden=""true"" />
+        <entry offset=""0x45"" hidden=""true"" />
+        <entry offset=""0x47"" hidden=""true"" />
+        <entry offset=""0x4d"" hidden=""true"" />
+        <entry offset=""0x4e"" hidden=""true"" />
+        <entry offset=""0x56"" hidden=""true"" />
+        <entry offset=""0x57"" hidden=""true"" />
+        <entry offset=""0x5d"" hidden=""true"" />
+        <entry offset=""0x64"" startLine=""19"" startColumn=""9"" endLine=""19"" endColumn=""16"" />
+        <entry offset=""0x65"" startLine=""19"" startColumn=""27"" endLine=""19"" endColumn=""51"" />
+        <entry offset=""0x7b"" hidden=""true"" />
+        <entry offset=""0x7d"" startLine=""19"" startColumn=""18"" endLine=""19"" endColumn=""23"" />
+        <entry offset=""0x84"" startLine=""20"" startColumn=""9"" endLine=""20"" endColumn=""10"" />
+        <entry offset=""0x85"" startLine=""21"" startColumn=""13"" endLine=""21"" endColumn=""34"" />
+        <entry offset=""0x8d"" startLine=""22"" startColumn=""9"" endLine=""22"" endColumn=""10"" />
+        <entry offset=""0x8e"" hidden=""true"" />
+        <entry offset=""0x94"" startLine=""19"" startColumn=""24"" endLine=""19"" endColumn=""26"" />
+        <entry offset=""0x9c"" startLine=""23"" startColumn=""5"" endLine=""23"" endColumn=""6"" />
       </sequencePoints>
-      <locals>
-        <local name=""x"" il_index=""2"" il_start=""0x18"" il_end=""0x25"" attributes=""0"" />
-        <local name=""x"" il_index=""5"" il_start=""0x47"" il_end=""0x57"" attributes=""0"" />
-        <local name=""x"" il_index=""8"" il_start=""0x7d"" il_end=""0x8e"" attributes=""0"" />
-      </locals>
       <scope startOffset=""0x0"" endOffset=""0x9d"">
         <namespace name=""System"" />
         <scope startOffset=""0x18"" endOffset=""0x25"">
@@ -3481,14 +4287,13 @@ public class T
     }
 }";
 
-            var c = CreateCompilationWithMscorlibAndSystemCore(source, options: TestOptions.DebugExe);
+            var c = CreateCompilationWithMscorlibAndSystemCore(source, options: TestOptions.DebugDll);
 
             // Note:  U+FFFD is the Unicode 'replacement character' point and is used to replace an incoming character
             //        whose value is unknown or unrepresentable in Unicode.  This is what our pdb writer does with
-            //        unparied surrogates.
-            c.VerifyPdb(string.Format(@"
+            //        unpaired surrogates.
+            c.VerifyPdb(@"
 <symbols>
-  <entryPoint declaringType=""T"" methodName=""Main"" />
   <methods>
     <method containingType=""T"" name=""Main"">
       <customDebugInfo>
@@ -3497,23 +4302,35 @@ public class T
         </using>
       </customDebugInfo>
       <sequencePoints>
-        <entry offset=""0x0"" startLine=""6"" startColumn=""5"" endLine=""6"" endColumn=""6"" document=""0"" />
-        <entry offset=""0x1"" startLine=""10"" startColumn=""5"" endLine=""10"" endColumn=""6"" document=""0"" />
+        <entry offset=""0x0"" startLine=""6"" startColumn=""5"" endLine=""6"" endColumn=""6"" />
+        <entry offset=""0x1"" startLine=""10"" startColumn=""5"" endLine=""10"" endColumn=""6"" />
       </sequencePoints>
-      <locals>
-        <constant name=""HighSurrogateCharacter"" value=""{0}"" type=""String"" />
-        <constant name=""LowSurrogateCharacter"" value=""{0}"" type=""String"" />
-        <constant name=""MatchedSurrogateCharacters"" value=""{1}"" type=""String"" />
-      </locals>
       <scope startOffset=""0x0"" endOffset=""0x2"">
         <namespace name=""System"" />
-        <constant name=""HighSurrogateCharacter"" value=""{0}"" type=""String"" />
-        <constant name=""LowSurrogateCharacter"" value=""{0}"" type=""String"" />
-        <constant name=""MatchedSurrogateCharacters"" value=""{1}"" type=""String"" />
+        <constant name=""HighSurrogateCharacter"" value=""\uFFFD"" type=""String"" />
+        <constant name=""LowSurrogateCharacter"" value=""\uFFFD"" type=""String"" />
+        <constant name=""MatchedSurrogateCharacters"" value=""\uD800\uDC00"" type=""String"" />
       </scope>
     </method>
   </methods>
-</symbols>", "\uFFFD", "\uD800\uDC00"));
+</symbols>", format: DebugInformationFormat.Pdb);
+
+            c.VerifyPdb(@"
+<symbols>
+  <methods>
+    <method containingType=""T"" name=""Main"">
+      <sequencePoints>
+        <entry offset=""0x0"" startLine=""6"" startColumn=""5"" endLine=""6"" endColumn=""6"" />
+        <entry offset=""0x1"" startLine=""10"" startColumn=""5"" endLine=""10"" endColumn=""6"" />
+      </sequencePoints>
+      <scope startOffset=""0x0"" endOffset=""0x2"">
+        <constant name=""HighSurrogateCharacter"" value=""\uD800"" type=""String"" />
+        <constant name=""LowSurrogateCharacter"" value=""\uDC00"" type=""String"" />
+        <constant name=""MatchedSurrogateCharacters"" value=""\uD800\uDC00"" type=""String"" />
+      </scope>
+    </method>
+  </methods>
+</symbols>", format: DebugInformationFormat.PortablePdb);
         }
 
         [Fact, WorkItem(546862, "DevDiv")]
@@ -3529,14 +4346,13 @@ public class T
     }
 }";
 
-            var c = CreateCompilationWithMscorlibAndSystemCore(source, options: TestOptions.DebugExe);
+            var c = CreateCompilationWithMscorlibAndSystemCore(source, options: TestOptions.DebugDll);
 
             // Note:  U+FFFD is the Unicode 'replacement character' point and is used to replace an incoming character
             //        whose value is unknown or unrepresentable in Unicode.  This is what our pdb writer does with
-            //        unparied surrogates.
-            c.VerifyPdb(string.Format(@"
+            //        unpaired surrogates.
+            c.VerifyPdb(@"
 <symbols>
-  <entryPoint declaringType=""T"" methodName=""Main"" />
   <methods>
     <method containingType=""T"" name=""Main"">
       <customDebugInfo>
@@ -3545,19 +4361,31 @@ public class T
         </using>
       </customDebugInfo>
       <sequencePoints>
-        <entry offset=""0x0"" startLine=""6"" startColumn=""5"" endLine=""6"" endColumn=""6"" document=""0"" />
-        <entry offset=""0x1"" startLine=""8"" startColumn=""5"" endLine=""8"" endColumn=""6"" document=""0"" />
+        <entry offset=""0x0"" startLine=""6"" startColumn=""5"" endLine=""6"" endColumn=""6"" />
+        <entry offset=""0x1"" startLine=""8"" startColumn=""5"" endLine=""8"" endColumn=""6"" />
       </sequencePoints>
-      <locals>
-        <constant name=""invalidUnicodeString"" value=""{0}"" type=""String"" />
-      </locals>
       <scope startOffset=""0x0"" endOffset=""0x2"">
         <namespace name=""System"" />
-        <constant name=""invalidUnicodeString"" value=""{0}"" type=""String"" />
+        <constant name=""invalidUnicodeString"" value=""\uFFFD\u0000\uFFFD"" type=""String"" />
       </scope>
     </method>
   </methods>
-</symbols>", "\uFFFDU+0000\uFFFD"));
+</symbols>", format: DebugInformationFormat.Pdb);
+
+            c.VerifyPdb(@"
+<symbols>
+  <methods>
+    <method containingType=""T"" name=""Main"">
+      <sequencePoints>
+        <entry offset=""0x0"" startLine=""6"" startColumn=""5"" endLine=""6"" endColumn=""6"" />
+        <entry offset=""0x1"" startLine=""8"" startColumn=""5"" endLine=""8"" endColumn=""6"" />
+      </sequencePoints>
+      <scope startOffset=""0x0"" endOffset=""0x2"">
+        <constant name=""invalidUnicodeString"" value=""\uD800\u0000\uDC00"" type=""String"" />
+      </scope>
+    </method>
+  </methods>
+</symbols>", format: DebugInformationFormat.PortablePdb);
         }
 
         [Fact]
@@ -3607,6 +4435,121 @@ class C
              * */
         }
 
+        [Fact]
+        public void Constant_AllTypes()
+        {
+            var source = @"
+using System;
+using System.Collections.Generic;
+
+class X {}
+
+public class C<S>
+{
+    enum EnumI1 : sbyte  { A }
+    enum EnumU1 : byte   { A }
+    enum EnumI2 : short  { A }
+    enum EnumU2 : ushort { A }
+    enum EnumI4 : int    { A }
+    enum EnumU4 : uint   { A }
+    enum EnumI8 : long   { A }
+    enum EnumU8 : ulong  { A }
+
+    public static void F<T>()
+    {
+        const bool B = false;
+        const char C = '\0';
+        const sbyte I1 = 0;
+        const byte U1 = 0;
+        const short I2 = 0;
+        const ushort U2 = 0;
+        const int I4 = 0;
+        const uint U4 = 0;
+        const long I8 = 0;
+        const ulong U8 = 0;
+        const float R4 = 0;
+        const double R8 = 0;
+
+        const C<int>.EnumI1 EI1 = 0;
+        const C<int>.EnumU1 EU1 = 0;
+        const C<int>.EnumI2 EI2 = 0;
+        const C<int>.EnumU2 EU2 = 0;
+        const C<int>.EnumI4 EI4 = 0;
+        const C<int>.EnumU4 EU4 = 0;
+        const C<int>.EnumI8 EI8 = 0;
+        const C<int>.EnumU8 EU8 = 0;
+
+        const string StrWithNul = ""\0"";
+        const string EmptyStr = """";
+        const string NullStr = null;
+        const object NullObject = null;
+        const dynamic NullDynamic = null;
+        const X NullTypeDef = null;
+        const Action NullTypeRef = null;
+        const Func<Dictionary<int, C<int>>, dynamic, T, List<S>> NullTypeSpec = null;
+        
+        const decimal D = 0M;
+        // DateTime const not expressible in C#
+    }
+}";
+
+            var c = CreateCompilationWithMscorlibAndSystemCore(source, options: TestOptions.DebugDll);
+
+            c.VerifyPdb("C`1.F", @"
+<symbols>
+  <methods>
+    <method containingType=""C`1"" name=""F"">
+      <customDebugInfo>
+        <using>
+          <namespace usingCount=""2"" />
+        </using>
+        <dynamicLocals>
+          <bucket flagCount=""1"" flags=""1"" slotId=""0"" localName=""NullDynamic"" />
+          <bucket flagCount=""9"" flags=""000001000"" slotId=""0"" localName=""NullTypeSpec"" />
+        </dynamicLocals>
+      </customDebugInfo>
+      <sequencePoints>
+        <entry offset=""0x0"" startLine=""19"" startColumn=""5"" endLine=""19"" endColumn=""6"" />
+        <entry offset=""0x1"" startLine=""53"" startColumn=""5"" endLine=""53"" endColumn=""6"" />
+      </sequencePoints>
+      <scope startOffset=""0x0"" endOffset=""0x2"">
+        <namespace name=""System"" />
+        <namespace name=""System.Collections.Generic"" />
+        <constant name=""B"" value=""0"" type=""Boolean"" />
+        <constant name=""C"" value=""0"" type=""Char"" />
+        <constant name=""I1"" value=""0"" type=""SByte"" />
+        <constant name=""U1"" value=""0"" type=""Byte"" />
+        <constant name=""I2"" value=""0"" type=""Int16"" />
+        <constant name=""U2"" value=""0"" type=""UInt16"" />
+        <constant name=""I4"" value=""0"" type=""Int32"" />
+        <constant name=""U4"" value=""0"" type=""UInt32"" />
+        <constant name=""I8"" value=""0"" type=""Int64"" />
+        <constant name=""U8"" value=""0"" type=""UInt64"" />
+        <constant name=""R4"" value=""0"" type=""Single"" />
+        <constant name=""R8"" value=""0"" type=""Double"" />
+        <constant name=""EI1"" value=""0"" signature=""EnumI1{Int32}"" />
+        <constant name=""EU1"" value=""0"" signature=""EnumU1{Int32}"" />
+        <constant name=""EI2"" value=""0"" signature=""EnumI2{Int32}"" />
+        <constant name=""EU2"" value=""0"" signature=""EnumU2{Int32}"" />
+        <constant name=""EI4"" value=""0"" signature=""EnumI4{Int32}"" />
+        <constant name=""EU4"" value=""0"" signature=""EnumU4{Int32}"" />
+        <constant name=""EI8"" value=""0"" signature=""EnumI8{Int32}"" />
+        <constant name=""EU8"" value=""0"" signature=""EnumU8{Int32}"" />
+        <constant name=""StrWithNul"" value=""\u0000"" type=""String"" />
+        <constant name=""EmptyStr"" value="""" type=""String"" />
+        <constant name=""NullStr"" value=""null"" type=""String"" />
+        <constant name=""NullObject"" value=""null"" type=""Object"" />
+        <constant name=""NullDynamic"" value=""null"" type=""Object"" />
+        <constant name=""NullTypeDef"" value=""null"" signature=""X"" />
+        <constant name=""NullTypeRef"" value=""null"" signature=""System.Action"" />
+        <constant name=""NullTypeSpec"" value=""null"" signature=""System.Func`4{System.Collections.Generic.Dictionary`2{Int32, C`1{Int32}}, Object, !!0, System.Collections.Generic.List`1{!0}}"" />
+        <constant name=""D"" value=""0"" type=""Decimal"" />
+      </scope>
+    </method>
+  </methods>
+</symbols>");
+        }
+
         #endregion
 
         #region Nested Types
@@ -3652,7 +4595,6 @@ namespace N
         <entry offset=""0x0"" startLine=""14"" startColumn=""6"" endLine=""14"" endColumn=""26"" document=""1"" />
         <entry offset=""0x5"" startLine=""15"" startColumn=""5"" endLine=""15"" endColumn=""6"" document=""1"" />
       </sequencePoints>
-      <locals />
       <scope startOffset=""0x0"" endOffset=""0x6"">
         <namespace name=""System"" />
       </scope>
@@ -3682,21 +4624,22 @@ class C
 <symbols>
   <methods>
     <method containingType=""C"" name=""get_P"">
-      <sequencePoints>
-        <entry offset=""0x0"" startLine=""4"" startColumn=""21"" endLine=""4"" endColumn=""24"" document=""0"" />
-      </sequencePoints>
-      <locals />
-    </method>
-    <method containingType=""C"" name=""M"">
       <customDebugInfo>
         <using>
           <namespace usingCount=""0"" />
         </using>
       </customDebugInfo>
       <sequencePoints>
-        <entry offset=""0x0"" startLine=""7"" startColumn=""9"" endLine=""7"" endColumn=""18"" document=""0"" />
+        <entry offset=""0x0"" startLine=""4"" startColumn=""21"" endLine=""4"" endColumn=""24"" />
       </sequencePoints>
-      <locals />
+    </method>
+    <method containingType=""C"" name=""M"">
+      <customDebugInfo>
+        <forward declaringType=""C"" methodName=""get_P"" />
+      </customDebugInfo>
+      <sequencePoints>
+        <entry offset=""0x0"" startLine=""7"" startColumn=""9"" endLine=""7"" endColumn=""18"" />
+      </sequencePoints>
     </method>
   </methods>
 </symbols>");
@@ -3706,9 +4649,11 @@ class C
         public void ExpressionBodiedIndexer()
         {
             var comp = CreateExperimentalCompilationWithMscorlib45(@"
+using System;
+
 class C
 {
-    public int this[int i] => M();
+    public int this[Int32 i] => M();
     public int M()
     {
         return 2;
@@ -3720,21 +4665,25 @@ class C
 <symbols>
   <methods>
     <method containingType=""C"" name=""get_Item"" parameterNames=""i"">
-      <sequencePoints>
-        <entry offset=""0x0"" startLine=""4"" startColumn=""31"" endLine=""4"" endColumn=""34"" document=""0"" />
-      </sequencePoints>
-      <locals />
-    </method>
-    <method containingType=""C"" name=""M"">
       <customDebugInfo>
         <using>
-          <namespace usingCount=""0"" />
+          <namespace usingCount=""1"" />
         </using>
       </customDebugInfo>
       <sequencePoints>
-        <entry offset=""0x0"" startLine=""7"" startColumn=""9"" endLine=""7"" endColumn=""18"" document=""0"" />
+        <entry offset=""0x0"" startLine=""6"" startColumn=""33"" endLine=""6"" endColumn=""36"" />
       </sequencePoints>
-      <locals />
+      <scope startOffset=""0x0"" endOffset=""0x7"">
+        <namespace name=""System"" />
+      </scope>
+    </method>
+    <method containingType=""C"" name=""M"">
+      <customDebugInfo>
+        <forward declaringType=""C"" methodName=""get_Item"" parameterNames=""i"" />
+      </customDebugInfo>
+      <sequencePoints>
+        <entry offset=""0x0"" startLine=""9"" startColumn=""9"" endLine=""9"" endColumn=""18"" />
+      </sequencePoints>
     </method>
   </methods>
 </symbols>");
@@ -3744,9 +4693,11 @@ class C
         public void ExpressionBodiedMethod()
         {
             var comp = CreateExperimentalCompilationWithMscorlib45(@"
+using System;
+
 class C
 {
-    public int P => 2;
+    public Int32 P => 2;
 }");
             comp.VerifyDiagnostics();
 
@@ -3754,10 +4705,17 @@ class C
 <symbols>
   <methods>
     <method containingType=""C"" name=""get_P"">
+      <customDebugInfo>
+        <using>
+          <namespace usingCount=""1"" />
+        </using>
+      </customDebugInfo>
       <sequencePoints>
-        <entry offset=""0x0"" startLine=""4"" startColumn=""21"" endLine=""4"" endColumn=""22"" document=""0"" />
+        <entry offset=""0x0"" startLine=""6"" startColumn=""23"" endLine=""6"" endColumn=""24"" />
       </sequencePoints>
-      <locals />
+      <scope startOffset=""0x0"" endOffset=""0x2"">
+        <namespace name=""System"" />
+      </scope>
     </method>
   </methods>
 </symbols>");
@@ -3777,10 +4735,14 @@ class C
 <symbols>
   <methods>
     <method containingType=""C"" name=""op_Increment"" parameterNames=""c"">
+      <customDebugInfo>
+        <using>
+          <namespace usingCount=""0"" />
+        </using>
+      </customDebugInfo>
       <sequencePoints>
-        <entry offset=""0x0"" startLine=""4"" startColumn=""41"" endLine=""4"" endColumn=""42"" document=""0"" />
+        <entry offset=""0x0"" startLine=""4"" startColumn=""41"" endLine=""4"" endColumn=""42"" />
       </sequencePoints>
-      <locals />
     </method>
   </methods>
 </symbols>");
@@ -3790,9 +4752,11 @@ class C
         public void ExpressionBodiedConversion()
         {
             var comp = CreateExperimentalCompilationWithMscorlib45(@"
+using System;
+
 class C
 {
-    public static explicit operator C(int i) => new C();
+    public static explicit operator C(Int32 i) => new C();
 }");
             comp.VerifyDiagnostics();
 
@@ -3800,284 +4764,22 @@ class C
 <symbols>
   <methods>
     <method containingType=""C"" name=""op_Explicit"" parameterNames=""i"">
+      <customDebugInfo>
+        <using>
+          <namespace usingCount=""1"" />
+        </using>
+      </customDebugInfo>
       <sequencePoints>
-        <entry offset=""0x0"" startLine=""4"" startColumn=""49"" endLine=""4"" endColumn=""56"" document=""0"" />
+        <entry offset=""0x0"" startLine=""6"" startColumn=""51"" endLine=""6"" endColumn=""58"" />
       </sequencePoints>
-      <locals />
+      <scope startOffset=""0x0"" endOffset=""0x6"">
+        <namespace name=""System"" />
+      </scope>
     </method>
   </methods>
 </symbols>");
         }
 
         #endregion
-
-        [Fact, WorkItem(846584, "DevDiv")]
-        public void RelativePathForExternalSource_Sha1()
-        {
-            var text1 = @"
-#pragma checksum ""..\Test2.cs"" ""{406ea660-64cf-4c82-b6f0-42d48172a799}"" ""BA8CBEA9C2EFABD90D53B616FB80A081""
-
-public class C
-{
-    public void InitializeComponent() {
-        #line 4 ""..\Test2.cs""
-        InitializeComponent();
-        #line default
-    }
-}
-";
-
-            var compilation = CreateCompilationWithMscorlib(
-                new[] { Parse(text1, @"C:\Folder1\Folder2\Test1.cs") },
-                options: TestOptions.DebugDll.WithSourceReferenceResolver(SourceFileResolver.Default));
-
-            compilation.VerifyPdb(@"
-<symbols>
-  <files>
-    <file id=""1"" name=""C:\Folder1\Folder2\Test1.cs"" language=""3f5162f8-07c6-11d3-9053-00c04fa302a1"" languageVendor=""994b45c4-e6e9-11d2-903f-00c04fa302a1"" documentType=""5a869d0b-6611-11d3-bd2a-0000f80849bd"" checkSumAlgorithmId=""ff1816ec-aa5e-4d10-87f7-6f4963833460"" checkSum=""40, A6, 20,  2, 2E, 60, 7D, 4F, 2D, A8, F4, A6, ED, 2E,  E, 49, 8D, 9F, D7, EB, "" />
-    <file id=""2"" name=""C:\Folder1\Test2.cs"" language=""3f5162f8-07c6-11d3-9053-00c04fa302a1"" languageVendor=""994b45c4-e6e9-11d2-903f-00c04fa302a1"" documentType=""5a869d0b-6611-11d3-bd2a-0000f80849bd"" checkSumAlgorithmId=""406ea660-64cf-4c82-b6f0-42d48172a799"" checkSum=""BA, 8C, BE, A9, C2, EF, AB, D9,  D, 53, B6, 16, FB, 80, A0, 81, "" />
-  </files>
-  <methods>
-    <method containingType=""C"" name=""InitializeComponent"">
-      <customDebugInfo>
-        <using>
-          <namespace usingCount=""0"" />
-        </using>
-      </customDebugInfo>
-      <sequencePoints>
-        <entry offset=""0x0"" startLine=""6"" startColumn=""39"" endLine=""6"" endColumn=""40"" document=""1"" />
-        <entry offset=""0x1"" startLine=""4"" startColumn=""9"" endLine=""4"" endColumn=""31"" document=""2"" />
-        <entry offset=""0x8"" startLine=""10"" startColumn=""5"" endLine=""10"" endColumn=""6"" document=""1"" />
-      </sequencePoints>
-      <locals />
-    </method>
-  </methods>
-</symbols>");
-        }
-
-        [Fact]
-        public void SymWriterErrors()
-        {
-            var source0 =
-@"class C
-{
-}";
-            var compilation = CreateCompilationWithMscorlib(source0, options: TestOptions.DebugDll);
-
-            // Verify full metadata contains expected rows.
-            using (MemoryStream peStream = new MemoryStream(), pdbStream = new MemoryStream())
-            {
-                var result = compilation.Emit(
-                    peStream: peStream,
-                    pdbStream: pdbStream,
-                    xmlDocumentationStream: null,
-                    cancellationToken: default(CancellationToken),
-                    win32Resources: null,
-                    manifestResources: null,
-                    options: null,
-                    getHostDiagnostics: null,
-                    testData: new CompilationTestData() { SymWriterFactory = () => new MockSymUnmanagedWriter() });
-
-                result.Diagnostics.Verify(
-                    // error CS0041: Unexpected error writing debug information -- 'The method or operation is not implemented.'
-                    Diagnostic(ErrorCode.FTL_DebugEmitFailure).WithArguments(new NotImplementedException().Message));
-
-                Assert.False(result.Success);
-            }
-        }
-
-        [Fact]
-        public void ExtendedCustomDebugInformation()
-        {
-            var source =
-@"class C
-{
-    static void M()
-    {
-        dynamic o = 1;
-    }
-}";
-            var comp = CreateCompilationWithMscorlib(source, options: TestOptions.DebugDll.WithExtendedCustomDebugInformation(extendedCustomDebugInformation: true));
-            comp.VerifyPdb(
-@"<symbols>
-  <methods>
-    <method containingType=""C"" name=""M"">
-      <customDebugInfo>
-        <using>
-          <namespace usingCount=""0"" />
-        </using>
-        <dynamicLocals>
-          <bucket flagCount=""1"" flags=""1"" slotId=""0"" localName=""o"" />
-        </dynamicLocals>
-        <encLocalSlotMap>
-          <slot kind=""0"" offset=""19"" />
-        </encLocalSlotMap>
-      </customDebugInfo>
-      <sequencePoints>
-        <entry offset=""0x0"" startLine=""4"" startColumn=""5"" endLine=""4"" endColumn=""6"" document=""0"" />
-        <entry offset=""0x1"" startLine=""5"" startColumn=""9"" endLine=""5"" endColumn=""23"" document=""0"" />
-        <entry offset=""0x8"" startLine=""6"" startColumn=""5"" endLine=""6"" endColumn=""6"" document=""0"" />
-      </sequencePoints>
-      <locals>
-        <local name=""o"" il_index=""0"" il_start=""0x0"" il_end=""0x9"" attributes=""0"" />
-      </locals>
-      <scope startOffset=""0x0"" endOffset=""0x9"">
-        <local name=""o"" il_index=""0"" il_start=""0x0"" il_end=""0x9"" attributes=""0"" />
-      </scope>
-    </method>
-  </methods>
-</symbols>");
-            comp = CreateCompilationWithMscorlib(source, options: TestOptions.DebugDll.WithExtendedCustomDebugInformation(extendedCustomDebugInformation: false));
-            comp.VerifyPdb(
-@"<symbols>
-  <methods>
-    <method containingType=""C"" name=""M"">
-      <customDebugInfo>
-        <using>
-          <namespace usingCount=""0"" />
-        </using>
-      </customDebugInfo>
-      <sequencePoints>
-        <entry offset=""0x0"" startLine=""4"" startColumn=""5"" endLine=""4"" endColumn=""6"" document=""0"" />
-        <entry offset=""0x1"" startLine=""5"" startColumn=""9"" endLine=""5"" endColumn=""23"" document=""0"" />
-        <entry offset=""0x8"" startLine=""6"" startColumn=""5"" endLine=""6"" endColumn=""6"" document=""0"" />
-      </sequencePoints>
-      <locals>
-        <local name=""o"" il_index=""0"" il_start=""0x0"" il_end=""0x9"" attributes=""0"" />
-      </locals>
-      <scope startOffset=""0x0"" endOffset=""0x9"">
-        <local name=""o"" il_index=""0"" il_start=""0x0"" il_end=""0x9"" attributes=""0"" />
-      </scope>
-    </method>
-  </methods>
-</symbols>");
-            comp = CreateCompilationWithMscorlib(source, options: TestOptions.ReleaseDll.WithExtendedCustomDebugInformation(extendedCustomDebugInformation: true));
-            comp.VerifyPdb(
-@"<symbols>
-  <methods>
-    <method containingType=""C"" name=""M"">
-      <customDebugInfo>
-        <using>
-          <namespace usingCount=""0"" />
-        </using>
-      </customDebugInfo>
-      <sequencePoints>
-        <entry offset=""0x0"" startLine=""6"" startColumn=""5"" endLine=""6"" endColumn=""6"" document=""0"" />
-      </sequencePoints>
-      <locals />
-    </method>
-  </methods>
-</symbols>");
-            comp = CreateCompilationWithMscorlib(source, options: TestOptions.ReleaseDll.WithExtendedCustomDebugInformation(extendedCustomDebugInformation: false));
-            comp.VerifyPdb(
-@"<symbols>
-  <methods>
-    <method containingType=""C"" name=""M"">
-      <customDebugInfo>
-        <using>
-          <namespace usingCount=""0"" />
-        </using>
-      </customDebugInfo>
-      <sequencePoints>
-        <entry offset=""0x0"" startLine=""6"" startColumn=""5"" endLine=""6"" endColumn=""6"" document=""0"" />
-      </sequencePoints>
-      <locals />
-    </method>
-  </methods>
-</symbols>");
-        }
-
-        [Fact, WorkItem(1067635)]
-        public void SuppressDynamicAndEncCDIForWinRT()
-        {
-            var source = @"
-public class C
-{
-    public static void F()
-    {
-        dynamic a = 1;
-        int b = 2;
-        foreach (var x in new[] { 1,2,3 })
-        {
-            System.Console.WriteLine(a * b);
-        }
-    }
-}
-";
-
-            var debug = CreateCompilationWithMscorlib(source, new[] { CSharpRef, SystemCoreRef }, options: TestOptions.DebugWinMD);
-            debug.VerifyPdb(@"
-<symbols>
-    <methods>
-    <method containingType=""C"" name=""F"">
-      <customDebugInfo>
-        <using>
-          <namespace usingCount=""0"" />
-        </using>
-      </customDebugInfo>
-      <sequencePoints>
-        <entry offset=""0x0"" startLine=""5"" startColumn=""5"" endLine=""5"" endColumn=""6"" document=""0"" />
-        <entry offset=""0x1"" startLine=""6"" startColumn=""9"" endLine=""6"" endColumn=""23"" document=""0"" />
-        <entry offset=""0x8"" startLine=""7"" startColumn=""9"" endLine=""7"" endColumn=""19"" document=""0"" />
-        <entry offset=""0xa"" startLine=""8"" startColumn=""9"" endLine=""8"" endColumn=""16"" document=""0"" />
-        <entry offset=""0xb"" startLine=""8"" startColumn=""27"" endLine=""8"" endColumn=""42"" document=""0"" />
-        <entry offset=""0x1f"" hidden=""true"" document=""0"" />
-        <entry offset=""0x24"" startLine=""8"" startColumn=""18"" endLine=""8"" endColumn=""23"" document=""0"" />
-        <entry offset=""0x29"" startLine=""9"" startColumn=""9"" endLine=""9"" endColumn=""10"" document=""0"" />
-        <entry offset=""0x2a"" startLine=""10"" startColumn=""13"" endLine=""10"" endColumn=""45"" document=""0"" />
-        <entry offset=""0xe6"" startLine=""11"" startColumn=""9"" endLine=""11"" endColumn=""10"" document=""0"" />
-        <entry offset=""0xe7"" hidden=""true"" document=""0"" />
-        <entry offset=""0xeb"" startLine=""8"" startColumn=""24"" endLine=""8"" endColumn=""26"" document=""0"" />
-        <entry offset=""0xf4"" startLine=""12"" startColumn=""5"" endLine=""12"" endColumn=""6"" document=""0"" />
-      </sequencePoints>
-      <locals>
-        <local name=""a"" il_index=""0"" il_start=""0x0"" il_end=""0xf5"" attributes=""0"" />
-        <local name=""b"" il_index=""1"" il_start=""0x0"" il_end=""0xf5"" attributes=""0"" />
-        <local name=""x"" il_index=""4"" il_start=""0x24"" il_end=""0xe7"" attributes=""0"" />
-      </locals>
-      <scope startOffset=""0x0"" endOffset=""0xf5"">
-        <local name=""a"" il_index=""0"" il_start=""0x0"" il_end=""0xf5"" attributes=""0"" />
-        <local name=""b"" il_index=""1"" il_start=""0x0"" il_end=""0xf5"" attributes=""0"" />
-        <scope startOffset=""0x24"" endOffset=""0xe7"">
-          <local name=""x"" il_index=""4"" il_start=""0x24"" il_end=""0xe7"" attributes=""0"" />
-        </scope>
-      </scope>
-    </method>
-  </methods>
-</symbols>");
-
-            var release = CreateCompilationWithMscorlib(source, new[] { CSharpRef, SystemCoreRef }, options: TestOptions.ReleaseWinMD);
-            release.VerifyPdb(@"
-<symbols>
-  <methods>
-    <method containingType=""C"" name=""F"">
-      <customDebugInfo>
-        <using>
-          <namespace usingCount=""0"" />
-        </using>
-      </customDebugInfo>
-      <sequencePoints>
-        <entry offset=""0x0"" startLine=""6"" startColumn=""9"" endLine=""6"" endColumn=""23"" document=""0"" />
-        <entry offset=""0x7"" startLine=""7"" startColumn=""9"" endLine=""7"" endColumn=""19"" document=""0"" />
-        <entry offset=""0x9"" startLine=""8"" startColumn=""27"" endLine=""8"" endColumn=""42"" document=""0"" />
-        <entry offset=""0x1d"" hidden=""true"" document=""0"" />
-        <entry offset=""0x22"" startLine=""8"" startColumn=""18"" endLine=""8"" endColumn=""23"" document=""0"" />
-        <entry offset=""0x26"" startLine=""10"" startColumn=""13"" endLine=""10"" endColumn=""45"" document=""0"" />
-        <entry offset=""0xdd"" hidden=""true"" document=""0"" />
-        <entry offset=""0xe1"" startLine=""8"" startColumn=""24"" endLine=""8"" endColumn=""26"" document=""0"" />
-        <entry offset=""0xea"" startLine=""12"" startColumn=""5"" endLine=""12"" endColumn=""6"" document=""0"" />
-      </sequencePoints>
-      <locals>
-        <local name=""a"" il_index=""0"" il_start=""0x0"" il_end=""0xeb"" attributes=""0"" />
-        <local name=""b"" il_index=""1"" il_start=""0x0"" il_end=""0xeb"" attributes=""0"" />
-      </locals>
-      <scope startOffset=""0x0"" endOffset=""0xeb"">
-        <local name=""a"" il_index=""0"" il_start=""0x0"" il_end=""0xeb"" attributes=""0"" />
-        <local name=""b"" il_index=""1"" il_start=""0x0"" il_end=""0xeb"" attributes=""0"" />
-      </scope>
-    </method>
-  </methods>
-</symbols>");
-        }
     }
 }

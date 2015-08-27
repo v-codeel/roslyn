@@ -43,7 +43,7 @@ Namespace Microsoft.VisualStudio.LanguageServices.VisualBasic.ProjectSystemShim
         ''' to cache these rather than reparse them every time we create a new <see cref="ConvertedVisualBasicProjectOptions"/>
         ''' instance. We also expect the total set of these to be small, which is why we never evict anything from this cache.
         ''' </summary>
-        Private Shared conditionalCompilationSymbolsCache As Dictionary(Of KeyValuePair(Of String, OutputKind), ImmutableArray(Of KeyValuePair(Of String, Object))) =
+        Private Shared s_conditionalCompilationSymbolsCache As Dictionary(Of KeyValuePair(Of String, OutputKind), ImmutableArray(Of KeyValuePair(Of String, Object))) =
             New Dictionary(Of KeyValuePair(Of String, OutputKind), ImmutableArray(Of KeyValuePair(Of String, Object)))
 
         Private Sub New()
@@ -55,7 +55,7 @@ Namespace Microsoft.VisualStudio.LanguageServices.VisualBasic.ProjectSystemShim
 
         Public Sub New(options As VBCompilerOptions, compilerHost As IVbCompilerHost, globalImports As IEnumerable(Of GlobalImport), strongNameKeyPaths As ImmutableArray(Of String), projectDirectoryOpt As String, ruleSetOpt As IRuleSetFile)
             If options.wszOutputPath IsNot Nothing AndAlso options.wszExeName IsNot Nothing Then
-                OutputPath = Path.Combine(options.wszOutputPath, options.wszExeName)
+                OutputPath = PathUtilities.CombinePathsUnchecked(options.wszOutputPath, options.wszExeName)
             Else
                 OutputPath = String.Empty
             End If
@@ -77,39 +77,47 @@ Namespace Microsoft.VisualStudio.LanguageServices.VisualBasic.ProjectSystemShim
                     kind = OutputKind.WindowsRuntimeMetadata
             End Select
 
+            ' GetSDKPath can return E_NOTIMPL if there is no SDK path at all
+            Dim sdkPath As String = Nothing
+            Dim sdkPathHResult = compilerHost.GetSdkPath(sdkPath)
+
+            If sdkPathHResult = VSConstants.E_NOTIMPL Then
+                sdkPath = Nothing
+            Else
+                Marshal.ThrowExceptionForHR(sdkPathHResult, New IntPtr(-1))
+            End If
+
             Dim runtimes = New List(Of String)
             Select Case options.vbRuntimeKind
                 Case VBRuntimeKind.DefaultRuntime
-                    runtimes.Add(Path.Combine(compilerHost.GetSdkPath(), "Microsoft.VisualBasic.dll"))
-
-                Case VBRuntimeKind.SpecifiedRuntime
-                    If options.wszSpecifiedVBRuntime Is Nothing Then
-                        Throw New ArgumentException()
+                    If sdkPath IsNot Nothing Then
+                        runtimes.Add(PathUtilities.CombinePathsUnchecked(sdkPath, "Microsoft.VisualBasic.dll"))
                     End If
 
-                    ' If they specified a fully qualified file, use it
-                    If File.Exists(options.wszSpecifiedVBRuntime) Then
-                        runtimes.Add(options.wszSpecifiedVBRuntime)
-                    Else
-                        ' If it's just a filename, try to find it in the SDK path.
-                        If options.wszSpecifiedVBRuntime <> Path.GetFileName(options.wszSpecifiedVBRuntime) Then
-                            Throw New ArgumentException()
-                        End If
-
-                        Dim runtimePath = Path.Combine(compilerHost.GetSdkPath(), options.wszSpecifiedVBRuntime)
-                        If File.Exists(runtimePath) Then
-                            runtimes.Add(runtimePath)
-                        Else
-                            Throw New ArgumentException()
+                Case VBRuntimeKind.SpecifiedRuntime
+                    If options.wszSpecifiedVBRuntime IsNot Nothing Then
+                        ' If they specified a fully qualified file, use it
+                        If File.Exists(options.wszSpecifiedVBRuntime) Then
+                            runtimes.Add(options.wszSpecifiedVBRuntime)
+                        ElseIf sdkPath IsNot Nothing
+                            ' If it's just a filename, try to find it in the SDK path.
+                            If options.wszSpecifiedVBRuntime = PathUtilities.GetFileName(options.wszSpecifiedVBRuntime) Then
+                                Dim runtimePath = PathUtilities.CombinePathsUnchecked(sdkPath, options.wszSpecifiedVBRuntime)
+                                If File.Exists(runtimePath) Then
+                                    runtimes.Add(runtimePath)
+                                End If
+                            End If
                         End If
                     End If
             End Select
 
-            If Not options.bNoStandardLibs Then
-                runtimes.Add(Path.Combine(compilerHost.GetSdkPath(), "System.dll"))
-            End If
+            If sdkPath IsNot Nothing Then
+                If Not options.bNoStandardLibs Then
+                    runtimes.Add(PathUtilities.CombinePathsUnchecked(sdkPath, "System.dll"))
+                End If
 
-            runtimes.Add(Path.Combine(compilerHost.GetSdkPath(), "mscorlib.dll"))
+                runtimes.Add(PathUtilities.CombinePathsUnchecked(sdkPath, "mscorlib.dll"))
+            End If
 
             RuntimeLibraries = runtimes
 
@@ -177,7 +185,7 @@ Namespace Microsoft.VisualStudio.LanguageServices.VisualBasic.ProjectSystemShim
             Dim key = KeyValuePair.Create(str, kind)
 
             Dim result As ImmutableArray(Of KeyValuePair(Of String, Object)) = Nothing
-            If conditionalCompilationSymbolsCache.TryGetValue(key, result) Then
+            If s_conditionalCompilationSymbolsCache.TryGetValue(key, result) Then
                 Return result
             End If
 

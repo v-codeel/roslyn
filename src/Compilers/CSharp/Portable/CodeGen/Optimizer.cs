@@ -83,7 +83,7 @@ namespace Microsoft.CodeAnalysis.CSharp.CodeGen
 
         private static void RemoveIntersectingLocals(Dictionary<LocalSymbol, LocalDefUseInfo> info, ArrayBuilder<LocalDefUseInfo> dummies)
         {
-            // Add dummy definitons. 
+            // Add dummy definitions. 
             // Although we do not schedule dummies we intend to guarantee that no 
             // local definition span intersects with definition spans of a dummy
             // that will ensure that at any access to dummy is done on same stack state.
@@ -111,7 +111,7 @@ namespace Microsoft.CodeAnalysis.CSharp.CodeGen
                           orderby d.end - d.start, d.end ascending
                           select new { i = i.Key, d = d };
 
-            // collect nonintersecting def-use spans. 
+            // collect non-intersecting def-use spans. 
             // if span intersects with something already stored, reject corresponding variable.
             //
             // CONSIDER: do we want to remove already added spans of rejected variables?
@@ -215,7 +215,7 @@ namespace Microsoft.CodeAnalysis.CSharp.CodeGen
 
     // represents a span of a value between definition and use.
     // start/end positions are specified in terms of global node count as visited by 
-    // StackOptimizer visitors. (i.e. recursive walk not looking into constats)
+    // StackOptimizer visitors. (i.e. recursive walk not looking into constants)
     internal class LocalDefUseSpan
     {
         public readonly int start;
@@ -292,8 +292,8 @@ namespace Microsoft.CodeAnalysis.CSharp.CodeGen
     //
     internal class StackOptimizerPass1 : BoundTreeRewriter
     {
-        private int _counter = 0;
-        private int _evalStack = 0;
+        private int _counter;
+        private int _evalStack;
         private ExprContext _context;
         private BoundLocal _assignmentLocal;
 
@@ -326,8 +326,8 @@ namespace Microsoft.CodeAnalysis.CSharp.CodeGen
 
         public static BoundNode Analyze(BoundNode node, Dictionary<LocalSymbol, LocalDefUseInfo> locals)
         {
-            var analyser = new StackOptimizerPass1(locals);
-            var rewritten = analyser.Visit(node);
+            var analyzer = new StackOptimizerPass1(locals);
+            var rewritten = analyzer.Visit(node);
 
             return rewritten;
         }
@@ -381,7 +381,7 @@ namespace Microsoft.CodeAnalysis.CSharp.CodeGen
                 return prevAsLocal.LocalSymbol == curAsLocal.LocalSymbol;
             }
 
-            // prameters
+            // parameters
             var prevAsParam = prevNode as BoundParameter;
             var curAsParam = curNode as BoundParameter;
 
@@ -595,10 +595,10 @@ namespace Microsoft.CodeAnalysis.CSharp.CodeGen
             //      postfix: Seq{var temp, ref operand; operand initializers; *operand = Seq{temp = operand;        ;  (T)(temp + 1);} result: temp}
             //
             //  1) temp is used as the result of the sequence (and that is the only reason why it is declared in the outer sequence).
-            //  2) all sideeffects except the last one do not use the temp.
-            //  3) last sideeffect is an indirect assignment of a sequence (and target does not involve the temp).
+            //  2) all side-effects except the last one do not use the temp.
+            //  3) last side-effect is an indirect assignment of a sequence (and target does not involve the temp).
             //            
-            //  Note that in a case of Sideeffects context, the result value will be ignored and therefore
+            //  Note that in a case of side-effects context, the result value will be ignored and therefore
             //  all usages of the nested temp will be confined to the nested sequence that is executed at +1 stack.
             //
             //  We will detect such case and indicate +1 as the desired stack depth at local accesses.
@@ -682,14 +682,14 @@ namespace Microsoft.CodeAnalysis.CSharp.CodeGen
 
                 if (lastSideeffect != null)
                 {
-                    // last sideeffect must be an indirect assignment of a sequence.
+                    // last side-effect must be an indirect assignment of a sequence.
                     if (lastSideeffect.Kind == BoundKind.AssignmentOperator)
                     {
                         var assignment = (BoundAssignmentOperator)lastSideeffect;
                         if (IsIndirectOrInstanceFieldAssignment(assignment) &&
                             assignment.Right.Kind == BoundKind.Sequence)
                         {
-                            // and no other sideeffects should use the variable
+                            // and no other side-effects should use the variable
                             var localUsedWalker = new LocalUsedWalker(local);
                             for (int i = 0; i < sideeffects.Length - 1; i++)
                             {
@@ -830,9 +830,9 @@ namespace Microsoft.CodeAnalysis.CSharp.CodeGen
             }
 
 
-            var isIndirectAssignement = IsIndirectAssignment(node);
+            var isIndirectAssignment = IsIndirectAssignment(node);
 
-            var left = VisitExpression(node.Left, isIndirectAssignement ?
+            var left = VisitExpression(node.Left, isIndirectAssignment ?
                                                     ExprContext.Address :
                                                     ExprContext.AssignmentTarget);
 
@@ -881,9 +881,9 @@ namespace Microsoft.CodeAnalysis.CSharp.CodeGen
                 Debug.Assert(
                     node.Left.Type.Equals(node.Right.Type, ignoreCustomModifiers: true, ignoreDynamic: true),
                     @"type of the assignment value is not the same as the type of assignment target. 
-                This is not expected by the optimizer and is typically a result of a bug somwhere else.");
+                This is not expected by the optimizer and is typically a result of a bug somewhere else.");
 
-                Debug.Assert(!isIndirectAssignement, "indirect assignment is a read, not a write");
+                Debug.Assert(!isIndirectAssignment, "indirect assignment is a read, not a write");
 
                 LocalSymbol localSymbol = assignmentLocal.LocalSymbol;
 
@@ -1125,7 +1125,7 @@ namespace Microsoft.CodeAnalysis.CSharp.CodeGen
 
         public override BoundNode VisitLabel(BoundLabel node)
         {
-            Debug.Assert(true, "we should not have label expressons at this stage");
+            Debug.Assert(true, "we should not have label expressions at this stage");
 
             return node;
         }
@@ -1210,7 +1210,7 @@ namespace Microsoft.CodeAnalysis.CSharp.CodeGen
             return node.Update(left, right, node.LeftConversion, node.Type);
         }
 
-        public override BoundNode VisitConditionalAccess(BoundConditionalAccess node)
+        public override BoundNode VisitLoweredConditionalAccess(BoundLoweredConditionalAccess node)
         {
             var origStack = _evalStack;
             BoundExpression receiver = VisitCallReceiver(node.Receiver);
@@ -1220,11 +1220,47 @@ namespace Microsoft.CodeAnalysis.CSharp.CodeGen
             // right is evaluated with original stack 
             // (this is not entirely true, codegen will keep receiver on the stack, but that is irrelevant here)
             _evalStack = origStack;
-            BoundExpression access = (BoundExpression)this.Visit(node.AccessExpression);
+            BoundExpression whenNotNull = (BoundExpression)this.Visit(node.WhenNotNull);
 
             EnsureStackState(cookie);   // implicit label here
 
-            return node.Update(receiver, access, node.Type);
+            var whenNull = node.WhenNullOpt;
+            if (whenNull != null)
+            {
+                _evalStack = origStack;  // whenNull is evaluated with original stack
+                whenNull = (BoundExpression)this.Visit(whenNull);
+                EnsureStackState(cookie);   // implicit label here
+            }
+            else
+            {
+                // compensate for the whenNull that we are not visiting.
+                _counter += 1;
+            }
+
+            return node.Update(receiver, node.HasValueMethodOpt, whenNotNull, whenNull, node.Id, node.Type);
+        }
+
+        public override BoundNode VisitComplexConditionalReceiver(BoundComplexConditionalReceiver node)
+        {
+            EnsureOnlyEvalStack();
+
+            var origStack = _evalStack;
+
+            _evalStack += 1;
+
+            var cookie = GetStackStateCookie(); // implicit goto here 
+
+            _evalStack = origStack; // consequence is evaluated with original stack 
+            var valueTypeReceiver = (BoundExpression)this.Visit(node.ValueTypeReceiver);
+
+            EnsureStackState(cookie); // implicit label here 
+
+            _evalStack = origStack; // alternative is evaluated with original stack 
+            var referenceTypeReceiver = (BoundExpression)this.Visit(node.ReferenceTypeReceiver);
+
+            EnsureStackState(cookie); // implicit label here 
+
+            return node.Update(valueTypeReceiver, referenceTypeReceiver, node.Type);
         }
 
         public override BoundNode VisitUnaryOperator(BoundUnaryOperator node)
@@ -1648,8 +1684,8 @@ namespace Microsoft.CodeAnalysis.CSharp.CodeGen
     //
     internal class StackOptimizerPass2 : BoundTreeRewriter
     {
-        private int _nodeCounter = 0;
-        private Dictionary<LocalSymbol, LocalDefUseInfo> _info;
+        private int _nodeCounter;
+        private readonly Dictionary<LocalSymbol, LocalDefUseInfo> _info;
 
         private StackOptimizerPass2(Dictionary<LocalSymbol, LocalDefUseInfo> info)
         {
@@ -1737,7 +1773,7 @@ namespace Microsoft.CodeAnalysis.CSharp.CodeGen
 
             // ==  here we have a regular write to a stack local
             //
-            // we do not need to vist lhs, because we do not read the local,
+            // we do not need to visit lhs, because we do not read the local,
             // just update the counter to be in sync.
             //
             // if this is the last store, we just push the rhs

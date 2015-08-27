@@ -1,15 +1,16 @@
 ﻿// Copyright (c) Microsoft.  All Rights Reserved.  Licensed under the Apache License, Version 2.0.  See License.txt in the project root for license information.
 
-using Microsoft.CodeAnalysis;
+using System;
 using Microsoft.CodeAnalysis.Editor.Shared.Utilities;
-using Microsoft.VisualStudio.LanguageServices.Implementation.Utilities;
 using Microsoft.VisualStudio.Shell.Interop;
 
 namespace Microsoft.VisualStudio.LanguageServices.Implementation.Preview
 {
     internal partial class ChangeList : ForegroundThreadAffinitizedObject, IVsPreviewChangesList, IVsLiteTreeList
     {
-        internal AbstractChange[] Changes { get; private set; }
+        public readonly static ChangeList Empty = new ChangeList(Array.Empty<AbstractChange>());
+
+        internal AbstractChange[] Changes { get; }
 
         public ChangeList(AbstractChange[] changes)
         {

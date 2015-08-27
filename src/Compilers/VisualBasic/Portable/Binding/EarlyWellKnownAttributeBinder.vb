@@ -20,7 +20,7 @@ Namespace Microsoft.CodeAnalysis.VisualBasic
     Friend NotInheritable Class EarlyWellKnownAttributeBinder
         Inherits Binder
 
-        Private _owner As Symbol
+        Private ReadOnly _owner As Symbol
         Friend Sub New(owner As Symbol, containingBinder As Binder)
             MyBase.New(containingBinder, isEarlyAttributeBinder:=True)
             Me._owner = owner
@@ -168,7 +168,7 @@ Namespace Microsoft.CodeAnalysis.VisualBasic
                         End If
 
                         Dim boundMethodGroup = TryCast(boundExpression, BoundMethodGroup)
-                        If boundMethodGroup IsNot Nothing AndAlso boundMethodGroup.Methods.Count = 1 Then
+                        If boundMethodGroup IsNot Nothing AndAlso boundMethodGroup.Methods.Length = 1 Then
 
                             Dim method = boundMethodGroup.Methods(0)
 

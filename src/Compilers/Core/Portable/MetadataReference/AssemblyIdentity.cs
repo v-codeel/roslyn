@@ -77,43 +77,43 @@ namespace Microsoft.CodeAnalysis
         {
             if (!IsValid(contentType))
             {
-                throw new ArgumentOutOfRangeException(CodeAnalysisResources.InvalidContentType, "contentType");
+                throw new ArgumentOutOfRangeException(nameof(contentType), CodeAnalysisResources.InvalidContentType);
             }
 
             if (!IsValidName(name))
             {
-                throw new ArgumentException(string.Format(CodeAnalysisResources.InvalidAssemblyName, name), "name");
+                throw new ArgumentException(string.Format(CodeAnalysisResources.InvalidAssemblyName, name), nameof(name));
             }
 
             if (!IsValidCultureName(cultureName))
             {
-                throw new ArgumentException(string.Format(CodeAnalysisResources.InvalidCultureName, cultureName), "cultureName");
+                throw new ArgumentException(string.Format(CodeAnalysisResources.InvalidCultureName, cultureName), nameof(cultureName));
             }
 
             // Version allows more values then can be encoded in metadata:
             if (!IsValid(version))
             {
-                throw new ArgumentOutOfRangeException("version");
+                throw new ArgumentOutOfRangeException(nameof(version));
             }
 
             if (hasPublicKey)
             {
                 if (!MetadataHelpers.IsValidPublicKey(publicKeyOrToken))
                 {
-                    throw new ArgumentException(CodeAnalysisResources.InvalidPublicKey, "publicKeyOrToken");
+                    throw new ArgumentException(CodeAnalysisResources.InvalidPublicKey, nameof(publicKeyOrToken));
                 }
             }
             else
             {
                 if (!publicKeyOrToken.IsDefaultOrEmpty && publicKeyOrToken.Length != PublicKeyTokenSize)
                 {
-                    throw new ArgumentException(CodeAnalysisResources.InvalidSizeOfPublicKeyToken, "publicKeyOrToken");
+                    throw new ArgumentException(CodeAnalysisResources.InvalidSizeOfPublicKeyToken, nameof(publicKeyOrToken));
                 }
             }
 
             if (isRetargetable && contentType == AssemblyContentType.WindowsRuntime)
             {
-                throw new ArgumentException(CodeAnalysisResources.WinRTIdentityCantBeRetargetable, "isRetargetable");
+                throw new ArgumentException(CodeAnalysisResources.WinRTIdentityCantBeRetargetable, nameof(isRetargetable));
             }
 
             _name = name;
@@ -309,7 +309,7 @@ namespace Microsoft.CodeAnalysis
 
         internal static bool IsFullName(AssemblyIdentityParts parts)
         {
-            var nvc = AssemblyIdentityParts.Name | AssemblyIdentityParts.Version | AssemblyIdentityParts.Culture;
+            const AssemblyIdentityParts nvc = AssemblyIdentityParts.Name | AssemblyIdentityParts.Version | AssemblyIdentityParts.Culture;
             return (parts & nvc) == nvc && (parts & AssemblyIdentityParts.PublicKeyOrToken) != 0;
         }
 
@@ -391,7 +391,7 @@ namespace Microsoft.CodeAnalysis
                 result.Add(hash[l - i]);
             }
 
-            return result.ToImmutable();
+            return result.ToImmutableAndFree();
         }
 
         /// <summary>
@@ -440,7 +440,7 @@ namespace Microsoft.CodeAnalysis
                 return x._publicKey.SequenceEqual(y._publicKey);
             }
 
-            // one of the strong names doesn't have PK, other other doesn't have PTK initialized.
+            // one of the strong names doesn't have PK, other doesn't have PTK initialized.
             if (xToken.IsDefault)
             {
                 return x.PublicKeyToken.SequenceEqual(yToken);
@@ -453,7 +453,7 @@ namespace Microsoft.CodeAnalysis
 
         #endregion
 
-        #region AssemblyName convesions 
+        #region AssemblyName conversions 
 
         /// <summary>
         /// Retrieves assembly definition identity from given runtime assembly.
@@ -465,7 +465,7 @@ namespace Microsoft.CodeAnalysis
         {
             if (assembly == null)
             {
-                throw new ArgumentNullException("assembly");
+                throw new ArgumentNullException(nameof(assembly));
             }
 
             return FromAssemblyDefinition(assembly.GetName());

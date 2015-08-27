@@ -533,7 +533,7 @@ Namespace Microsoft.CodeAnalysis.VisualBasic
                 End If
 
             Else
-                Debug.Assert(False)
+                Throw ExceptionUtilities.Unreachable
             End If
 
             Return result
@@ -778,22 +778,22 @@ Namespace Microsoft.CodeAnalysis.VisualBasic
             ' We may also statically know if one is definitely not a null
             ' we cannot know, though, if whole operator yields null or not.
 
-            If rightHasValue AndAlso left.Kind = BoundKind.LoweredConditionalAccess Then
-                Dim rightValue = NullableValueOrDefault(right)
-                Dim conditional = DirectCast(left, BoundLoweredConditionalAccess)
+            If rightHasValue Then
+                Dim whenNotNull As BoundExpression = Nothing
+                Dim whenNull As BoundExpression = Nothing
+                If IsConditionalAccess(left, whenNotNull, whenNull) Then
+                    Dim rightValue = NullableValueOrDefault(right)
 
-                If (rightValue.IsConstant OrElse rightValue.Kind = BoundKind.Local OrElse rightValue.Kind = BoundKind.Parameter) AndAlso
-                   HasValue(conditional.WhenNotNull) AndAlso HasNoValue(conditional.WhenNullOpt) Then
+                    If (rightValue.IsConstant OrElse rightValue.Kind = BoundKind.Local OrElse rightValue.Kind = BoundKind.Parameter) AndAlso
+                       HasValue(whenNotNull) AndAlso HasNoValue(whenNull) Then
 
-                    Return conditional.Update(conditional.ReceiverOrCondition,
-                                              conditional.CaptureReceiver,
-                                              conditional.PlaceholderId,
-                                              WrapInNullable(ApplyUnliftedBinaryOp(node,
-                                                                                   NullableValueOrDefault(conditional.WhenNotNull),
-                                                                                   rightValue),
-                                                             node.Type),
-                                              NullableNull(conditional.WhenNullOpt, node.Type),
-                                              node.Type)
+                        Return UpdateConditionalAccess(left,
+                                                       WrapInNullable(ApplyUnliftedBinaryOp(node,
+                                                                                            NullableValueOrDefault(whenNotNull),
+                                                                                            rightValue),
+                                                                      node.Type),
+                                                       NullableNull(whenNull, node.Type))
+                    End If
                 End If
             End If
 
@@ -946,7 +946,7 @@ Namespace Microsoft.CodeAnalysis.VisualBasic
             ' x And y is rewritten into:
             '
             ' tempX = x
-            ' [tempY = y] ' if not shorcircuiting
+            ' [tempY = y] ' if not shortcircuiting
             ' If (tempX.HasValue AndAlso Not tempX.GetValueOrDefault(),
             '   False?,                             ' result based on the left operand
             '   If ((tempY = y).HasValue,           ' if shortcircuiting, otherwise just "y.HasValue"
@@ -1134,16 +1134,13 @@ Namespace Microsoft.CodeAnalysis.VisualBasic
                                     resultType))
             Else
 
-                If operand.Kind = BoundKind.LoweredConditionalAccess Then
-                    Dim conditional = DirectCast(operand, BoundLoweredConditionalAccess)
-
-                    If HasNoValue(conditional.WhenNullOpt) Then
-                        Return conditional.Update(conditional.ReceiverOrCondition,
-                                                  conditional.CaptureReceiver,
-                                                  conditional.PlaceholderId,
-                                                  RewriteNullableIsOrIsNotOperator(isIs, conditional.WhenNotNull, resultType),
-                                                  RewriteNullableIsOrIsNotOperator(isIs, conditional.WhenNullOpt, resultType),
-                                                  resultType)
+                Dim whenNotNull As BoundExpression = Nothing
+                Dim whenNull As BoundExpression = Nothing
+                If IsConditionalAccess(operand, whenNotNull, whenNull) Then
+                    If HasNoValue(whenNull) Then
+                        Return UpdateConditionalAccess(operand,
+                                                       RewriteNullableIsOrIsNotOperator(isIs, whenNotNull, resultType),
+                                                       RewriteNullableIsOrIsNotOperator(isIs, whenNull, resultType))
                     End If
                 End If
 
@@ -1175,10 +1172,10 @@ Namespace Microsoft.CodeAnalysis.VisualBasic
             '         |                   |
             '       LEFT                RIGHT
             '
-            ' Implicit left/right unwraping conversions if present are always L? -> L and R? -> R
+            ' Implicit left/right unwrapping conversions if present are always L? -> L and R? -> R
             ' They are encoded as a disparity between CALL argument types and parameter types of the call symbol.
             '
-            ' Implicit wrapping conversion of the resilt, if present, is always T -> T?
+            ' Implicit wrapping conversion of the result, if present, is always T -> T?
             '
             ' The rewrite is:
             '   If (LEFT.HasValue And RIGHT.HasValue, CALL(LEFT, RIGHT), Null)

@@ -130,17 +130,32 @@ namespace Microsoft.CodeAnalysis.CSharp
             for (int i = 0; i < nextVariableSlot; i++)
             {
                 var symbol = variableBySlot[i].Symbol;
-                var local = symbol as LocalSymbol;
-                if ((object)local != null && !local.IsConst)
-                {
-                    SetSlotState(i, false);
-                    continue;
-                }
 
-                var parameter = symbol as ParameterSymbol;
-                if ((object)parameter != null)
+                if ((object)symbol != null)
                 {
-                    SetSlotState(i, false);
+                    switch (symbol.Kind)
+                    {
+                        case SymbolKind.Local:
+                            if (!((LocalSymbol)symbol).IsConst)
+                            {
+                                SetSlotState(i, false);
+                            }
+                            break;
+
+                        case SymbolKind.Parameter:
+                            SetSlotState(i, false);
+                            break;
+
+                        case SymbolKind.Field:
+                            if (!((FieldSymbol)symbol).IsConst)
+                            {
+                                SetSlotState(i, false);
+                            }
+                            break;
+
+                        default:
+                            throw ExceptionUtilities.UnexpectedValue(symbol.Kind);
+                    }
                 }
             }
         }
@@ -194,7 +209,7 @@ namespace Microsoft.CodeAnalysis.CSharp
 
         protected override void EnterParameter(ParameterSymbol parameter)
         {
-            // parameters are NOT intitially assigned here - if that is a problem, then
+            // parameters are NOT initially assigned here - if that is a problem, then
             // the parameters must be captured.
             GetOrCreateSlot(parameter);
         }

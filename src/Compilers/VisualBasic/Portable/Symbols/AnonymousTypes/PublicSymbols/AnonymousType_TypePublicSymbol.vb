@@ -103,7 +103,7 @@ Namespace Microsoft.CodeAnalysis.VisualBasic.Symbols
 
             Private Function CreateEqualsMethod() As MethodSymbol
                 Dim method As New SynthesizedSimpleMethodSymbol(Me, WellKnownMemberNames.ObjectEquals, Me.Manager.System_Boolean,
-                                                                overridenMethod:=Me.Manager.System_Object__Equals,
+                                                                overriddenMethod:=Me.Manager.System_Object__Equals,
                                                                 isOverloads:=True)
 
                 method.SetParameters(ImmutableArray.Create(Of ParameterSymbol)(
@@ -113,9 +113,9 @@ Namespace Microsoft.CodeAnalysis.VisualBasic.Symbols
                 Return method
             End Function
 
-            Private Function CreateIEquatableEqualsMethod(iEquitableEquals As MethodSymbol) As MethodSymbol
+            Private Function CreateIEquatableEqualsMethod(iEquatableEquals As MethodSymbol) As MethodSymbol
                 Dim method As New SynthesizedSimpleMethodSymbol(Me, WellKnownMemberNames.ObjectEquals, Me.Manager.System_Boolean,
-                                                                interfaceMethod:=iEquitableEquals,
+                                                                interfaceMethod:=iEquatableEquals,
                                                                 isOverloads:=True)
 
                 method.SetParameters(ImmutableArray.Create(Of ParameterSymbol)(
@@ -127,7 +127,7 @@ Namespace Microsoft.CodeAnalysis.VisualBasic.Symbols
 
             Private Function CreateGetHashCodeMethod() As MethodSymbol
                 Dim method As New SynthesizedSimpleMethodSymbol(Me, WellKnownMemberNames.ObjectGetHashCode, Me.Manager.System_Int32,
-                                                                overridenMethod:=Me.Manager.System_Object__GetHashCode)
+                                                                overriddenMethod:=Me.Manager.System_Object__GetHashCode)
 
                 method.SetParameters(ImmutableArray(Of ParameterSymbol).Empty)
                 Return method
@@ -135,7 +135,7 @@ Namespace Microsoft.CodeAnalysis.VisualBasic.Symbols
 
             Private Function CreateToStringMethod() As MethodSymbol
                 Dim method As New SynthesizedSimpleMethodSymbol(Me, WellKnownMemberNames.ObjectToString, Me.Manager.System_String,
-                                                                overridenMethod:=Me.Manager.System_Object__ToString)
+                                                                overriddenMethod:=Me.Manager.System_Object__ToString)
 
                 method.SetParameters(ImmutableArray(Of ParameterSymbol).Empty)
                 Return method
@@ -159,12 +159,13 @@ Namespace Microsoft.CodeAnalysis.VisualBasic.Symbols
                 End Get
             End Property
 
-            Friend Overrides Function InternalSubstituteTypeParameters(substitution As TypeSubstitution) As TypeSymbol
+            Friend Overrides Function InternalSubstituteTypeParameters(substitution As TypeSubstitution) As TypeWithModifiers
                 Dim newDescriptor As New AnonymousTypeDescriptor
                 If Not Me.TypeDescriptor.SubstituteTypeParametersIfNeeded(substitution, newDescriptor) Then
-                    Return Me
+                    Return New TypeWithModifiers(Me)
                 End If
-                Return Me.Manager.ConstructAnonymousTypeSymbol(newDescriptor)
+
+                Return New TypeWithModifiers(Me.Manager.ConstructAnonymousTypeSymbol(newDescriptor))
             End Function
 
             Public Overrides Function GetMembers() As ImmutableArray(Of Symbol)

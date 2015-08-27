@@ -78,7 +78,7 @@ namespace Microsoft.CodeAnalysis.CSharp
         /// <summary>
         /// Manages anonymous types declared in this compilation. Unifies types that are structurally equivalent.
         /// </summary>
-        private AnonymousTypeManager _anonymousTypeManager;
+        private readonly AnonymousTypeManager _anonymousTypeManager;
 
         private NamespaceSymbol _lazyGlobalNamespace;
 
@@ -166,7 +166,7 @@ namespace Microsoft.CodeAnalysis.CSharp
         /// </summary>
         public LanguageVersion LanguageVersion
         {
-            get; private set;
+            get;
         }
 
         public override INamedTypeSymbol CreateErrorTypeSymbol(INamespaceOrTypeSymbol container, string name, int arity)
@@ -176,8 +176,8 @@ namespace Microsoft.CodeAnalysis.CSharp
 
         #region Constructors and Factories
 
-        private static CSharpCompilationOptions s_defaultOptions = new CSharpCompilationOptions(OutputKind.ConsoleApplication);
-        private static CSharpCompilationOptions s_defaultSubmissionOptions = new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary);
+        private static readonly CSharpCompilationOptions s_defaultOptions = new CSharpCompilationOptions(OutputKind.ConsoleApplication);
+        private static readonly CSharpCompilationOptions s_defaultSubmissionOptions = new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary);
 
         /// <summary>
         /// Creates a new compilation from scratch. Methods such as AddSyntaxTrees or AddReferences
@@ -332,6 +332,18 @@ namespace Microsoft.CodeAnalysis.CSharp
             if (EventQueue != null) EventQueue.Enqueue(new CompilationStartedEvent(this));
         }
 
+        internal override void ValidateDebugEntryPoint(IMethodSymbol debugEntryPoint, DiagnosticBag diagnostics)
+        {
+            Debug.Assert(debugEntryPoint != null);
+
+            // Debug entry point has to be a method definition from this compilation.
+            var methodSymbol = debugEntryPoint as MethodSymbol;
+            if (methodSymbol?.DeclaringCompilation != this || !methodSymbol.IsDefinition)
+            {
+                diagnostics.Add(ErrorCode.ERR_DebugEntryPointNotSourceMethodDefinition, Location.None);
+            }
+        }
+
         private static LanguageVersion CommonLanguageVersion(ImmutableArray<SyntaxTree> syntaxTrees)
         {
             LanguageVersion? result = null;
@@ -344,7 +356,7 @@ namespace Microsoft.CodeAnalysis.CSharp
                 }
                 else if (result != version)
                 {
-                    throw new ArgumentException("inconsistent language versions", nameof(syntaxTrees));
+                    throw new ArgumentException(CodeAnalysisResources.InconsistentLanguageVersions, nameof(syntaxTrees));
                 }
             }
 
@@ -634,7 +646,7 @@ namespace Microsoft.CodeAnalysis.CSharp
         {
             if (trees == null)
             {
-                throw new ArgumentNullException("trees");
+                throw new ArgumentNullException(nameof(trees));
             }
 
             if (trees.IsEmpty())
@@ -709,7 +721,7 @@ namespace Microsoft.CodeAnalysis.CSharp
             ref bool referenceDirectivesChanged)
         {
             var lazyRoot = new Lazy<RootSingleNamespaceDeclaration>(() => DeclarationTreeBuilder.ForTree(tree, options.ScriptClassName ?? "", isSubmission));
-            declMap = declMap.SetItem(tree, lazyRoot);
+            declMap = declMap.Add(tree, lazyRoot); // Callers are responsible for checking for existing entries.
             declTable = declTable.AddRootDeclaration(lazyRoot);
             referenceDirectivesChanged = referenceDirectivesChanged || tree.HasReferenceDirectives();
         }
@@ -731,7 +743,7 @@ namespace Microsoft.CodeAnalysis.CSharp
         {
             if (trees == null)
             {
-                throw new ArgumentNullException("trees");
+                throw new ArgumentNullException(nameof(trees));
             }
 
             if (trees.IsEmpty())
@@ -811,7 +823,7 @@ namespace Microsoft.CodeAnalysis.CSharp
 
             if (oldTree == null)
             {
-                throw new ArgumentNullException("oldTree");
+                throw new ArgumentNullException(nameof(oldTree));
             }
 
             if (newTree == null)
@@ -829,6 +841,12 @@ namespace Microsoft.CodeAnalysis.CSharp
             }
 
             var declMap = _rootNamespaces;
+
+            if (declMap.ContainsKey(newTree))
+            {
+                throw new ArgumentException(CSharpResources.SyntaxTreeAlreadyPresent, nameof(newTree));
+            }
+
             var declTable = _declarationTable;
             bool referenceDirectivesChanged = false;
 
@@ -917,7 +935,7 @@ namespace Microsoft.CodeAnalysis.CSharp
         {
             if (reference == null)
             {
-                throw new ArgumentNullException("reference");
+                throw new ArgumentNullException(nameof(reference));
             }
 
             if (reference.Properties.Kind == MetadataImageKind.Assembly)
@@ -1237,7 +1255,7 @@ namespace Microsoft.CodeAnalysis.CSharp
         {
             if (specialType <= SpecialType.None || specialType > SpecialType.Count)
             {
-                throw new ArgumentOutOfRangeException("specialType");
+                throw new ArgumentOutOfRangeException(nameof(specialType));
             }
 
             var result = Assembly.GetSpecialType(specialType);
@@ -1305,17 +1323,11 @@ namespace Microsoft.CodeAnalysis.CSharp
             return _lazyHostObjectTypeSymbol;
         }
 
-        internal TypeSymbol GetSubmissionReturnType()
+        internal SynthesizedInteractiveInitializerMethod GetSubmissionInitializer()
         {
-            if (IsSubmission && (object)ScriptClass != null)
-            {
-                // the second parameter of Script class instance constructor is the submission return value:
-                return ((MethodSymbol)ScriptClass.GetMembers(WellKnownMemberNames.InstanceConstructorName)[0]).Parameters[1].Type;
-            }
-            else
-            {
-                return null;
-            }
+            return (IsSubmission && (object)ScriptClass != null) ?
+                ScriptClass.GetScriptInitializer() :
+                null;
         }
 
         /// <summary>
@@ -1366,12 +1378,10 @@ namespace Microsoft.CodeAnalysis.CSharp
 
         internal EntryPoint GetEntryPointAndDiagnostics(CancellationToken cancellationToken)
         {
-            if (!this.Options.OutputKind.IsApplication())
+            if (!this.Options.OutputKind.IsApplication() && ((object)this.ScriptClass == null))
             {
                 return null;
             }
-
-            Debug.Assert(!this.IsSubmission);
 
             if (this.Options.MainTypeName != null && !this.Options.MainTypeName.IsValidClrTypeName())
             {
@@ -1381,25 +1391,21 @@ namespace Microsoft.CodeAnalysis.CSharp
 
             if (_lazyEntryPoint == null)
             {
-                MethodSymbol entryPoint;
                 ImmutableArray<Diagnostic> diagnostics;
-                FindEntryPoint(cancellationToken, out entryPoint, out diagnostics);
-
+                var entryPoint = FindEntryPoint(cancellationToken, out diagnostics);
                 Interlocked.CompareExchange(ref _lazyEntryPoint, new EntryPoint(entryPoint, diagnostics), null);
             }
 
             return _lazyEntryPoint;
         }
 
-        private void FindEntryPoint(CancellationToken cancellationToken, out MethodSymbol entryPoint, out ImmutableArray<Diagnostic> sealedDiagnostics)
+        private MethodSymbol FindEntryPoint(CancellationToken cancellationToken, out ImmutableArray<Diagnostic> sealedDiagnostics)
         {
-            DiagnosticBag diagnostics = DiagnosticBag.GetInstance();
+            var diagnostics = DiagnosticBag.GetInstance();
+            var entryPointCandidates = ArrayBuilder<MethodSymbol>.GetInstance();
 
             try
             {
-                entryPoint = null;
-
-                ArrayBuilder<MethodSymbol> entryPointCandidates;
                 NamedTypeSymbol mainType;
 
                 string mainTypeName = this.Options.MainTypeName;
@@ -1408,52 +1414,45 @@ namespace Microsoft.CodeAnalysis.CSharp
                 if (mainTypeName != null)
                 {
                     // Global code is the entry point, ignore all other Mains.
-                    // TODO: don't special case scripts (DevDiv #13119).
-                    if ((object)this.ScriptClass != null)
+                    var scriptClass = this.ScriptClass;
+                    if (scriptClass != null)
                     {
                         // CONSIDER: we could use the symbol instead of just the name.
                         diagnostics.Add(ErrorCode.WRN_MainIgnored, NoLocation.Singleton, mainTypeName);
-                        return;
+                        return scriptClass.GetScriptEntryPoint();
                     }
 
                     var mainTypeOrNamespace = globalNamespace.GetNamespaceOrTypeByQualifiedName(mainTypeName.Split('.')).OfMinimalArity();
                     if ((object)mainTypeOrNamespace == null)
                     {
                         diagnostics.Add(ErrorCode.ERR_MainClassNotFound, NoLocation.Singleton, mainTypeName);
-                        return;
+                        return null;
                     }
 
                     mainType = mainTypeOrNamespace as NamedTypeSymbol;
                     if ((object)mainType == null || mainType.IsGenericType || (mainType.TypeKind != TypeKind.Class && mainType.TypeKind != TypeKind.Struct))
                     {
                         diagnostics.Add(ErrorCode.ERR_MainClassNotClass, mainTypeOrNamespace.Locations.First(), mainTypeOrNamespace);
-                        return;
+                        return null;
                     }
 
-                    entryPointCandidates = ArrayBuilder<MethodSymbol>.GetInstance();
                     EntryPointCandidateFinder.FindCandidatesInSingleType(mainType, entryPointCandidates, cancellationToken);
-
-                    // NOTE: Any return after this point must free entryPointCandidates.
                 }
                 else
                 {
                     mainType = null;
 
-                    entryPointCandidates = ArrayBuilder<MethodSymbol>.GetInstance();
                     EntryPointCandidateFinder.FindCandidatesInNamespace(globalNamespace, entryPointCandidates, cancellationToken);
 
-                    // NOTE: Any return after this point must free entryPointCandidates.
-
-                    // global code is the entry point, ignore all other Mains:
-                    if ((object)this.ScriptClass != null)
+                    // Global code is the entry point, ignore all other Mains.
+                    var scriptClass = this.ScriptClass;
+                    if (scriptClass != null)
                     {
                         foreach (var main in entryPointCandidates)
                         {
                             diagnostics.Add(ErrorCode.WRN_MainIgnored, main.Locations.First(), main);
                         }
-
-                        entryPointCandidates.Free();
-                        return;
+                        return scriptClass.GetScriptEntryPoint();
                     }
                 }
 
@@ -1490,6 +1489,7 @@ namespace Microsoft.CodeAnalysis.CSharp
 
                 warnings.Free();
 
+                MethodSymbol entryPoint = null;
                 if (viableEntryPoints.Count == 0)
                 {
                     if ((object)mainType == null)
@@ -1518,10 +1518,11 @@ namespace Microsoft.CodeAnalysis.CSharp
                 }
 
                 viableEntryPoints.Free();
-                entryPointCandidates.Free();
+                return entryPoint;
             }
             finally
             {
+                entryPointCandidates.Free();
                 sealedDiagnostics = diagnostics.ToReadOnlyAndFree();
             }
         }
@@ -1557,12 +1558,12 @@ namespace Microsoft.CodeAnalysis.CSharp
 
             if ((object)source == null)
             {
-                throw new ArgumentNullException("source");
+                throw new ArgumentNullException(nameof(source));
             }
 
             if ((object)destination == null)
             {
-                throw new ArgumentNullException("destination");
+                throw new ArgumentNullException(nameof(destination));
             }
 
             var cssource = source.EnsureCSharpSymbolOrNull<ITypeSymbol, TypeSymbol>("source");
@@ -1580,7 +1581,7 @@ namespace Microsoft.CodeAnalysis.CSharp
         {
             if ((object)elementType == null)
             {
-                throw new ArgumentNullException("elementType");
+                throw new ArgumentNullException(nameof(elementType));
             }
 
             return new ArrayTypeSymbol(this.Assembly, elementType, ImmutableArray<CustomModifier>.Empty, rank);
@@ -1593,7 +1594,7 @@ namespace Microsoft.CodeAnalysis.CSharp
         {
             if ((object)elementType == null)
             {
-                throw new ArgumentNullException("elementType");
+                throw new ArgumentNullException(nameof(elementType));
             }
 
             return new PointerTypeSymbol(elementType);
@@ -1610,7 +1611,7 @@ namespace Microsoft.CodeAnalysis.CSharp
         {
             if (syntaxTree == null)
             {
-                throw new ArgumentNullException("tree");
+                throw new ArgumentNullException(nameof(syntaxTree));
             }
 
             if (!this.SyntaxTrees.Contains((SyntaxTree)syntaxTree))
@@ -1877,7 +1878,7 @@ namespace Microsoft.CodeAnalysis.CSharp
         }
 
         private DiagnosticBag _lazyDeclarationDiagnostics;
-        private bool _declarationDiagnosticsFrozen = false;
+        private bool _declarationDiagnosticsFrozen;
 
         /// <summary>
         /// A bag in which diagnostics that should be reported after code gen can be deposited.
@@ -1890,7 +1891,7 @@ namespace Microsoft.CodeAnalysis.CSharp
             }
         }
 
-        private DiagnosticBag _additionalCodegenWarnings = new DiagnosticBag();
+        private readonly DiagnosticBag _additionalCodegenWarnings = new DiagnosticBag();
 
         internal DeclarationTable Declarations
         {
@@ -2070,16 +2071,6 @@ namespace Microsoft.CodeAnalysis.CSharp
             return result;
         }
 
-        internal override Diagnostic FilterDiagnostic(Diagnostic d)
-        {
-            return FilterDiagnostic(d, _options);
-        }
-
-        private static Diagnostic FilterDiagnostic(Diagnostic d, CSharpCompilationOptions options)
-        {
-            return CSharpDiagnosticFilter.Filter(d, options.WarningLevel, options.GeneralDiagnosticOption, options.SpecificDiagnosticOptions);
-        }
-
         /// <summary>
         /// Filter out warnings based on the compiler options (/nowarn, /warn and /warnaserror) and the pragma warning directives.
         /// </summary>
@@ -2090,7 +2081,7 @@ namespace Microsoft.CodeAnalysis.CSharp
 
             foreach (Diagnostic d in incoming)
             {
-                var filtered = FilterDiagnostic(d, _options);
+                var filtered = _options.FilterDiagnostic(d);
                 if (filtered == null)
                 {
                     continue;
@@ -2124,8 +2115,7 @@ namespace Microsoft.CodeAnalysis.CSharp
 
             Assembly.ForceComplete(location, cancellationToken);
 
-            var result = this.FreezeDeclarationDiagnostics().Concat(
-                ((SourceModuleSymbol)this.SourceModule).Diagnostics);
+            var result = this.FreezeDeclarationDiagnostics();
 
             if (locationFilterOpt != null)
             {
@@ -2249,6 +2239,8 @@ namespace Microsoft.CodeAnalysis.CSharp
 
         #region Emit
 
+        internal override byte LinkerMajorVersion => 0x30;
+        
         internal override bool IsDelaySigned
         {
             get { return SourceAssembly.IsDelaySigned; }
@@ -2261,18 +2253,13 @@ namespace Microsoft.CodeAnalysis.CSharp
 
         internal override CommonPEModuleBuilder CreateModuleBuilder(
             EmitOptions emitOptions,
+            IMethodSymbol debugEntryPoint,
             IEnumerable<ResourceDescription> manifestResources,
-            Func<IAssemblySymbol, AssemblyIdentity> assemblySymbolMapper,
             CompilationTestData testData,
             DiagnosticBag diagnostics,
             CancellationToken cancellationToken)
         {
-            // Do not waste a slot in the submission chain for submissions that contain no executable code
-            // (they may only contain #r directives, usings, etc.)
-            if (IsSubmission && !HasCodeToEmit())
-            {
-                return null;
-            }
+            Debug.Assert(!IsSubmission || HasCodeToEmit());
 
             string runtimeMDVersion = GetRuntimeMetadataVersion(emitOptions, diagnostics);
             if (runtimeMDVersion == null)
@@ -2304,8 +2291,12 @@ namespace Microsoft.CodeAnalysis.CSharp
                     emitOptions,
                     kind,
                     moduleProps,
-                    manifestResources,
-                    assemblySymbolMapper);
+                    manifestResources);
+            }
+
+            if (debugEntryPoint != null)
+            {
+                moduleBeingBuilt.SetDebugEntryPoint((MethodSymbol)debugEntryPoint, diagnostics);
             }
 
             // testData is only passed when running tests.
@@ -2322,7 +2313,7 @@ namespace Microsoft.CodeAnalysis.CSharp
             CommonPEModuleBuilder moduleBuilder,
             Stream win32Resources,
             Stream xmlDocStream,
-            bool generateDebugInfo,
+            bool emittingPdb,
             DiagnosticBag diagnostics,
             Predicate<ISymbol> filterOpt,
             CancellationToken cancellationToken)
@@ -2343,16 +2334,20 @@ namespace Microsoft.CodeAnalysis.CSharp
                     return false;
                 }
 
+                if (moduleBeingBuilt.SourceModule.HasBadAttributes)
+                {
+                    // If there were errors but no declaration diagnostics, explicitly add a "Failed to emit module" error.
+                    diagnostics.Add(ErrorCode.ERR_ModuleEmitFailure, NoLocation.Singleton, ((Cci.INamedEntity)moduleBeingBuilt).Name);
+                    return false;
+                }
+
                 SynthesizedMetadataCompiler.ProcessSynthesizedMembers(this, moduleBeingBuilt, cancellationToken);
             }
             else
             {
-                if (generateDebugInfo && moduleBeingBuilt != null)
+                if (emittingPdb && !StartSourceChecksumCalculation(moduleBeingBuilt, diagnostics))
                 {
-                    if (!StartSourceChecksumCalculation(moduleBeingBuilt, diagnostics))
-                    {
-                        return false;
-                    }
+                    return false;
                 }
 
                 // Perform initial bind of method bodies in spite of earlier errors. This is the same
@@ -2364,7 +2359,7 @@ namespace Microsoft.CodeAnalysis.CSharp
                 MethodCompiler.CompileMethodBodies(
                     this,
                     moduleBeingBuilt,
-                    generateDebugInfo,
+                    emittingPdb,
                     hasDeclarationErrors,
                     diagnostics: methodBodyDiagnosticBag,
                     filterOpt: filterOpt,
@@ -2735,7 +2730,7 @@ namespace Microsoft.CodeAnalysis.CSharp
 
             if (trees == null)
             {
-                throw new ArgumentNullException("trees");
+                throw new ArgumentNullException(nameof(trees));
             }
 
             return this.AddSyntaxTrees(trees.Cast<SyntaxTree>());
@@ -2751,7 +2746,7 @@ namespace Microsoft.CodeAnalysis.CSharp
 
             if (trees == null)
             {
-                throw new ArgumentNullException("trees");
+                throw new ArgumentNullException(nameof(trees));
             }
 
             return this.RemoveSyntaxTrees(trees.Cast<SyntaxTree>());
@@ -2907,9 +2902,9 @@ namespace Microsoft.CodeAnalysis.CSharp
 
         #endregion
 
-        internal override AnalyzerDriver AnalyzerForLanguage(ImmutableArray<DiagnosticAnalyzer> analyzers, AnalyzerManager analyzerManager, CancellationToken cancellationToken)
+        internal override AnalyzerDriver AnalyzerForLanguage(ImmutableArray<DiagnosticAnalyzer> analyzers, AnalyzerManager analyzerManager)
         {
-            return new AnalyzerDriver<SyntaxKind>(analyzers, n => n.Kind(), analyzerManager, cancellationToken);
+            return new AnalyzerDriver<SyntaxKind>(analyzers, n => n.Kind(), analyzerManager);
         }
 
         internal void SymbolDeclaredEvent(Symbol symbol)

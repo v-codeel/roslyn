@@ -2,10 +2,7 @@
 
 using System;
 using System.Diagnostics;
-using System.Linq;
 using Microsoft.CodeAnalysis.CSharp.Symbols;
-using Microsoft.CodeAnalysis.CSharp.Syntax;
-using Microsoft.CodeAnalysis.Text;
 
 namespace Microsoft.CodeAnalysis.CSharp
 {
@@ -48,11 +45,11 @@ namespace Microsoft.CodeAnalysis.CSharp
         }
 
         /// <summary>
-        /// Determines if a bound node, or associated syntax or type has an error (not a waring) 
+        /// Determines if a bound node, or associated syntax or type has an error (not a warning) 
         /// diagnostic associated with it.
         /// 
         /// Typically used in the binder as a way to prevent cascading errors. 
-        /// In most other cases a more lightweigth HasErrors should be used.
+        /// In most other cases a more lightweight HasErrors should be used.
         /// </summary>
         public bool HasAnyErrors
         {
@@ -74,7 +71,7 @@ namespace Microsoft.CodeAnalysis.CSharp
         /// to the node constructor. If any child nodes of a node have
         /// the HasErrors bit set, then it is automatically set to true on the parent bound node.
         /// 
-        /// HasErrors indicates that the tree is not emittable and used to shortcircuit lowering/emit stages.
+        /// HasErrors indicates that the tree is not emittable and used to short-circuit lowering/emit stages.
         /// NOTE: not having HasErrors does not guarantee that we do not have any diagnostic associated
         ///       with corresponding syntax or type.
         /// </summary>

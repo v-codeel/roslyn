@@ -279,6 +279,10 @@ namespace Microsoft.CodeAnalysis.CSharp.Utilities
                 // If replacing the node will result in a broken binary expression, we won't remove it.
                 return ReplacementBreaksBinaryExpression((BinaryExpressionSyntax)currentOriginalNode, (BinaryExpressionSyntax)currentReplacedNode);
             }
+            else if (currentOriginalNode.Kind() == SyntaxKind.ConditionalAccessExpression)
+            {
+                return ReplacementBreaksConditionalAccessExpression((ConditionalAccessExpressionSyntax)currentOriginalNode, (ConditionalAccessExpressionSyntax)currentReplacedNode);
+            }
             else if (currentOriginalNode is AssignmentExpressionSyntax)
             {
                 // If replacing the node will result in a broken assignment expression, we won't remove it.
@@ -373,7 +377,7 @@ namespace Microsoft.CodeAnalysis.CSharp.Utilities
 
                     var originalSwitchLabels = originalSwitchStatement.Sections.SelectMany(section => section.Labels).ToArray();
                     var newSwitchLabels = newSwitchStatement.Sections.SelectMany(section => section.Labels).ToArray();
-                    for (int i = 0; i < originalSwitchLabels.Count(); i++)
+                    for (int i = 0; i < originalSwitchLabels.Length; i++)
                     {
                         var originalSwitchLabel = originalSwitchLabels[i] as CaseSwitchLabelSyntax;
                         if (originalSwitchLabel != null)
@@ -559,6 +563,14 @@ namespace Microsoft.CodeAnalysis.CSharp.Utilities
             return !SymbolsAreCompatible(binaryExpression, newBinaryExpression) ||
                 !TypesAreCompatible(binaryExpression, newBinaryExpression) ||
                 !ImplicitConversionsAreCompatible(binaryExpression, newBinaryExpression);
+        }
+
+        private bool ReplacementBreaksConditionalAccessExpression(ConditionalAccessExpressionSyntax conditionalAccessExpression, ConditionalAccessExpressionSyntax newConditionalAccessExpression)
+        {
+            return !SymbolsAreCompatible(conditionalAccessExpression, newConditionalAccessExpression) ||
+                !TypesAreCompatible(conditionalAccessExpression, newConditionalAccessExpression) ||
+                !SymbolsAreCompatible(conditionalAccessExpression.WhenNotNull, newConditionalAccessExpression.WhenNotNull) ||
+                !TypesAreCompatible(conditionalAccessExpression.WhenNotNull, newConditionalAccessExpression.WhenNotNull);
         }
 
         private bool ReplacementBreaksIsOrAsExpression(BinaryExpressionSyntax originalIsOrAsExpression, BinaryExpressionSyntax newIsOrAsExpression)

@@ -88,7 +88,7 @@ parseOptions: Options.Regular);
         #region Lambdas
 
         [Fact, Trait(Traits.Feature, Traits.Features.CodeActionsGenerateType)]
-        public void TestGenerateClassFromParanthesizedLambdaExpressionsParameter()
+        public void TestGenerateClassFromParenthesizedLambdaExpressionsParameter()
         {
             Test(
 @"class Class { Func<Employee, int, bool> l = ([|Employee|] e, int age) => e.Age > age; }",
@@ -97,7 +97,7 @@ index: 2);
         }
 
         [Fact, Trait(Traits.Feature, Traits.Features.CodeActionsGenerateType)]
-        public void TestGenerateClassFromParanthesizedLambdaExpressionsBody()
+        public void TestGenerateClassFromParenthesizedLambdaExpressionsBody()
         {
             Test(
 @"class Class { System.Action<Class, int> l = (Class e, int age) => { [|Wage|] w; }; }",
@@ -122,7 +122,7 @@ index: 2);
             TestAddDocument(
 @"class Program { void Main ( ) { [|Foo|] f ; } } ",
 @"internal class Foo { } ",
-expectedContainers: new string[0],
+expectedContainers: Array.Empty<string>(),
 expectedDocumentName: "Foo.cs");
         }
 
@@ -1511,7 +1511,7 @@ string.Format(FeaturesResources.GenerateForInNewFile, "class", "Foo", FeaturesRe
             TestAddDocument(
 @"class C : [|Foo|]",
 "internal class Foo { }",
-new string[] { },
+Array.Empty<string>(),
 "Foo.cs");
         }
 
@@ -1671,7 +1671,7 @@ namespace Namespace1.Namespace2
 
             TestAddDocument(code,
                 expected,
-                expectedContainers: new string[0],
+                expectedContainers: Array.Empty<string>(),
                 expectedDocumentName: "ClassB.cs",
                 compareTokens: false,
                 isLine: false);
@@ -1950,6 +1950,68 @@ index: 1);
         public void TestWithUsingStatic2()
         {
             TestMissing(@"using [|Sample|] ; ");
+        }
+
+        [WorkItem(1107929)]
+        [Fact, Trait(Traits.Feature, Traits.Features.CodeActionsGenerateType)]
+        public void TestAccessibilityForPublicFields()
+        {
+            Test(
+@"class A { public B b = new [|B|](); }",
+@"public class B { public B() { } }",
+index: 0,
+isAddedDocument: true);
+        }
+
+        [WorkItem(1107929)]
+        [Fact, Trait(Traits.Feature, Traits.Features.CodeActionsGenerateType)]
+        public void TestAccessibilityForPublicFields2()
+        {
+            Test(
+@"class A { public B b = new [|B|](); }",
+@"class A { public B b = new B(); } public class B { public B() {}}",
+index: 1);
+        }
+
+        [WorkItem(1107929)]
+        [Fact, Trait(Traits.Feature, Traits.Features.CodeActionsGenerateType)]
+        public void TestAccessibilityForPublicFields3()
+        {
+            Test(
+@"class A { public B b = new [|B|](); }",
+@"class A { public B b = new B(); public class B { public B() {}}}",
+index: 2);
+        }
+
+        [WorkItem(1107929)]
+        [Fact, Trait(Traits.Feature, Traits.Features.CodeActionsGenerateType)]
+        public void TestAccessibilityForPublicFields4()
+        {
+            Test(
+@"class A { public B<int> b = new [|B|]<int>(); }",
+@"public class B<T> { public B() {}}",
+index: 0,
+isAddedDocument: true);
+        }
+
+        [WorkItem(1107929)]
+        [Fact, Trait(Traits.Feature, Traits.Features.CodeActionsGenerateType)]
+        public void TestAccessibilityForPublicFields5()
+        {
+            Test(
+@"class A { public B<int> b = new [|B|]<int>(); }",
+@"class A { public B<int> b = new B<int>(); } public class B<T>{ public B(){}}",
+index: 1);
+        }
+
+        [WorkItem(1107929)]
+        [Fact, Trait(Traits.Feature, Traits.Features.CodeActionsGenerateType)]
+        public void TestAccessibilityForPublicFields6()
+        {
+            Test(
+@"class A { public B<int> b = new [|B|]<int>(); }",
+@"class A { public B<int> b = new B<int>(); public class B<T>{ public B(){}}}",
+index: 2);
         }
     }
 }

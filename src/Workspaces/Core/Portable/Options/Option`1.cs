@@ -36,12 +36,12 @@ namespace Microsoft.CodeAnalysis.Options
         {
             if (string.IsNullOrWhiteSpace(feature))
             {
-                throw new ArgumentNullException("feature");
+                throw new ArgumentNullException(nameof(feature));
             }
 
             if (string.IsNullOrWhiteSpace(name))
             {
-                throw new ArgumentException("name");
+                throw new ArgumentException(nameof(name));
             }
 
             this.Feature = feature;

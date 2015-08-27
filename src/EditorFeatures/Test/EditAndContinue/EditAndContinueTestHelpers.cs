@@ -94,7 +94,7 @@ namespace Microsoft.CodeAnalysis.EditAndContinue.UnitTests
             var diagnostics = new List<RudeEditDiagnostic>();
             var actualNewActiveStatements = new LinePositionSpan[oldActiveStatements.Length];
             var actualNewExceptionRegions = new ImmutableArray<LinePositionSpan>[oldActiveStatements.Length];
-            var updatedActiveMethodMatches = new List<AbstractEditAndContinueAnalyzer.UpdatedMethodInfo>();
+            var updatedActiveMethodMatches = new List<AbstractEditAndContinueAnalyzer.UpdatedMemberInfo>();
             var editMap = Analyzer.BuildEditMap(editScript);
 
             DocumentId documentId = DocumentId.CreateNewId(ProjectId.CreateNewId("TestEnCProject"), "TestEnCDocument");
@@ -249,7 +249,7 @@ namespace Microsoft.CodeAnalysis.EditAndContinue.UnitTests
             var newModel = newCompilation.GetSemanticModel(newRoot.SyntaxTree);
 
             var oldActiveStatements = activeStatements.OldSpans.AsImmutable();
-            var updatedActiveMethodMatches = new List<AbstractEditAndContinueAnalyzer.UpdatedMethodInfo>();
+            var updatedActiveMethodMatches = new List<AbstractEditAndContinueAnalyzer.UpdatedMemberInfo>();
             var triviaEdits = new List<KeyValuePair<SyntaxNode, SyntaxNode>>();
             var actualLineEdits = new List<LineChange>();
             var actualSemanticEdits = new List<SemanticEdit>();
@@ -344,7 +344,7 @@ namespace Microsoft.CodeAnalysis.EditAndContinue.UnitTests
                         newNodes.Add(newNode);
                     }
                 }
-                else
+                else if (!expectedSemanticEdits[i].PreserveLocalVariables)
                 {
                     Assert.Null(actualSyntaxMap);
                 }
@@ -363,6 +363,51 @@ namespace Microsoft.CodeAnalysis.EditAndContinue.UnitTests
         private static string DisplaySpan(string source, TextSpan span)
         {
             return span + ": [" + source.Substring(span.Start, span.Length).Replace("\r\n", " ") + "]";
+        }
+
+        internal static IEnumerable<KeyValuePair<SyntaxNode, SyntaxNode>> GetMethodMatches(AbstractEditAndContinueAnalyzer analyzer, Match<SyntaxNode> bodyMatch)
+        {
+            Dictionary<SyntaxNode, AbstractEditAndContinueAnalyzer.LambdaInfo> lazyActiveOrMatchedLambdas = null;
+            var map = analyzer.ComputeMap(bodyMatch, Array.Empty<AbstractEditAndContinueAnalyzer.ActiveNode>(), ref lazyActiveOrMatchedLambdas, new List<RudeEditDiagnostic>());
+
+            var result = new Dictionary<SyntaxNode, SyntaxNode>();
+            foreach (var pair in map.Forward)
+            {
+                if (pair.Value == bodyMatch.NewRoot)
+                {
+                    Assert.Same(pair.Key, bodyMatch.OldRoot);
+                    continue;
+                }
+
+                result.Add(pair.Key, pair.Value);
+            }
+
+            return result;
+        }
+
+        public static MatchingPairs ToMatchingPairs(Match<SyntaxNode> match)
+        {
+            return ToMatchingPairs(match.Matches.Where(partners => partners.Key != match.OldRoot));
+        }
+
+        public static MatchingPairs ToMatchingPairs(IEnumerable<KeyValuePair<SyntaxNode, SyntaxNode>> matches)
+        {
+            return new MatchingPairs(matches
+                .OrderBy(partners => partners.Key.GetLocation().SourceSpan.Start)
+                .ThenByDescending(partners => partners.Key.Span.Length)
+                .Select(partners => new MatchingPair
+                {
+                    Old = partners.Key.ToString().Replace("\r\n", " ").Replace("\n", " "),
+                    New = partners.Value.ToString().Replace("\r\n", " ").Replace("\n", " ")
+                }));
+        }
+
+        private static IEnumerable<KeyValuePair<K, V>> ReverseMapping<K, V>(IEnumerable<KeyValuePair<V, K>> mapping)
+        {
+            foreach (var pair in mapping)
+            {
+                yield return KeyValuePair.Create(pair.Value, pair.Key);
+            }
         }
     }
 

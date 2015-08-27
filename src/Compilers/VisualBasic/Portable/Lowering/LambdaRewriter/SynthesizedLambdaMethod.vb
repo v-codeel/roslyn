@@ -44,14 +44,14 @@ Namespace Microsoft.CodeAnalysis.VisualBasic
         Friend Sub New(containingType As InstanceTypeSymbol,
                        closureKind As ClosureKind,
                        topLevelMethod As MethodSymbol,
-                       topLevelMethodId As MethodDebugId,
+                       topLevelMethodId As DebugId,
                        lambdaNode As BoundLambda,
-                       lambdaOrdinal As Integer,
+                       lambdaId As DebugId,
                        diagnostics As DiagnosticBag)
 
             MyBase.New(lambdaNode.Syntax,
                        containingType,
-                       MakeName(topLevelMethodId, closureKind, lambdaNode.LambdaSymbol.SynthesizedKind, lambdaOrdinal),
+                       MakeName(topLevelMethodId, closureKind, lambdaNode.LambdaSymbol.SynthesizedKind, lambdaId),
                        isShared:=False)
 
             Me._lambda = lambdaNode.LambdaSymbol
@@ -76,7 +76,7 @@ Namespace Microsoft.CodeAnalysis.VisualBasic
                 params.Add(
                     WithNewContainerAndType(
                     Me,
-                    curParam.Type.InternalSubstituteTypeParameters(TypeMap),
+                    curParam.Type.InternalSubstituteTypeParameters(TypeMap).Type,
                     curParam))
             Next
 
@@ -84,19 +84,26 @@ Namespace Microsoft.CodeAnalysis.VisualBasic
             Me._topLevelMethod = topLevelMethod
         End Sub
 
-        Private Shared Function MakeName(topLevelMethodId As MethodDebugId,
+        Private Shared Function MakeName(topLevelMethodId As DebugId,
                                          closureKind As ClosureKind,
                                          lambdaKind As SynthesizedLambdaKind,
-                                         lambdaOrdinal As Integer) As String
+                                         lambdaId As DebugId) As String
             ' Lambda method name must contain the declaring method ordinal to be unique unless the method is emitted into a closure class exclusive to the declaring method.
             ' Lambdas that only close over "Me" are emitted directly into the top-level method containing type.
             ' Lambdas that don't close over anything (static) are emitted into a shared closure singleton.
             Return GeneratedNames.MakeLambdaMethodName(
                 If(closureKind = ClosureKind.General, -1, topLevelMethodId.Ordinal),
                 topLevelMethodId.Generation,
-                lambdaOrdinal,
+                lambdaId.Ordinal,
+                lambdaId.Generation,
                 lambdaKind)
         End Function
+
+        Public ReadOnly Property TopLevelMethod As MethodSymbol
+            Get
+                Return _topLevelMethod
+            End Get
+        End Property
 
         Public Overrides ReadOnly Property TypeParameters As ImmutableArray(Of TypeParameterSymbol)
             Get
@@ -129,7 +136,7 @@ Namespace Microsoft.CodeAnalysis.VisualBasic
 
         Public Overrides ReadOnly Property ReturnType As TypeSymbol
             Get
-                Return _lambda.ReturnType.InternalSubstituteTypeParameters(TypeMap)
+                Return _lambda.ReturnType.InternalSubstituteTypeParameters(TypeMap).Type
             End Get
         End Property
 
@@ -195,6 +202,13 @@ Namespace Microsoft.CodeAnalysis.VisualBasic
 
             If Me.IsAsync OrElse Me.IsIterator Then
                 AddSynthesizedAttribute(attributes, Me.DeclaringCompilation.SynthesizeStateMachineAttribute(Me, compilationState))
+
+                If Me.IsAsync Then
+                    ' Async kick-off method calls MoveNext, which contains user code. 
+                    ' This means we need to emit DebuggerStepThroughAttribute in order
+                    ' to have correct stepping behavior during debugging.
+                    AddSynthesizedAttribute(attributes, Me.DeclaringCompilation.SynthesizeOptionalDebuggerStepThroughAttribute())
+                End If
             End If
         End Sub
 
@@ -205,22 +219,9 @@ Namespace Microsoft.CodeAnalysis.VisualBasic
         End Property
 
         Friend Overrides Function CalculateLocalSyntaxOffset(localPosition As Integer, localTree As SyntaxTree) As Integer
-            Dim syntax = TryCast(Me.Syntax, LambdaExpressionSyntax)
-
-            ' Assign -1 offset to all variables that are associated with the header.
-            ' We can't assign >=0 since user-defined variables defined in the first statement of the body have 0
-            ' and user-defined variables need to have a unique syntax offset.
-            If syntax Is Nothing OrElse localPosition = syntax.SubOrFunctionHeader.SpanStart Then
-                Return -1
-            End If
-
-            ' All other locals are declared within the body of the lambda:
-            Debug.Assert(syntax.Span.Contains(localPosition))
-            Dim multiLine = TryCast(syntax, MultiLineLambdaExpressionSyntax)
-            Dim bodyStart = If(multiLine IsNot Nothing, multiLine.Statements.Span.Start, DirectCast(Me.Syntax, SingleLineLambdaExpressionSyntax).Body.SpanStart)
-
-            Debug.Assert(localPosition >= bodyStart)
-            Return localPosition - bodyStart
+            ' Syntax offset of a syntax node contained in a lambda body is calculated by the containing top-level method.
+            ' The offset is thus relative to the top-level method body start.
+            Return _topLevelMethod.CalculateLocalSyntaxOffset(localPosition, localTree)
         End Function
 
         ' The lambda method body needs to be updated when the containing top-level method body is updated.

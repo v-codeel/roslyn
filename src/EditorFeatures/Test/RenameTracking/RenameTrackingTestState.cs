@@ -15,6 +15,7 @@ using Microsoft.CodeAnalysis.Editor.VisualBasic.RenameTracking;
 using Microsoft.CodeAnalysis.Notification;
 using Microsoft.CodeAnalysis.Options;
 using Microsoft.CodeAnalysis.Shared.TestHooks;
+using Microsoft.CodeAnalysis.Text.Shared.Extensions;
 using Microsoft.CodeAnalysis.UnitTests.Diagnostics;
 using Microsoft.VisualStudio.Composition;
 using Microsoft.VisualStudio.Text;
@@ -99,7 +100,7 @@ namespace Microsoft.CodeAnalysis.Editor.UnitTests.RenameTracking
             }
             else
             {
-                throw new ArgumentException("Invalid langauge name: " + languageName, "languageName");
+                throw new ArgumentException("Invalid language name: " + languageName, "languageName");
             }
         }
 
@@ -142,7 +143,7 @@ namespace Microsoft.CodeAnalysis.Editor.UnitTests.RenameTracking
         {
             WaitForAsyncOperations();
 
-            var tags = _tagger.GetTags(new NormalizedSnapshotSpanCollection(new SnapshotSpan(_view.TextBuffer.CurrentSnapshot, new Span(0, _view.TextBuffer.CurrentSnapshot.Length))));
+            var tags = _tagger.GetTags(_view.TextBuffer.CurrentSnapshot.GetSnapshotSpanCollection());
 
             Assert.Equal(0, tags.Count());
         }
@@ -154,11 +155,11 @@ namespace Microsoft.CodeAnalysis.Editor.UnitTests.RenameTracking
             return DiagnosticProviderTestUtilities.GetDocumentDiagnostics(analyzer, document, document.GetSyntaxRootAsync(CancellationToken.None).Result.FullSpan).ToList();
         }
 
-        public void AssertTag(string expectedFromName, string expectedToName, bool invokeAction = false, int actionIndex = 0)
+        public void AssertTag(string expectedFromName, string expectedToName, bool invokeAction = false)
         {
             WaitForAsyncOperations();
 
-            var tags = _tagger.GetTags(new NormalizedSnapshotSpanCollection(new SnapshotSpan(_view.TextBuffer.CurrentSnapshot, new Span(0, _view.TextBuffer.CurrentSnapshot.Length))));
+            var tags = _tagger.GetTags(_view.TextBuffer.CurrentSnapshot.GetSnapshotSpanCollection());
 
             // There should only ever be one tag
             Assert.Equal(1, tags.Count());
@@ -176,15 +177,14 @@ namespace Microsoft.CodeAnalysis.Editor.UnitTests.RenameTracking
             var context = new CodeFixContext(document, diagnostics[0], (a, d) => actions.Add(a), CancellationToken.None);
             _codeFixProvider.RegisterCodeFixesAsync(context).Wait();
 
-            // There should be two actions
-            Assert.Equal(2, actions.Count);
+            // There should only be one code action
+            Assert.Equal(1, actions.Count);
 
             Assert.Equal(string.Format(EditorFeaturesResources.RenameTo, expectedFromName, expectedToName), actions[0].Title);
-            Assert.Equal(string.Format(EditorFeaturesResources.RenameToWithPreview, expectedFromName, expectedToName), actions[1].Title);
 
             if (invokeAction)
             {
-                var operations = actions[actionIndex]
+                var operations = actions[0]
                     .GetOperationsAsync(CancellationToken.None)
                     .WaitAndGetResult(CancellationToken.None)
                     .ToArray();

@@ -9,9 +9,9 @@ using Roslyn.Utilities;
 namespace Microsoft.CodeAnalysis.CSharp
 {
     /// <summary>
-    /// This pass detects and reports diagnostics that do not affect lambda convertability.
+    /// This pass detects and reports diagnostics that do not affect lambda convertibility.
     /// This part of the partial class focuses on features that cannot be used in expression trees.
-    /// CAVEAT: Errors may be produced for ObsoleteAttribute, but such errors don't affect lambda convertability.
+    /// CAVEAT: Errors may be produced for ObsoleteAttribute, but such errors don't affect lambda convertibility.
     /// </summary>
     internal sealed partial class DiagnosticsPass : BoundTreeWalker
     {
@@ -169,11 +169,7 @@ namespace Microsoft.CodeAnalysis.CSharp
 
         public override BoundNode VisitCompoundAssignmentOperator(BoundCompoundAssignmentOperator node)
         {
-            CheckLiftedCompoundAssignment(node);
-            if (_inExpressionLambda)
-            {
-                Error(ErrorCode.ERR_ExpressionTreeContainsAssignment, node);
-            }
+            CheckCompoundAssignmentOperator(node);
 
             return base.VisitCompoundAssignmentOperator(node);
         }
@@ -531,6 +527,13 @@ namespace Microsoft.CodeAnalysis.CSharp
 
             CheckReceiverIfField(node.ReceiverOpt);
             return base.VisitMethodGroup(node);
+        }
+
+        public override BoundNode VisitNameOfOperator(BoundNameOfOperator node)
+        {
+            // The nameof(...) operator collapses to a constant in an expression tree,
+            // so it does not matter what is recursively within it.
+            return node;
         }
 
         public override BoundNode VisitNullCoalescingOperator(BoundNullCoalescingOperator node)

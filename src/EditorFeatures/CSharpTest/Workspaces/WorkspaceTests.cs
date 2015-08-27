@@ -27,27 +27,38 @@ namespace Microsoft.CodeAnalysis.UnitTests.Workspaces
 
         private static void WaitForWorkspaceOperationsToComplete(TestWorkspace workspace)
         {
-            var workspasceWaiter = workspace.ExportProvider
+            var workspaceWaiter = workspace.ExportProvider
                 .GetExports<IAsynchronousOperationListener, FeatureMetadata>()
                 .First(l => l.Metadata.FeatureName == FeatureAttribute.Workspace).Value as IAsynchronousOperationWaiter;
-            workspasceWaiter.CreateWaitTask().PumpingWait();
+            workspaceWaiter.CreateWaitTask().PumpingWait();
         }
 
         [Fact]
-        public void TestEmptySolutionUpdate()
+        public void TestEmptySolutionUpdateDoesNotFireEvents()
         {
             using (var workspace = CreateWorkspace())
             {
                 var project = new TestHostProject(workspace);
                 workspace.AddTestProject(project);
-                var solution = workspace.CurrentSolution;
-                bool workspaceChanged = false;
-                workspace.WorkspaceChanged += (s, e) => workspaceChanged = true;
 
-                workspace.OnParseOptionsChanged(project.Id, project.ParseOptions);
+                // wait for all previous operations to complete
                 WaitForWorkspaceOperationsToComplete(workspace);
 
+                var solution = workspace.CurrentSolution;
+                bool workspaceChanged = false;
+
+                workspace.WorkspaceChanged += (s, e) => workspaceChanged = true;
+
+                // make an 'empty' update by claiming something changed, but its the same as before
+                workspace.OnParseOptionsChanged(project.Id, project.ParseOptions);
+
+                // wait for any new outstanding operations to complete (there shouldn't be any)
+                WaitForWorkspaceOperationsToComplete(workspace);
+
+                // same solution instance == nothing changed
                 Assert.Equal(solution, workspace.CurrentSolution);
+
+                // no event was fired because nothing was changed
                 Assert.False(workspaceChanged);
             }
         }
@@ -750,7 +761,7 @@ class D { }
                     // Wait for all workspace tasks to finish.  After this is finished executing, all handlers should have been notified.
                     WaitForWorkspaceOperationsToComplete(workspace);
 
-                    // Wait to recieve signal that events have fired.
+                    // Wait to receive signal that events have fired.
                     Assert.True(openWaiter.WaitForEventToFire(longEventTimeout),
                                             string.Format("event 'DocumentOpened' was not fired within {0} minutes.",
                                             longEventTimeout.Minutes));
@@ -768,7 +779,7 @@ class D { }
                     // Wait for all workspace tasks to finish.  After this is finished executing, all handlers should have been notified.
                     WaitForWorkspaceOperationsToComplete(workspace);
 
-                    // Verifiying that an event has not been called is difficult to prove.  
+                    // Verifying that an event has not been called is difficult to prove.  
                     // All events should have already been called so we wait 5 seconds and then assume the event handler was removed correctly. 
                     Assert.False(openWaiter.WaitForEventToFire(shortEventTimeout),
                                             string.Format("event handler 'DocumentOpened' was called within {0} seconds though it was removed from the list.",

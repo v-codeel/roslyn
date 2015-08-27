@@ -33,7 +33,7 @@ namespace Microsoft.CodeAnalysis.Editor.CSharp.SignatureHelp
                 var throughExpression = ((MemberAccessExpressionSyntax)invocationExpression.Expression).Expression;
                 var throughSymbol = semanticModel.GetSymbolInfo(throughExpression, cancellationToken).GetAnySymbol();
 
-                // if it is via a base expession "base.", we know the "throughType" is the base class but
+                // if it is via a base expression "base.", we know the "throughType" is the base class but
                 // we need to be able to tell between "base.M()" and "new Base().M()".
                 // currently, Access check methods do not differentiate between them.
                 // so handle "base." primary-expression here by nulling out "throughType"
@@ -43,7 +43,8 @@ namespace Microsoft.CodeAnalysis.Editor.CSharp.SignatureHelp
                 }
 
                 var includeInstance = !throughExpression.IsKind(SyntaxKind.IdentifierName) ||
-                    semanticModel.LookupSymbols(throughExpression.SpanStart, name: throughSymbol.Name).Any(s => !(s is INamedTypeSymbol));
+                    semanticModel.LookupSymbols(throughExpression.SpanStart, name: throughSymbol.Name).Any(s => !(s is INamedTypeSymbol)) ||
+                    (!(throughSymbol is INamespaceOrTypeSymbol) && semanticModel.LookupSymbols(throughExpression.SpanStart, container: throughSymbol.ContainingType).Any(s => !(s is INamedTypeSymbol)));
 
                 var includeStatic = throughSymbol is INamedTypeSymbol ||
                     (throughExpression.IsKind(SyntaxKind.IdentifierName) &&
@@ -129,23 +130,23 @@ namespace Microsoft.CodeAnalysis.Editor.CSharp.SignatureHelp
             if (awaitable && extension)
             {
                 result.Add(Punctuation(SyntaxKind.OpenParenToken));
-                result.Add(Text(CSharpEditorResources.Awaitable));
+                result.Add(Text(CSharpFeaturesResources.Awaitable));
                 result.Add(Punctuation(SyntaxKind.CommaToken));
-                result.Add(Text(CSharpEditorResources.Extension));
+                result.Add(Text(CSharpFeaturesResources.Extension));
                 result.Add(Punctuation(SyntaxKind.CloseParenToken));
                 result.Add(Space());
             }
             else if (awaitable)
             {
                 result.Add(Punctuation(SyntaxKind.OpenParenToken));
-                result.Add(Text(CSharpEditorResources.Awaitable));
+                result.Add(Text(CSharpFeaturesResources.Awaitable));
                 result.Add(Punctuation(SyntaxKind.CloseParenToken));
                 result.Add(Space());
             }
             else if (extension)
             {
                 result.Add(Punctuation(SyntaxKind.OpenParenToken));
-                result.Add(Text(CSharpEditorResources.Extension));
+                result.Add(Text(CSharpFeaturesResources.Extension));
                 result.Add(Punctuation(SyntaxKind.CloseParenToken));
                 result.Add(Space());
             }

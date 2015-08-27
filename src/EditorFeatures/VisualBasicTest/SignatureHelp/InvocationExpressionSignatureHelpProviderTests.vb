@@ -2,6 +2,7 @@
 
 Imports Microsoft.CodeAnalysis.Editor.UnitTests.SignatureHelp
 Imports Microsoft.CodeAnalysis.Editor.VisualBasic.SignatureHelp
+Imports Microsoft.CodeAnalysis.VisualBasic.VBFeaturesResources
 
 Namespace Microsoft.CodeAnalysis.Editor.VisualBasic.UnitTests.SignatureHelp
     Public Class InvocationExpressionSignatureHelpProviderTests
@@ -933,6 +934,71 @@ End Class
         End Sub
 
         <Fact, Trait(Traits.Feature, Traits.Features.SignatureHelp)>
+        Public Sub NonIdentifierConditionalIndexer()
+            Dim expected = {New SignatureHelpTestItem("String(index As Integer) As Char")}
+
+            ' inline with a string literal
+            Test("
+Class C
+    Sub M()
+        Dim c = """"?($$
+    End Sub
+End Class
+", expected)
+
+            ' parenthesized expression
+            Test("
+Class C
+    Sub M()
+        Dim c = ("""")?($$
+    End Sub
+End Class
+", expected)
+
+            ' new object expression
+            Test("
+Class C
+    Sub M()
+        Dim c = (New System.String("" ""c, 1))?($$
+    End Sub
+End Class
+", expected)
+
+            ' more complicated parenthesized expression
+            Test("
+Class C
+    Sub M()
+        Dim c = (CType(Nothing, System.Collections.Generic.List(Of Integer)))?($$
+    End Sub
+End Class
+", {New SignatureHelpTestItem("System.Collections.Generic.List(Of Integer)(index As Integer) As Integer")})
+        End Sub
+
+        <Fact, Trait(Traits.Feature, Traits.Features.SignatureHelp)>
+        Public Sub TriggerCharacterInComment01()
+            Dim markup = "
+Class C
+    Sub M(p As String)
+        M(',$$
+    End Sub
+End Class
+"
+            Test(markup, Enumerable.Empty(Of SignatureHelpTestItem)(), usePreviousCharAsTrigger:=True)
+        End Sub
+
+        <Fact, Trait(Traits.Feature, Traits.Features.SignatureHelp)>
+        Public Sub TriggerCharacterInString01()
+            Dim markup = "
+Class C
+    Sub M(p As String)
+        M("",$$""
+    End Sub
+End Class
+"
+            Test(markup, Enumerable.Empty(Of SignatureHelpTestItem)(), usePreviousCharAsTrigger:=True)
+        End Sub
+
+        <Fact, Trait(Traits.Feature, Traits.Features.SignatureHelp)>
         Public Sub TestTriggerCharacters()
             Dim expectedTriggerCharacters() As Char = {","c, "("c}
             Dim unexpectedTriggerCharacters() As Char = {" "c, "["c, "<"c}
@@ -1738,6 +1804,96 @@ class C
 
             Dim expectedDescription = New SignatureHelpTestItem("C.bar()" + $"\r\n\r\n{String.Format(FeaturesResources.ProjectAvailability, "Proj1", FeaturesResources.Available)}\r\n{String.Format(FeaturesResources.ProjectAvailability, "Proj3", FeaturesResources.NotAvailable)}\r\n\r\n{FeaturesResources.UseTheNavigationBarToSwitchContext}".Replace("\r\n", vbCrLf), currentParameterIndex:=0)
             VerifyItemWithReferenceWorker(markup, {expectedDescription}, False)
+        End Sub
+
+        <WorkItem(699, "https://github.com/dotnet/roslyn/issues/699")>
+        <WorkItem(1068424)>
+        <Fact, Trait(Traits.Feature, Traits.Features.SignatureHelp)>
+        Public Sub TestGenericParameters1()
+            Dim markup = <a><![CDATA[
+Class C
+    Sub M()
+        Foo(""$$)
+    End Sub
+
+    Sub Foo(Of T)(a As T)
+    End Sub
+
+    Sub Foo(Of T, U)(a As T, b As U)
+    End Sub
+End Class
+]]></a>.Value
+
+            Dim expectedOrderedItems = New List(Of SignatureHelpTestItem) From
+            {
+                New SignatureHelpTestItem("C.Foo(Of String)(a As String)", String.Empty, String.Empty, currentParameterIndex:=0),
+                New SignatureHelpTestItem("C.Foo(Of T, U)(a As T, b As U)", String.Empty)
+            }
+
+            Test(markup, expectedOrderedItems)
+        End Sub
+
+        <WorkItem(699, "https://github.com/dotnet/roslyn/issues/699")>
+        <WorkItem(1068424)>
+        <Fact, Trait(Traits.Feature, Traits.Features.SignatureHelp)>
+        Public Sub TestGenericParameters2()
+            Dim markup = <a><![CDATA[
+Class C
+    Sub M()
+        Foo("", $$)
+    End Sub
+
+    Sub Foo(Of T)(a As T)
+    End Sub
+
+    Sub Foo(Of T, U)(a As T, b As U)
+    End Sub
+End Class
+]]></a>.Value
+
+            Dim expectedOrderedItems = New List(Of SignatureHelpTestItem) From
+            {
+                New SignatureHelpTestItem("C.Foo(Of T)(a As T)", String.Empty),
+                New SignatureHelpTestItem("C.Foo(Of T, U)(a As T, b As U)", String.Empty, String.Empty, currentParameterIndex:=1)
+            }
+
+            Test(markup, expectedOrderedItems)
+        End Sub
+
+        <WorkItem(3537, "https://github.com/dotnet/roslyn/issues/3537")>
+        <Fact, Trait(Traits.Feature, Traits.Features.SignatureHelp)>
+        Public Sub TestEscapedIdentifiers()
+            Dim markup = "
+Class C
+    Sub [Next]()
+        Dim x As New C
+        x.Next($$)
+    End Sub
+End Class
+"
+            Test(markup, SpecializedCollections.SingletonEnumerable(New SignatureHelpTestItem("C.Next()", String.Empty)))
+        End Sub
+
+        <WorkItem(4144, "https://github.com/dotnet/roslyn/issues/4144")>
+        <Fact, Trait(Traits.Feature, Traits.Features.SignatureHelp)>
+        Public Sub TestSigHelpIsVisibleOnInaccessibleItem()
+            Dim markup = "
+Imports System.Collections.Generic
+
+Class A
+    Dim args As List(Of Integer)
+End Class
+
+Class B
+    Inherits A
+
+    Sub M()
+        args.Add($$
+    End Sub
+End Class
+"
+
+            Test(markup, {New SignatureHelpTestItem("List(Of Integer).Add(item As Integer)")})
         End Sub
     End Class
 End Namespace

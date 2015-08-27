@@ -78,12 +78,12 @@ Namespace Microsoft.CodeAnalysis.VisualBasic.UnitTests
 
             TestProperty(Function(old, value) old.WithXmlReferenceResolver(value), Function(opt) opt.XmlReferenceResolver, New XmlFileResolver(Nothing))
             TestProperty(Function(old, value) old.WithSourceReferenceResolver(value), Function(opt) opt.SourceReferenceResolver, New SourceFileResolver(ImmutableArray(Of String).Empty, Nothing))
-            TestProperty(Function(old, value) old.WithMetadataReferenceResolver(value), Function(opt) opt.MetadataReferenceResolver, New AssemblyReferenceResolver(New MetadataFileReferenceResolver({}, Nothing), New MetadataFileReferenceProvider()))
+            TestProperty(Function(old, value) old.WithMetadataReferenceResolver(value), Function(opt) opt.MetadataReferenceResolver, New AssemblyReferenceResolver(MetadataFileReferenceResolver.Default, New MetadataFileReferenceProvider()))
             TestProperty(Function(old, value) old.WithAssemblyIdentityComparer(value), Function(opt) opt.AssemblyIdentityComparer, New DesktopAssemblyIdentityComparer(New AssemblyPortabilityPolicy()))
             TestProperty(Function(old, value) old.WithStrongNameProvider(value), Function(opt) opt.StrongNameProvider, New DesktopStrongNameProvider())
         End Sub
 
-        Sub WithXxx()
+        Public Sub WithXxx()
             AssertTheseDiagnostics(New VisualBasicCompilationOptions(OutputKind.ConsoleApplication).WithScriptClassName(Nothing).Errors,
 <expected>
 BC2014: the value 'Nothing' is invalid for option 'ScriptClassName'
@@ -456,7 +456,7 @@ End Module
                 Diagnostic(ERRID.WRN_UnusedLocalConst, "z").WithArguments("z").WithWarningAsError(True),
                 Diagnostic(ERRID.WRN_DefAsgNoRetValFuncRef1, "End Function").WithArguments("foo").WithWarningAsError(True))
 
-            ' Suppress All with treaing 42024 as an error, which will be ignored
+            ' Suppress All with treating 42024 as an error, which will be ignored
             ' vbc a.vb /warnaserror:42024 /nowarn or
             ' vbc a.vb /nowarn /warnaserror
             warnings = New Dictionary(Of String, ReportDiagnostic)()
@@ -498,64 +498,6 @@ BC2042: The options /vbruntime* and /target:module cannot be combined.
                 "EmbedVbCoreRuntime",
                 "SuppressEmbeddedDeclarations",
                 "ParseOptions")
-        End Sub
-
-        <Fact>
-        Public Sub Serializability1()
-            VerifySerializability(New VisualBasicSerializableCompilationOptions(New VisualBasicCompilationOptions(
-                outputKind:=OutputKind.WindowsApplication,
-                generalDiagnosticOption:=ReportDiagnostic.Hidden,
-                specificDiagnosticOptions:={KeyValuePair.Create("VB0001", ReportDiagnostic.Suppress)},
-                globalImports:={GlobalImport.Parse("Foo.Bar")})))
-        End Sub
-
-        <Fact>
-        Public Sub Serializability2()
-            VerifySerializability(New VisualBasicSerializableCompilationOptions(New VisualBasicCompilationOptions(
-                outputKind:=OutputKind.WindowsApplication,
-                parseOptions:=New VisualBasicParseOptions(
-                    languageVersion:=LanguageVersion.VisualBasic14,
-                    documentationMode:=DocumentationMode.Diagnose,
-                    preprocessorSymbols:={KeyValuePair.Create(Of String, Object)("s", 1), KeyValuePair.Create(Of String, Object)("t", 2)}))))
-        End Sub
-
-        <Fact>
-        Public Sub Serializability3()
-            Dim parseOptions = New VisualBasicParseOptions(
-                languageVersion:=LanguageVersion.VisualBasic10,
-                documentationMode:=DocumentationMode.Diagnose,
-                kind:=SourceCodeKind.Regular,
-                preprocessorSymbols:=ImmutableArray.Create(New KeyValuePair(Of String, Object)("key", "Value")))
-
-            Dim compilationOptions = New VisualBasicCompilationOptions(
-                OutputKind.ConsoleApplication,
-                globalImports:={GlobalImport.Parse("Foo.Bar")},
-                rootNamespace:="Alpha.Beta",
-                optionStrict:=OptionStrict.Custom,
-                optionInfer:=False,
-                optionExplicit:=False,
-                optionCompareText:=True,
-                embedVbCoreRuntime:=True,
-                parseOptions:=parseOptions)
-
-            Dim deserializedCompilationOptions = VerifySerializability(New VisualBasicSerializableCompilationOptions(compilationOptions)).Options
-
-            Assert.Equal(compilationOptions.GlobalImports.First().Name,
-                         deserializedCompilationOptions.GlobalImports.First().Name)
-            Assert.Equal(compilationOptions.RootNamespace,
-                         deserializedCompilationOptions.RootNamespace)
-            Assert.Equal(compilationOptions.OptionStrict,
-                         deserializedCompilationOptions.OptionStrict)
-            Assert.Equal(compilationOptions.OptionInfer,
-                         deserializedCompilationOptions.OptionInfer)
-            Assert.Equal(compilationOptions.OptionExplicit,
-                         deserializedCompilationOptions.OptionExplicit)
-            Assert.Equal(compilationOptions.OptionCompareText,
-                         deserializedCompilationOptions.OptionCompareText)
-            Assert.Equal(compilationOptions.EmbedVbCoreRuntime,
-                         deserializedCompilationOptions.EmbedVbCoreRuntime)
-            Assert.Equal(compilationOptions.ExtendedCustomDebugInformation,
-                         deserializedCompilationOptions.ExtendedCustomDebugInformation)
         End Sub
 
         <Fact>

@@ -23,14 +23,14 @@ Imports Moq
 
 Namespace Microsoft.CodeAnalysis.Editor.VisualBasic.UnitTests.Formatting.Indentation
     Public Class SmartIndenterTests
-        Shared HtmlMarkup As String = <text>
+        Private Shared s_htmlMarkup As String = <text>
 &lt;html&gt;
     &lt;body&gt;
         &lt;%{|S1:|}%&gt;
     &lt;/body&gt;
 &lt;/html&gt;
 </text>.NormalizedValue
-        Shared BaseIndentationOfNugget As Integer = 8
+        Private Shared s_baseIndentationOfNugget As Integer = 8
 
         <Fact>
         <Trait(Traits.Feature, Traits.Features.SmartIndent)>
@@ -58,7 +58,7 @@ End Module
 
             AssertSmartIndentIndentationInProjection(
                 markup,
-                expectedIndentation:=BaseIndentationOfNugget + 4)
+                expectedIndentation:=s_baseIndentationOfNugget + 4)
         End Sub
 
         <Fact>
@@ -77,7 +77,7 @@ End Module
 
             AssertSmartIndentIndentationInProjection(
                 markup,
-                expectedIndentation:=BaseIndentationOfNugget + 4)
+                expectedIndentation:=s_baseIndentationOfNugget + 4)
         End Sub
 
         <Fact>
@@ -96,7 +96,7 @@ End Module
 
             AssertSmartIndentIndentationInProjection(
                 markup,
-                expectedIndentation:=BaseIndentationOfNugget + 4)
+                expectedIndentation:=s_baseIndentationOfNugget + 4)
         End Sub
 
         <Fact>
@@ -119,7 +119,7 @@ End Module
             ' a continuation
             AssertSmartIndentIndentationInProjection(
                 markup,
-                expectedIndentation:=BaseIndentationOfNugget + 8)
+                expectedIndentation:=s_baseIndentationOfNugget + 8)
         End Sub
 
         <Fact>
@@ -141,7 +141,7 @@ End Module
             Dim extra = 8
             AssertSmartIndentIndentationInProjection(
                 markup,
-                expectedIndentation:=BaseIndentationOfNugget + extra)
+                expectedIndentation:=s_baseIndentationOfNugget + extra)
         End Sub
 
 #Region "Non-line-continued constructs"
@@ -1725,7 +1725,7 @@ End Module
             AssertSmartIndent(
                 code,
                 indentationLine:=4,
-                expectedIndentation:=24)
+                expectedIndentation:=16)
         End Sub
 
         <Fact>
@@ -2212,7 +2212,7 @@ End Module
 
             AssertSmartIndentIndentationInProjection(
                 markup,
-                expectedIndentation:=BaseIndentationOfNugget + 4)
+                expectedIndentation:=s_baseIndentationOfNugget + 4)
         End Sub
 
         <Fact>
@@ -2241,7 +2241,7 @@ End Module
             ' each statement independently, so let's not change that just for Venus
             AssertSmartIndentIndentationInProjection(
                 markup,
-                expectedIndentation:=BaseIndentationOfNugget + 4)
+                expectedIndentation:=s_baseIndentationOfNugget + 4)
         End Sub
 
         <Fact>
@@ -2281,7 +2281,7 @@ End Module
 
             AssertSmartIndentIndentationInProjection(
                 markup,
-                expectedIndentation:=BaseIndentationOfNugget + 2 + "Dim query = ".Length)
+                expectedIndentation:=s_baseIndentationOfNugget + 2 + "Dim query = ".Length)
         End Sub
 
         <Fact>
@@ -2301,7 +2301,7 @@ End Module
 
             AssertSmartIndentIndentationInProjection(
                 markup,
-                expectedIndentation:=BaseIndentationOfNugget + 8)
+                expectedIndentation:=s_baseIndentationOfNugget + 8)
         End Sub
 
         <Fact>
@@ -2320,7 +2320,7 @@ End Module
 
             AssertSmartIndentIndentationInProjection(
                 markup,
-                expectedIndentation:=BaseIndentationOfNugget + 8)
+                expectedIndentation:=s_baseIndentationOfNugget + 8)
         End Sub
 
         <Fact, WorkItem(646663)>
@@ -2338,7 +2338,120 @@ End Module
 
             AssertSmartIndentIndentationInProjection(
                 markup,
-                expectedIndentation:=BaseIndentationOfNugget + 4)
+                expectedIndentation:=s_baseIndentationOfNugget + 4)
+        End Sub
+
+        <Fact, WorkItem(1190278)>
+        <Trait(Traits.Feature, Traits.Features.SmartIndent), Trait(Traits.Feature, Traits.Features.Venus)>
+        Public Sub GetNextTokenForFormattingSpanCalculationIncludesZeroWidthToken_VB()
+            Dim markup = <code>Option Strict Off
+Option Explicit On
+ 
+Imports System
+Imports System.Collections.Generic
+Imports System.IO
+Imports System.Linq
+Imports System.Net
+Imports System.Web
+Imports System.Web.Helpers
+Imports System.Web.Mvc
+Imports System.Web.Mvc.Ajax
+Imports System.Web.Mvc.Html
+Imports System.Web.Optimization
+Imports System.Web.Routing
+Imports System.Web.Security
+Imports System.Web.UI
+Imports System.Web.WebPages
+Imports Szs.IssueTracking.Web
+Imports Zyxat.Util.Web.Mvc
+ 
+Namespace ASP
+Public Class _Page_Views_Shared__DeleteModel_vbhtml
+Inherits System.Web.Mvc.WebViewPage(Of Zyxat.Util.Web.Mvc.IModelViewModel)
+Private Shared __o As Object
+Public Sub New()
+MyBase.New
+End Sub
+Protected ReadOnly Property ApplicationInstance() As System.Web.HttpApplication
+Get
+Return CType(Context.ApplicationInstance,System.Web.HttpApplication)
+End Get
+End Property
+Private Sub __RazorDesignTimeHelpers__()
+ 
+ 
+#ExternalSource("C:\Users\fettinma\OneDrive\Entwicklung\Projekte\Szs.IssueTracking\Szs.IssueTracking.Web\Views\Shared\_DeleteModel.vbhtml",1)
+Dim __inheritsHelper As Zyxat.Util.Web.Mvc.IModelViewModel = Nothing
+ 
+ 
+#End ExternalSource
+ 
+End Sub
+Public Overrides Sub Execute()
+ 
+#ExternalSource("C:\Users\fettinma\OneDrive\Entwicklung\Projekte\Szs.IssueTracking\Szs.IssueTracking.Web\Views\Shared\_DeleteModel.vbhtml",2)
+If (Me.Model.ID > 0) Then
+  
+ 
+#End ExternalSource
+ 
+#ExternalSource("C:\Users\fettinma\OneDrive\Entwicklung\Projekte\Szs.IssueTracking\Szs.IssueTracking.Web\Views\Shared\_DeleteModel.vbhtml",3)
+__o = US.CS("Delete")
+ 
+ 
+#End ExternalSource
+ 
+#ExternalSource("C:\Users\fettinma\OneDrive\Entwicklung\Projekte\Szs.IssueTracking\Szs.IssueTracking.Web\Views\Shared\_DeleteModel.vbhtml",4)
+      
+Else
+  
+ 
+#End ExternalSource
+ 
+#ExternalSource("C:\Users\fettinma\OneDrive\Entwicklung\Projekte\Szs.IssueTracking\Szs.IssueTracking.Web\Views\Shared\_DeleteModel.vbhtml",5)
+__o = US.CS("Delete")
+ 
+ 
+#End ExternalSource
+ 
+#ExternalSource("C:\Users\fettinma\OneDrive\Entwicklung\Projekte\Szs.IssueTracking\Szs.IssueTracking.Web\Views\Shared\_DeleteModel.vbhtml",6)
+      
+End If
+ 
+#End ExternalSource
+ 
+#ExternalSource("C:\Users\fettinma\OneDrive\Entwicklung\Projekte\Szs.IssueTracking\Szs.IssueTracking.Web\Views\Shared\_DeleteModel.vbhtml",7)
+     __o = US.CS("Delete")
+ 
+ 
+#End ExternalSource
+ 
+#ExternalSource("C:\Users\fettinma\OneDrive\Entwicklung\Projekte\Szs.IssueTracking\Szs.IssueTracking.Web\Views\Shared\_DeleteModel.vbhtml",8)
+   __o = {|S1:[|US.CS("ReallyDelete)
+        @Me.Model.DisplayName
+      &lt;/div&gt;
+      &lt;div class="modal-footer"&gt;
+        &lt;a href="@Url.Action("Delete", New With {.id = Me.Model.ID}$$)|]|}" class="btn btn-primary"&gt;
+          @US.CS("OK")
+        &lt;/a&gt;
+        &lt;button type="button" class="btn btn-Default" data-dismiss="modal"&gt;
+          @US.CS("Cancel")
+        &lt;/button&gt;
+      &lt;/div&gt;
+    &lt;/div&gt;&lt;!-- /.modal-content --&gt;
+  &lt;/div&gt;&lt;!-- /.modal-dialog --&gt;
+&lt;/div&gt;&lt;!-- /.modal --&gt;
+ 
+ 
+#End ExternalSource
+End Sub
+End Class
+End Namespace
+</code>.Value
+
+            AssertSmartIndentIndentationInProjection(
+                markup,
+                expectedIndentation:=15)
         End Sub
 
         <Fact>
@@ -2521,16 +2634,210 @@ End Module
                 expectedIndentation:=8)
         End Sub
 
+        <WorkItem(2231, "https://github.com/dotnet/roslyn/issues/2231")>
+        <Fact, Trait(Traits.Feature, Traits.Features.SmartIndent)>
+        Public Sub SmartIndentInsideInterpolatedMultiLineString_0()
+            Dim code = <code>Module Module1
+    Sub Main()
+        Dim c2() = $"
+            "
+    End Sub
+End Module
+</code>.Value
+
+            AssertSmartIndent(
+                code,
+                indentationLine:=3,
+                expectedIndentation:=0)
+        End Sub
+
+        <WorkItem(2231, "https://github.com/dotnet/roslyn/issues/2231")>
+        <Fact, Trait(Traits.Feature, Traits.Features.SmartIndent)>
+        Public Sub SmartIndentInsideInterpolatedMultiLineString_1()
+            Dim code = <code>Module Module1
+    Sub Main()
+        Dim c2() = $"
+     {0} what"
+    End Sub
+End Module
+</code>.Value
+
+            AssertSmartIndent(
+                code,
+                indentationLine:=3,
+                expectedIndentation:=0)
+        End Sub
+
+        <WorkItem(2231, "https://github.com/dotnet/roslyn/issues/2231")>
+        <Fact, Trait(Traits.Feature, Traits.Features.SmartIndent)>
+        Public Sub SmartIndentInsideInterpolatedMultiLineString_2()
+            Dim code = <code>Module Module1
+    Sub Main()
+        Dim c2() = $"what
+            "
+    End Sub
+End Module
+</code>.Value
+
+            AssertSmartIndent(
+                code,
+                indentationLine:=3,
+                expectedIndentation:=0)
+        End Sub
+
+        <WorkItem(2231, "https://github.com/dotnet/roslyn/issues/2231")>
+        <Fact, Trait(Traits.Feature, Traits.Features.SmartIndent)>
+        Public Sub SmartIndentInsideInterpolatedMultiLineString_3()
+            Dim code = <code>Module Module1
+    Sub Main()
+        Dim c2() = $"what
+            {0}"
+    End Sub
+End Module
+</code>.Value
+
+            AssertSmartIndent(
+                code,
+                indentationLine:=3,
+                expectedIndentation:=0)
+        End Sub
+
+        <WorkItem(2231, "https://github.com/dotnet/roslyn/issues/2231")>
+        <Fact, Trait(Traits.Feature, Traits.Features.SmartIndent)>
+        Public Sub SmartIndentInsideInterpolatedMultiLineString_4()
+            Dim code = <code>Module Module1
+    Sub Main()
+        Dim c2() = $"what{0}
+            "
+    End Sub
+End Module
+</code>.Value
+
+            AssertSmartIndent(
+                code,
+                indentationLine:=3,
+                expectedIndentation:=0)
+        End Sub
+
+        <WorkItem(2231, "https://github.com/dotnet/roslyn/issues/2231")>
+        <Fact, Trait(Traits.Feature, Traits.Features.SmartIndent)>
+        Public Sub SmartIndentInsideMultiLineString()
+            Dim code = <code>Module Module1
+    Sub Main()
+        Dim c2() = $"1
+            2"
+    End Sub
+End Module
+</code>.Value
+
+            AssertSmartIndent(
+                code,
+                indentationLine:=3,
+                expectedIndentation:=0)
+        End Sub
+
+        <WorkItem(3293, "https://github.com/dotnet/roslyn/issues/3293")>
+        <Fact, Trait(Traits.Feature, Traits.Features.SmartIndent)>
+        Public Sub SmartIndentAtCaseBlockEnd()
+            Dim code = <code>Class Program
+    Public Sub M()
+        Dim s = 1
+        Select Case s
+            Case 1
+                System.Console.WriteLine(s)
+
+            Case 2
+        End Select
+    End Sub
+End Class
+</code>.Value
+
+            AssertSmartIndent(
+                code,
+                indentationLine:=6,
+                expectedIndentation:=16)
+        End Sub
+
+        <WorkItem(3293, "https://github.com/dotnet/roslyn/issues/3293")>
+        <Fact, Trait(Traits.Feature, Traits.Features.SmartIndent)>
+        Public Sub SmartIndentAtCaseBlockEndComment()
+            Dim code = <code>Class Program
+    Public Sub M()
+        Dim s = 1
+        Select Case s
+            Case 1
+                System.Console.WriteLine(s)
+                ' This comment belongs to case 1
+
+            Case 2
+        End Select
+    End Sub
+End Class
+</code>.Value
+
+            AssertSmartIndent(
+                code,
+                indentationLine:=7,
+                expectedIndentation:=16)
+        End Sub
+
+        <WorkItem(3293, "https://github.com/dotnet/roslyn/issues/3293")>
+        <Fact, Trait(Traits.Feature, Traits.Features.SmartIndent)>
+        Public Sub SmartIndentAtCaseBlockInbetweenComments()
+            Dim code = <code>Class Program
+    Public Sub M()
+        Dim s = 1
+        Select Case s
+            Case 1
+                System.Console.WriteLine(s)
+                ' This comment belongs to case 1
+
+            ' This comment belongs to case 2
+            Case 2
+        End Select
+    End Sub
+End Class
+</code>.Value
+
+            AssertSmartIndent(
+                code,
+                indentationLine:=7,
+                expectedIndentation:=16)
+        End Sub
+
+        <WorkItem(3293, "https://github.com/dotnet/roslyn/issues/3293")>
+        <Fact, Trait(Traits.Feature, Traits.Features.SmartIndent)>
+        Public Sub SmartIndentAtCaseBlockEndUntabbedComment()
+            Dim code = <code>Class Program
+    Public Sub M()
+        Dim s = 1
+        Select Case s
+            Case 1
+                System.Console.WriteLine(s)
+            ' This comment belongs to case 1
+
+            Case 2
+        End Select
+    End Sub
+End Class
+</code>.Value
+
+            AssertSmartIndent(
+                code,
+                indentationLine:=7,
+                expectedIndentation:=12)
+        End Sub
+
         Private Shared Sub AssertSmartIndentIndentationInProjection(markup As String,
                                                                     expectedIndentation As Integer)
             Using workspace = VisualBasicWorkspaceFactory.CreateWorkspaceFromLines({markup})
                 Dim subjectDocument = workspace.Documents.Single()
-                Dim projectedDocument = workspace.CreateProjectionBufferDocument(HtmlMarkup, workspace.Documents, LanguageNames.CSharp)
+                Dim projectedDocument = workspace.CreateProjectionBufferDocument(s_htmlMarkup, workspace.Documents, LanguageNames.CSharp)
 
                 Dim factory = TryCast(workspace.Services.GetService(Of IHostDependentFormattingRuleFactoryService)(),
                                     TestFormattingRuleFactoryServiceFactory.Factory)
                 If factory IsNot Nothing Then
-                    factory.BaseIndentation = BaseIndentationOfNugget
+                    factory.BaseIndentation = s_baseIndentationOfNugget
                     factory.TextSpan = subjectDocument.SelectedSpans.Single()
                 End If
 

@@ -1771,7 +1771,7 @@ namespace Microsoft.CodeAnalysis.CSharp.Extensions.ContextQuery
                             var declStatement = type.Parent.Parent as LocalDeclarationStatementSyntax;
 
                             // note, this doesn't apply for cases where we know it 
-                            // absolutely is not multiplcation or a conditional expression.
+                            // absolutely is not multiplication or a conditional expression.
                             var underlyingType = type is PointerTypeSyntax
                                 ? ((PointerTypeSyntax)type).ElementType
                                 : ((NullableTypeSyntax)type).ElementType;
@@ -2194,6 +2194,12 @@ namespace Microsoft.CodeAnalysis.CSharp.Extensions.ContextQuery
 
             var token = tokenOnLeftOfPosition;
             token = token.GetPreviousTokenIfTouchingWord(position);
+
+            // Not if the position is *within* a numeric literal
+            if (token.IsKind(SyntaxKind.NumericLiteralToken) && token.Span.Contains(position))
+            {
+                return false;
+            }
 
             if (token.GetAncestor<BlockSyntax>() == null)
             {

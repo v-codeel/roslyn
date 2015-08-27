@@ -40,11 +40,12 @@ namespace Microsoft.CodeAnalysis.CSharp.Extensions
             {
                 var directiveMap = new Dictionary<DirectiveTriviaSyntax, DirectiveTriviaSyntax>(
                     DirectiveSyntaxEqualityComparer.Instance);
-                var conditionalMap = new Dictionary<DirectiveTriviaSyntax, IEnumerable<DirectiveTriviaSyntax>>(
+                var conditionalMap = new Dictionary<DirectiveTriviaSyntax, IReadOnlyList<DirectiveTriviaSyntax>>(
                     DirectiveSyntaxEqualityComparer.Instance);
 
                 var walker = new DirectiveWalker(directiveMap, conditionalMap, cancellationToken);
                 walker.Visit(r);
+                walker.Finish();
 
                 return new DirectiveInfo(directiveMap, conditionalMap, inactiveRegionLines: null);
             });
@@ -56,7 +57,7 @@ namespace Microsoft.CodeAnalysis.CSharp.Extensions
         {
             if (directive == null)
             {
-                throw new ArgumentNullException("directive");
+                throw new ArgumentNullException(nameof(directive));
             }
 
             var directiveSyntaxMap = GetDirectiveInfo(directive, cancellationToken).DirectiveMap;
@@ -67,16 +68,16 @@ namespace Microsoft.CodeAnalysis.CSharp.Extensions
             return result;
         }
 
-        internal static IEnumerable<DirectiveTriviaSyntax> GetMatchingConditionalDirectives(this DirectiveTriviaSyntax directive, CancellationToken cancellationToken)
+        internal static IReadOnlyList<DirectiveTriviaSyntax> GetMatchingConditionalDirectives(this DirectiveTriviaSyntax directive, CancellationToken cancellationToken)
         {
             if (directive == null)
             {
-                throw new ArgumentNullException("directive");
+                throw new ArgumentNullException(nameof(directive));
             }
 
             var directiveConditionalMap = GetDirectiveInfo(directive, cancellationToken).ConditionalMap;
 
-            IEnumerable<DirectiveTriviaSyntax> result;
+            IReadOnlyList<DirectiveTriviaSyntax> result;
             directiveConditionalMap.TryGetValue(directive, out result);
 
             return result;

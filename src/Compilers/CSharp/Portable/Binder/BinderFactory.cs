@@ -49,7 +49,7 @@ namespace Microsoft.CodeAnalysis.CSharp
         // In a typing scenario, GetBinder is regularly called with a non-zero position.
         // This results in a lot of allocations of BinderFactoryVisitors. Pooling them
         // reduces this churn to almost nothing.
-        private ObjectPool<BinderFactoryVisitor> _binderFactoryVisitorPool;
+        private readonly ObjectPool<BinderFactoryVisitor> _binderFactoryVisitorPool;
 
         internal BinderFactory(CSharpCompilation compilation, SyntaxTree syntaxTree)
         {
@@ -61,7 +61,7 @@ namespace Microsoft.CodeAnalysis.CSharp
             // 50 is more or less a guess, but it seems to work fine for scenarios that I tried.
             // we need something big enough to keep binders for most classes and some methods 
             // in a typical syntax tree.
-            // On the other side, note that the whole factory is weakly referenced and therefore shortlived, 
+            // On the other side, note that the whole factory is weakly referenced and therefore short lived, 
             // making this cache big is not very useful.
             // I noticed that while compiling Roslyn C# compiler most caches never see 
             // more than 50 items added before getting collected.

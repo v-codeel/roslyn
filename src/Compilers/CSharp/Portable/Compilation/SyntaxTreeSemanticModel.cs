@@ -37,7 +37,7 @@ namespace Microsoft.CodeAnalysis.CSharp
 
             if (!this.Compilation.SyntaxTrees.Contains(syntaxTree))
             {
-                throw new ArgumentOutOfRangeException("tree", CSharpResources.TreeNotPartOfCompilation);
+                throw new ArgumentOutOfRangeException(nameof(syntaxTree), CSharpResources.TreeNotPartOfCompilation);
             }
 
             _binderFactory = compilation.GetBinderFactory(SyntaxTree);
@@ -480,11 +480,11 @@ namespace Microsoft.CodeAnalysis.CSharp
 
             if ((object)destination == null)
             {
-                throw new ArgumentNullException("destination");
+                throw new ArgumentNullException(nameof(destination));
             }
 
-            // TODO(cyrusn): Check arguments.  This is a public entrypoint, so we must do appropriate
-            // checks here.  However, no other methods in this type do any checking currently.  SO i'm
+            // TODO(cyrusn): Check arguments. This is a public entrypoint, so we must do appropriate
+            // checks here. However, no other methods in this type do any checking currently. So I'm
             // going to hold off on this until we do a full sweep of the API.
 
             var model = this.GetMemberModel(expression);
@@ -505,7 +505,7 @@ namespace Microsoft.CodeAnalysis.CSharp
 
             if ((object)destination == null)
             {
-                throw new ArgumentNullException("destination");
+                throw new ArgumentNullException(nameof(destination));
             }
 
             var model = this.GetMemberModel(expression);
@@ -561,8 +561,7 @@ namespace Microsoft.CodeAnalysis.CSharp
             position = CheckAndAdjustPosition(position);
 
             Binder binder = GetEnclosingBinder(position);
-            if (binder != null &&
-                (binder.Flags.Includes(BinderFlags.Cref) || binder.Flags.Includes(BinderFlags.CrefParameterOrReturnType)))
+            if (binder?.InCref == true)
             {
                 speculativeModel = SpeculativeSyntaxTreeSemanticModel.Create(parentModel, crefSyntax, binder, position);
                 return true;
@@ -948,8 +947,7 @@ namespace Microsoft.CodeAnalysis.CSharp
                                     GetFieldOrPropertyInitializerBinder(enumSymbol, outer));
                             }
                         default:
-                            Debug.Assert(false, "Unexpected node: " + node.Parent);
-                            return null;
+                            throw ExceptionUtilities.UnexpectedValue(node.Parent.Kind());
                     }
 
                 case SyntaxKind.ArrowExpressionClause:
@@ -1343,8 +1341,7 @@ namespace Microsoft.CodeAnalysis.CSharp
                     return this.GetDeclaredMember(container, declarationSyntax.Span) as MethodSymbol;
 
                 default:
-                    Debug.Assert(false, "Accessor unexpectedly attached to " + propertyOrEventDecl.Kind());
-                    return null;
+                    throw ExceptionUtilities.UnexpectedValue(propertyOrEventDecl.Kind());
             }
         }
 
@@ -1453,8 +1450,7 @@ namespace Microsoft.CodeAnalysis.CSharp
                     return null;
 
                 default:
-                    Debug.Assert(false, "Unexpected declaration: " + declaration);
-                    return null;
+                    throw ExceptionUtilities.UnexpectedValue(declaration.Kind());
             }
         }
 
@@ -1838,7 +1834,7 @@ namespace Microsoft.CodeAnalysis.CSharp
         {
             if (typeParameter == null)
             {
-                throw new ArgumentNullException("typeParameter");
+                throw new ArgumentNullException(nameof(typeParameter));
             }
 
             if (!IsInTree(typeParameter))
@@ -1903,12 +1899,12 @@ namespace Microsoft.CodeAnalysis.CSharp
         {
             if (firstStatement == null)
             {
-                throw new ArgumentNullException("firstStatement");
+                throw new ArgumentNullException(nameof(firstStatement));
             }
 
             if (lastStatement == null)
             {
-                throw new ArgumentNullException("lastStatement");
+                throw new ArgumentNullException(nameof(lastStatement));
             }
 
             if (!IsInTree(firstStatement))
@@ -1931,7 +1927,7 @@ namespace Microsoft.CodeAnalysis.CSharp
         {
             if (expression == null)
             {
-                throw new ArgumentNullException("expression");
+                throw new ArgumentNullException(nameof(expression));
             }
 
             if (!IsInTree(expression))
@@ -1974,7 +1970,7 @@ namespace Microsoft.CodeAnalysis.CSharp
                     return this.Compilation.ScriptClass;
                 }
 
-                // top-level type type in an explicitly declared namespace:
+                // top-level type in an explicitly declared namespace:
                 if (SyntaxFacts.IsTypeDeclaration(memberDeclaration.Kind()))
                 {
                     return _compilation.Assembly.GlobalNamespace;

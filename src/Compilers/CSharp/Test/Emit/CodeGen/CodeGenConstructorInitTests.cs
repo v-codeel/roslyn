@@ -463,5 +463,131 @@ struct C
 }
 ");
         }
+
+        [Fact]
+        public void TestInitializerInCtor005()
+        {
+            var source = @"
+struct C
+{
+    static int P1 { get; }
+
+    static int y = (P1 = 123);
+
+    static void Main()
+    {
+        System.Console.WriteLine(y);
+        System.Console.WriteLine(P1);
+    }
+}
+";
+            CompileAndVerify(source, expectedOutput: @"123
+123").
+                VerifyIL("C..cctor()", @"
+{
+  // Code size       14 (0xe)
+  .maxstack  2
+  IL_0000:  ldc.i4.s   123
+  IL_0002:  dup
+  IL_0003:  stsfld     ""int C.<P1>k__BackingField""
+  IL_0008:  stsfld     ""int C.y""
+  IL_000d:  ret
+}
+");
+        }
+
+        [Fact]
+        public void TestInitializerInCtor006()
+        {
+            var source = @"
+struct C
+{
+    static int P1 { get; }
+
+    static int y { get; } = (P1 = 123);
+
+    static void Main()
+    {
+        System.Console.WriteLine(y);
+        System.Console.WriteLine(P1);
+    }
+}
+";
+            CompileAndVerify(source, expectedOutput: @"123
+123").
+                VerifyIL("C..cctor()", @"
+{
+  // Code size       14 (0xe)
+  .maxstack  2
+  IL_0000:  ldc.i4.s   123
+  IL_0002:  dup
+  IL_0003:  stsfld     ""int C.<P1>k__BackingField""
+  IL_0008:  stsfld     ""int C.<y>k__BackingField""
+  IL_000d:  ret
+}
+");
+        }
+
+        [WorkItem(4383, "https://github.com/dotnet/roslyn/issues/4383")]
+        [Fact]
+        public void DecimalConstInit001()
+        {
+            var source = @"
+using System;
+using System.Collections.Generic;
+
+public static class Module1
+{
+    public static void Main()
+    {
+        Console.WriteLine(ClassWithStaticField.Dictionary[""String3""]);
+    }
+    }
+
+    public class ClassWithStaticField
+    {
+        public const decimal DecimalConstant = 375;
+
+        private static Dictionary<String, Single> DictionaryField = new Dictionary<String, Single> {
+        {""String1"", 1.0F},
+        {""String2"", 2.0F},
+        {""String3"", 3.0F}
+    };
+
+        public static Dictionary<String, Single> Dictionary
+        {
+            get
+            {
+                return DictionaryField;
+            }
+        }
+    }
+";
+            CompileAndVerify(source, expectedOutput: "3").
+                VerifyIL("ClassWithStaticField..cctor", @"
+{
+  // Code size       74 (0x4a)
+  .maxstack  4
+  IL_0000:  ldc.i4     0x177
+  IL_0005:  newobj     ""decimal..ctor(int)""
+  IL_000a:  stsfld     ""decimal ClassWithStaticField.DecimalConstant""
+  IL_000f:  newobj     ""System.Collections.Generic.Dictionary<string, float>..ctor()""
+  IL_0014:  dup
+  IL_0015:  ldstr      ""String1""
+  IL_001a:  ldc.r4     1
+  IL_001f:  callvirt   ""void System.Collections.Generic.Dictionary<string, float>.Add(string, float)""
+  IL_0024:  dup
+  IL_0025:  ldstr      ""String2""
+  IL_002a:  ldc.r4     2
+  IL_002f:  callvirt   ""void System.Collections.Generic.Dictionary<string, float>.Add(string, float)""
+  IL_0034:  dup
+  IL_0035:  ldstr      ""String3""
+  IL_003a:  ldc.r4     3
+  IL_003f:  callvirt   ""void System.Collections.Generic.Dictionary<string, float>.Add(string, float)""
+  IL_0044:  stsfld     ""System.Collections.Generic.Dictionary<string, float> ClassWithStaticField.DictionaryField""
+  IL_0049:  ret
+}
+");
+        }
     }
 }

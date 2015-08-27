@@ -77,7 +77,7 @@ namespace Microsoft.VisualStudio.LanguageServices.Implementation.Options
 
         private void SetChangedOption(IOptionService optionService, IOption option, string languageName)
         {
-            OptionKey key = new OptionKey(option, languageName);
+            OptionKey key = new OptionKey(option, option.IsPerLanguage ? languageName : null);
 
             object currentValue;
             if (this.TryFetch(key, out currentValue))
@@ -112,7 +112,7 @@ namespace Microsoft.VisualStudio.LanguageServices.Implementation.Options
             var values = new List<KeyValuePair<string, IOption>>();
             foreach (Type type in types)
             {
-                FieldInfo[] fields = type.GetFields(flags) ?? new FieldInfo[0];
+                FieldInfo[] fields = type.GetFields(flags) ?? Array.Empty<FieldInfo>();
                 Func<FieldInfo, bool> localFilter = (fi) =>
                     {
                         if (!(fi.GetValue(null) is IOption))

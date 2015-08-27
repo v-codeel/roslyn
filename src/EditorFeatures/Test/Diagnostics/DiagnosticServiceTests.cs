@@ -103,10 +103,10 @@ namespace Microsoft.CodeAnalysis.Editor.UnitTests.Diagnostics
         private static DiagnosticData CreateDiagnosticData(TestWorkspace workspace, ProjectId projectId, DocumentId documentId)
         {
             return new DiagnosticData(
-                                "test1", "Test", "test1 message", "test1 messsage format",
+                                "test1", "Test", "test1 message", "test1 message format",
                                 DiagnosticSeverity.Info, false, 1,
-                                workspace, projectId, documentId,
-                                null, "originalFile1", 10, 10, 20, 20);
+                                workspace, projectId, new DiagnosticDataLocation(documentId,
+                                    null, "originalFile1", 10, 10, 20, 20));
         }
 
         private class TestDiagnosticUpdateSource : IDiagnosticUpdateSource
@@ -117,7 +117,7 @@ namespace Microsoft.CodeAnalysis.Editor.UnitTests.Diagnostics
             public TestDiagnosticUpdateSource(bool support, DiagnosticData[] diagnosticData)
             {
                 _support = support;
-                _diagnosticData = (diagnosticData ?? new DiagnosticData[0]).ToImmutableArray();
+                _diagnosticData = (diagnosticData ?? Array.Empty<DiagnosticData>()).ToImmutableArray();
             }
 
             public bool SupportGetDiagnostics { get { return _support; } }

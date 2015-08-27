@@ -331,7 +331,7 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
         {
             if (fullyQualifiedMetadataName == null)
             {
-                throw new ArgumentNullException("fullyQualifiedMetadataName");
+                throw new ArgumentNullException(nameof(fullyQualifiedMetadataName));
             }
 
             var emittedName = MetadataTypeName.FromFullName(fullyQualifiedMetadataName);
@@ -505,7 +505,7 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
         {
             if (fullyQualifiedMetadataName == null)
             {
-                throw new ArgumentNullException("fullyQualifiedMetadataName");
+                throw new ArgumentNullException(nameof(fullyQualifiedMetadataName));
             }
 
             return this.GetTypeByMetadataName(fullyQualifiedMetadataName, includeReferences: false, isWellKnownType: false);
@@ -579,7 +579,7 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
 
             Debug.Assert(!typeInfo.IsByRef);
 
-            // not supported rigth now (we don't accept open types as submission results nor host types):
+            // not supported (we don't accept open types as submission results nor host types):
             Debug.Assert(!typeInfo.ContainsGenericParameters);
 
             if (typeInfo.IsArray)
@@ -691,7 +691,7 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
                 return symbol;
             }
 
-            TypeSymbol[] typeArgumentSymbols = new TypeSymbol[symbol.TypeArgumentsNoUseSiteDiagnostics.Length];
+            var typeArgumentSymbols = new TypeWithModifiers[symbol.TypeArgumentsNoUseSiteDiagnostics.Length];
             for (int i = 0; i < typeArgumentSymbols.Length; i++)
             {
                 var argSymbol = GetTypeByReflectionType(typeArguments[currentTypeArgument++], includeReferences);
@@ -699,7 +699,7 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
                 {
                     return null;
                 }
-                typeArgumentSymbols[i] = argSymbol;
+                typeArgumentSymbols[i] = new TypeWithModifiers(argSymbol);
             }
 
             return symbol.ConstructIfGeneric(typeArgumentSymbols.AsImmutableOrNull());
@@ -923,7 +923,7 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
             //   a strong-named Smith that names a weak-named Jones as its friend.
             //
             // * If the answer to q1 is "no" and the answer to q3 is "yes" then we are in a situation where
-            //   strong-named Jones is referencing weak-named Smith, which is illegal. In the dev 10 compiler
+            //   strong-named Jones is referencing weak-named Smith, which is illegal. In the dev10 compiler
             //   we do not give an error about this until emit time. In Roslyn we have a new error, CS7029,
             //   which we give before emit time when we detect that weak-named Smith has given friend access
             //   to strong-named Jones, which then references Smith. However, we still want to give friend

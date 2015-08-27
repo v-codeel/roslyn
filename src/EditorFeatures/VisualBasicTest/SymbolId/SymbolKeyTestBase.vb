@@ -69,19 +69,19 @@ Namespace Microsoft.CodeAnalysis.Editor.VisualBasic.UnitTests.SymbolId
             Assert.Equal(symbol2.GetHashCode(), resolvedSymbol.GetHashCode())
         End Sub
 
-        Friend Shared Function ResolveSymbol(originalSymbol As ISymbol, originalCompilation As Compilation, targetCompilation As Compilation, comparision As SymbolIdComparison) As ISymbol
+        Friend Shared Function ResolveSymbol(originalSymbol As ISymbol, originalCompilation As Compilation, targetCompilation As Compilation, comparison As SymbolIdComparison) As ISymbol
             Dim sid = SymbolKey.Create(originalSymbol, originalCompilation, CancellationToken.None)
-            Dim symInfo = sid.Resolve(targetCompilation, (comparision And SymbolIdComparison.IgnoreAssemblyIds) = SymbolIdComparison.IgnoreAssemblyIds)
+            Dim symInfo = sid.Resolve(targetCompilation, (comparison And SymbolIdComparison.IgnoreAssemblyIds) = SymbolIdComparison.IgnoreAssemblyIds)
             Return symInfo.Symbol
         End Function
 
-        Friend Shared Sub AssertSymbolsIdsEqual(symbol1 As ISymbol, compilation1 As Compilation, symbol2 As ISymbol, compilation2 As Compilation, comparision As SymbolIdComparison, Optional expectEqual As Boolean = True)
+        Friend Shared Sub AssertSymbolsIdsEqual(symbol1 As ISymbol, compilation1 As Compilation, symbol2 As ISymbol, compilation2 As Compilation, comparison As SymbolIdComparison, Optional expectEqual As Boolean = True)
 
             Dim sid1 = SymbolKey.Create(symbol1, compilation1, CancellationToken.None)
             Dim sid2 = SymbolKey.Create(symbol2, compilation2, CancellationToken.None)
 
-            Dim isCaseSensitive = (comparision And SymbolIdComparison.CaseSensitive) = SymbolIdComparison.CaseSensitive
-            Dim ignoreAssemblyIds = (comparision And SymbolIdComparison.IgnoreAssemblyIds) = SymbolIdComparison.IgnoreAssemblyIds
+            Dim isCaseSensitive = (comparison And SymbolIdComparison.CaseSensitive) = SymbolIdComparison.CaseSensitive
+            Dim ignoreAssemblyIds = (comparison And SymbolIdComparison.IgnoreAssemblyIds) = SymbolIdComparison.IgnoreAssemblyIds
             Dim message = String.Concat(
                 If(isCaseSensitive, "SymbolID CaseSensitive", "SymbolID CaseInsensitive"),
                 If(ignoreAssemblyIds, " IgnoreAssemblyIds ", " "),
@@ -212,10 +212,10 @@ Namespace Microsoft.CodeAnalysis.Editor.VisualBasic.UnitTests.SymbolId
 
     End Class
 
-    Class LocalSymbolDumper
-        Private comp As VisualBasicCompilation
+    Friend Class LocalSymbolDumper
+        Private _comp As VisualBasicCompilation
         Public Sub New(comp As VisualBasicCompilation)
-            Me.comp = comp
+            Me._comp = comp
         End Sub
 
         Public Sub GetLocalSymbols(symbol As IFieldSymbol, list As List(Of ISymbol))
@@ -225,7 +225,7 @@ Namespace Microsoft.CodeAnalysis.Editor.VisualBasic.UnitTests.SymbolId
                 Dim declarator = TryCast(node.Parent, VariableDeclaratorSyntax)
                 If declarator IsNot Nothing AndAlso declarator.Initializer IsNot Nothing Then
 
-                    Dim model = comp.GetSemanticModel(declarator.SyntaxTree)
+                    Dim model = _comp.GetSemanticModel(declarator.SyntaxTree)
                     Dim df = model.AnalyzeDataFlow(declarator.Initializer.Value)
 
                     GetLocalAndType(df, list)
@@ -238,14 +238,14 @@ Namespace Microsoft.CodeAnalysis.Editor.VisualBasic.UnitTests.SymbolId
 
         Public Sub GetLocalSymbols(symbol As IMethodSymbol, list As List(Of ISymbol))
 
-            ' Delaration statement is child of Block
+            ' Declaration statement is child of Block
             For Each n In symbol.DeclaringSyntaxReferences.Select(Function(d) d.GetSyntax())
                 Dim body = TryCast(n.Parent, MethodBlockSyntax)
                 ' interface method
                 If body IsNot Nothing Then
                     If body.Statements <> Nothing AndAlso body.Statements.Count > 0 Then
 
-                        Dim model = comp.GetSemanticModel(body.SyntaxTree)
+                        Dim model = _comp.GetSemanticModel(body.SyntaxTree)
                         Dim df As DataFlowAnalysis = Nothing
                         If body.Statements.Count = 1 Then
                             df = model.AnalyzeDataFlow(body.Statements.First)

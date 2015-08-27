@@ -51,14 +51,14 @@ namespace Microsoft.CodeAnalysis
             _arguments = arguments;
         }
 
-        private DiagnosticInfo(DiagnosticInfo original, DiagnosticSeverity overridenSeverity)
+        private DiagnosticInfo(DiagnosticInfo original, DiagnosticSeverity overriddenSeverity)
         {
             _messageProvider = original.MessageProvider;
             _errorCode = original._errorCode;
             _defaultSeverity = original.DefaultSeverity;
             _arguments = original._arguments;
 
-            _effectiveSeverity = overridenSeverity;
+            _effectiveSeverity = overriddenSeverity;
         }
 
         internal static DiagnosticDescriptor GetDescriptor(int errorCode, CommonMessageProvider messageProvider)
@@ -109,7 +109,7 @@ namespace Microsoft.CodeAnalysis
                     continue;
                 }
 
-                Debug.Assert(false, "Unexpected type: " + type);
+                throw ExceptionUtilities.UnexpectedValue(type);
             }
         }
 
@@ -145,7 +145,7 @@ namespace Microsoft.CodeAnalysis
             writer.WriteInt32((int)_effectiveSeverity);
             writer.WriteInt32((int)_defaultSeverity);
 
-            int count = (_arguments != null) ? _arguments.Length : 0;
+            int count = _arguments?.Length ?? 0;
             writer.WriteCompressedUInt((uint)count);
 
             if (count > 0)
@@ -437,7 +437,7 @@ namespace Microsoft.CodeAnalysis
                     result = true;
                     for (int i = 0; i < _arguments.Length; i++)
                     {
-                        if (_arguments[i] != other._arguments[i])
+                        if (!object.Equals(_arguments[i], other._arguments[i]))
                         {
                             result = false;
                             break;

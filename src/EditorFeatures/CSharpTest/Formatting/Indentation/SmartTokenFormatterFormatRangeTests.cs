@@ -34,7 +34,7 @@ namespace Microsoft.CodeAnalysis.Editor.CSharp.UnitTests.Formatting.Indentation
     {
         [Fact]
         [Trait(Traits.Feature, Traits.Features.SmartTokenFormatting)]
-        public void BegininngOfFile()
+        public void BeginningOfFile()
         {
             var code = @"        using System;$$";
             var expected = @"        using System;";
@@ -1193,6 +1193,25 @@ namespace NS
     class Class
     {
         string[] strArr = { ""1"", ""2"" };
+";
+
+            AutoFormatOnSemicolon(code, expected, SyntaxKind.OpenBraceToken);
+        }
+
+        [Fact]
+        [Trait(Traits.Feature, Traits.Features.SmartTokenFormatting)]
+        public void ExpressionValuedPropertyInitializer()
+        {
+            var code = @"using System;
+class Class
+{
+          public int  Three =>   1+2;$$
+";
+
+            var expected = @"using System;
+class Class
+{
+    public int Three => 1 + 2;
 ";
 
             AutoFormatOnSemicolon(code, expected, SyntaxKind.OpenBraceToken);
@@ -2381,7 +2400,7 @@ int         nextLine            =           30          ;$$
         [Fact]
         [WorkItem(538793)]
         [Trait(Traits.Feature, Traits.Features.SmartTokenFormatting)]
-        public void Colon_Labe2()
+        public void Colon_Label2()
         {
             var code = @"namespace ClassLibrary1
 {
@@ -2924,7 +2943,7 @@ class Program{
         [WorkItem(981821)]
         [Fact]
         [Trait(Traits.Feature, Traits.Features.Formatting)]
-        public void FormatDirectiveTriviaAlwaysToColumZero()
+        public void FormatDirectiveTriviaAlwaysToColumnZero()
         {
             var code = @"class Program
 {
@@ -2952,7 +2971,7 @@ class Program{
         [WorkItem(981821)]
         [Fact]
         [Trait(Traits.Feature, Traits.Features.Formatting)]
-        public void FormatDirectiveTriviaAlwaysToColumZeroWithCode()
+        public void FormatDirectiveTriviaAlwaysToColumnZeroWithCode()
         {
             var code = @"class Program
 {
@@ -2982,7 +3001,7 @@ class Program{
         [WorkItem(981821)]
         [Fact]
         [Trait(Traits.Feature, Traits.Features.Formatting)]
-        public void FormatDirectiveTriviaAlwaysToColumZeroWithBrokenElseDirective()
+        public void FormatDirectiveTriviaAlwaysToColumnZeroWithBrokenElseDirective()
         {
             var code = @"class Program
 {

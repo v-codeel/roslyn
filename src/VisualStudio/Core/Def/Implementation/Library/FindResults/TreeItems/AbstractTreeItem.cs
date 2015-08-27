@@ -20,7 +20,7 @@ namespace Microsoft.VisualStudio.LanguageServices.Implementation.Library.FindRes
         {
             get
             {
-                return this.Children == null || this.Children.Count == 0; 
+                return this.Children == null || this.Children.Count == 0;
             }
         }
 
@@ -50,6 +50,16 @@ namespace Microsoft.VisualStudio.LanguageServices.Implementation.Library.FindRes
         }
 
         public abstract int GoToSource();
+
+        public virtual bool CanGoToReference()
+        {
+            return false;
+        }
+
+        public virtual bool CanGoToDefinition()
+        {
+            return false;
+        }
 
         protected void SetDisplayProperties(string filePath, int mappedLineNumber, int mappedOffset, int offset, string lineText, int spanLength, string projectNameDisambiguator)
         {
@@ -95,6 +105,10 @@ namespace Microsoft.VisualStudio.LanguageServices.Implementation.Library.FindRes
             }
 
             return string.Empty;
+        }
+
+        internal virtual void SetReferenceCount(int referenceCount)
+        {
         }
     }
 }

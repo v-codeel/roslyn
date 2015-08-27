@@ -8,6 +8,10 @@ namespace Microsoft.CodeAnalysis
     /// <summary>
     /// Represents a field in a class, struct or enum.
     /// </summary>
+    /// <remarks>
+    /// This interface is reserved for implementation by its associated APIs. We reserve the right to
+    /// change it in the future.
+    /// </remarks>
     public interface IFieldSymbol : ISymbol
     {
         /// <summary>
@@ -41,7 +45,7 @@ namespace Microsoft.CodeAnalysis
         ITypeSymbol Type { get; }
 
         /// <summary>
-        /// Returns false if the field wasn't declared as "const", or constant value was omitted or errorneous.
+        /// Returns false if the field wasn't declared as "const", or constant value was omitted or erroneous.
         /// True otherwise.
         /// </summary>
         bool HasConstantValue { get; }

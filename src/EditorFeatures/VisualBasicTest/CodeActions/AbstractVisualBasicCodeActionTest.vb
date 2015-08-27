@@ -9,7 +9,7 @@ Namespace Microsoft.CodeAnalysis.Editor.VisualBasic.UnitTests.CodeRefactorings
     Public MustInherit Class AbstractVisualBasicCodeActionTest
         Inherits AbstractCodeActionTest
 
-        Private ReadOnly compilationOptions As CompilationOptions =
+        Private ReadOnly _compilationOptions As CompilationOptions =
             New VisualBasicCompilationOptions(OutputKind.ConsoleApplication).WithOptionInfer(True)
 
         Protected Overrides Function GetScriptOptions() As ParseOptions
@@ -24,8 +24,8 @@ Namespace Microsoft.CodeAnalysis.Editor.VisualBasic.UnitTests.CodeRefactorings
 
             Return VisualBasicWorkspaceFactory.CreateWorkspaceFromFile(
                 definition,
-                DirectCast(parseOptions, ParseOptions),
-                If(DirectCast(compilationOptions, CompilationOptions), New VisualBasicCompilationOptions(OutputKind.DynamicallyLinkedLibrary)))
+                parseOptions,
+                If(compilationOptions, New VisualBasicCompilationOptions(OutputKind.DynamicallyLinkedLibrary)))
         End Function
 
         Protected Shared Function NewLines(input As String) As String
@@ -36,13 +36,13 @@ Namespace Microsoft.CodeAnalysis.Editor.VisualBasic.UnitTests.CodeRefactorings
             Dim initialMarkupStr = initialMarkup.ConvertTestSourceTag()
             Dim expectedStr = expected.ConvertTestSourceTag()
 
-            MyBase.Test(initialMarkupStr, expectedStr, parseOptions:=Nothing, compilationOptions:=compilationOptions, index:=index, compareTokens:=compareTokens)
+            MyBase.Test(initialMarkupStr, expectedStr, parseOptions:=Nothing, compilationOptions:=_compilationOptions, index:=index, compareTokens:=compareTokens)
         End Sub
 
         Protected Overloads Sub TestMissing(initialMarkup As XElement)
             Dim initialMarkupStr = initialMarkup.ConvertTestSourceTag()
 
-            MyBase.TestMissing(initialMarkupStr, parseOptions:=Nothing, compilationOptions:=compilationOptions)
+            MyBase.TestMissing(initialMarkupStr, parseOptions:=Nothing, compilationOptions:=_compilationOptions)
         End Sub
 
         Protected Overrides Function GetLanguage() As String

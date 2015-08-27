@@ -994,7 +994,7 @@ Namespace Microsoft.CodeAnalysis.VisualBasic
 #If DEBUG Then
                     For i = 0 To names.Count - 1
                         Debug.Assert(locals(i).InitializedByAsNew)
-                        Debug.Assert(locals(i).InitializerOpt Is Nothing)
+                        Debug.Assert(locals(i).InitializerOpt Is Nothing OrElse locals(i).InitializerOpt.Kind = BoundKind.BadExpression)
                     Next
 #End If
 
@@ -1170,7 +1170,12 @@ Namespace Microsoft.CodeAnalysis.VisualBasic
             If name.ArrayBounds IsNot Nothing Then
                 ' It is an error to have both array bounds and an initializer expression
                 If valueExpression IsNot Nothing Then
-                    ReportDiagnostic(diagnostics, name, ERRID.ERR_InitWithExplicitArraySizes)
+                    If Not isInitializedByAsNew Then
+                        ReportDiagnostic(diagnostics, name, ERRID.ERR_InitWithExplicitArraySizes)
+                    Else
+                        ' Must have reported ERR_AsNewArray already.
+                        Debug.Assert(valueExpression.Kind = BoundKind.BadExpression)
+                    End If
                 Else
                     valueExpression = New BoundArrayCreation(name, boundArrayBounds, Nothing, type)
                 End If
@@ -2361,7 +2366,7 @@ Namespace Microsoft.CodeAnalysis.VisualBasic
                 '       it might cause errors for write-only property, etc.
                 notParenthesized = MakeRValue(notParenthesized, diagnostics)
 
-                ' this is not an event. Add diagnostics if node is not aready bad
+                ' this is not an event. Add diagnostics if node is not already bad
                 ' NOTE that we are not marking the node as bad if it is not
                 '      in such case there is nothing wrong with the event access node.
                 '      However since we cannot provide event symbol, the AddRemovehandler
@@ -2475,7 +2480,7 @@ Namespace Microsoft.CodeAnalysis.VisualBasic
                 If fireMethod.ContainingType <> Me.ContainingType Then
                     ' Re: Dev10
                     ' // UNDONE: harishk - note that this is different from the check for an
-                    ' // acessible event field for non-block events. This is because there
+                    ' // accessible event field for non-block events. This is because there
                     ' // is a bug for non-block events which contrary to the spec does allow
                     ' // base class events to be raised in some scenarios. Sent email to
                     ' // paulv and amandas to check if we can update all of this according
@@ -3388,7 +3393,7 @@ Namespace Microsoft.CodeAnalysis.VisualBasic
                 End If
 
                 ' for multidimensional arrays make additional check that array element is castable to iteration variable type
-                ' we need to do this because multidimentsional arrays only implement nongeneric IEnumerable 
+                ' we need to do this because multidimensional arrays only implement nongeneric IEnumerable 
                 ' so the cast from Current --> control variable will statically succeed (since Current returns object)
                 ' We however can know the element type and may know that under no condition the cst will work at run time
                 ' So we will check that here.
@@ -4143,28 +4148,28 @@ Namespace Microsoft.CodeAnalysis.VisualBasic
         ''' <summary>
         ''' Checks if a given symbol is a function that takes no parameters.
         ''' </summary>
-        Private Shared s_isFunctionWithoutArguments As Func(Of Symbol, Boolean) = Function(sym)
-                                                                                    If sym.Kind = SymbolKind.Method Then
-                                                                                        Dim method = DirectCast(sym, MethodSymbol)
-                                                                                        Return Not method.IsSub() AndAlso
-                                                                                               Not method.IsGenericMethod AndAlso
-                                                                                               method.CanBeCalledWithNoParameters
-                                                                                    End If
-                                                                                    Return False
-                                                                                End Function
+        Private Shared ReadOnly s_isFunctionWithoutArguments As Func(Of Symbol, Boolean) = Function(sym)
+                                                                                               If sym.Kind = SymbolKind.Method Then
+                                                                                                   Dim method = DirectCast(sym, MethodSymbol)
+                                                                                                   Return Not method.IsSub() AndAlso
+                                                                                                          Not method.IsGenericMethod AndAlso
+                                                                                                          method.CanBeCalledWithNoParameters
+                                                                                               End If
+                                                                                               Return False
+                                                                                           End Function
 
         ''' <summary>
         ''' Checks if a given symbol is a property that is readable.
         ''' </summary>
-        Private Shared s_isReadablePropertyWithoutArguments As Func(Of Symbol, Boolean) = Function(sym)
-                                                                                            If sym.Kind = SymbolKind.Property Then
-                                                                                                Dim prop = DirectCast(sym, PropertySymbol)
-                                                                                                Return prop.IsReadable AndAlso
-                                                                                                       Not prop.GetMostDerivedGetMethod().IsGenericMethod AndAlso
-                                                                                                       prop.GetCanBeCalledWithNoParameters
-                                                                                            End If
-                                                                                            Return False
-                                                                                        End Function
+        Private Shared ReadOnly s_isReadablePropertyWithoutArguments As Func(Of Symbol, Boolean) = Function(sym)
+                                                                                                       If sym.Kind = SymbolKind.Property Then
+                                                                                                           Dim prop = DirectCast(sym, PropertySymbol)
+                                                                                                           Return prop.IsReadable AndAlso
+                                                                                                                  Not prop.GetMostDerivedGetMethod().IsGenericMethod AndAlso
+                                                                                                                  prop.GetCanBeCalledWithNoParameters
+                                                                                                       End If
+                                                                                                       Return False
+                                                                                                   End Function
 
         ''' <summary>
         ''' Returns the lookup result if at least one found symbol matches the requirements that are verified
@@ -4758,7 +4763,7 @@ Namespace Microsoft.CodeAnalysis.VisualBasic
                         diagnostics.Add(declaration, useSiteDiagnostics)
 
                         If isBaseType Then
-                            ReportDiagnostic(diagnostics, declaration, ERRID.WRN_OverlapingCatch, exceptionType, previousType)
+                            ReportDiagnostic(diagnostics, declaration, ERRID.WRN_OverlappingCatch, exceptionType, previousType)
                             Exit For
                         End If
                     End If

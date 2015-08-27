@@ -41,8 +41,8 @@ Namespace Microsoft.CodeAnalysis.VisualBasic
             End Sub
 
             Public Sub GenerateMoveNextAndDispose(Body As BoundStatement,
-                                           moveNextMethod As SynthesizedStateMachineMethod,
-                                           disposeMethod As SynthesizedStateMachineMethod)
+                                           moveNextMethod As SynthesizedMethod,
+                                           disposeMethod As SynthesizedMethod)
 
                 ' Generate the body for MoveNext()
                 F.CurrentMethod = moveNextMethod
@@ -75,7 +75,6 @@ Namespace Microsoft.CodeAnalysis.VisualBasic
                         GenerateReturn(finished:=True),
                         F.Label(initialLabel),
                         F.Assignment(F.Field(F.Me, Me.StateField, True), Me.F.AssignmentExpression(Me.F.Local(Me.CachedState, True), Me.F.Literal(StateMachineStates.NotStartedStateMachine))),
-                        F.SequencePoint(_originalMethodDeclaration),
                         newBody,
                         HandleReturn()
                     ))

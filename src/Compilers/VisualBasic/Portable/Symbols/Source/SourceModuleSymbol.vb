@@ -47,9 +47,11 @@ Namespace Microsoft.CodeAnalysis.VisualBasic.Symbols
 
         ' holds diagnostics not related to source code 
         ' in any particular source file, for each stage.
-        Private _diagnosticBagDeclare As New DiagnosticBag()
+        Private ReadOnly _diagnosticBagDeclare As New DiagnosticBag()
         'Private m_diagnosticBagCompile As New DiagnosticBag()
         'Private m_diagnosticBagEmit As New DiagnosticBag()
+
+        Private _hasBadAttributes As Boolean
 
         Friend ReadOnly Property Options As VisualBasicCompilationOptions
             Get
@@ -144,7 +146,7 @@ Namespace Microsoft.CodeAnalysis.VisualBasic.Symbols
             End Get
         End Property
 
-        Private _nameAndExtension As String
+        Private ReadOnly _nameAndExtension As String
 
         Public Overrides ReadOnly Property Name As String
             Get
@@ -656,7 +658,6 @@ Namespace Microsoft.CodeAnalysis.VisualBasic.Symbols
             builder.AddRange(Me._diagnosticBagDeclare)
             builder.AddRange(Me._lazyBoundImports.Diagnostics)
             builder.AddRange(Me._lazyLinkedAssemblyDiagnostics)
-            builder.AddRange(Me._declarationTable.ReferenceDirectiveDiagnostics)
 
             For Each tree In SyntaxTrees
                 builder.AddRange(GetSourceFile(tree).DeclarationErrors)
@@ -933,6 +934,8 @@ Namespace Microsoft.CodeAnalysis.VisualBasic.Symbols
             Debug.Assert(attributesBag IsNot Nothing)
             Debug.Assert(Not attributesToStore.IsDefault)
 
+            RecordPresenceOfBadAttributes(attributesToStore)
+
             If diagBag Is Nothing OrElse diagBag.IsEmptyWithoutResolution Then
                 attributesBag.SetAttributes(attributesToStore)
             Else
@@ -954,6 +957,23 @@ Namespace Microsoft.CodeAnalysis.VisualBasic.Symbols
                 End SyncLock
             End If
         End Sub
+
+        Private Sub RecordPresenceOfBadAttributes(attributes As ImmutableArray(Of VisualBasicAttributeData))
+            If Not _hasBadAttributes Then
+                For Each attribute In attributes
+                    If attribute.HasErrors Then
+                        _hasBadAttributes = True
+                        Exit For
+                    End If
+                Next
+            End If
+        End Sub
+
+        Friend ReadOnly Property HasBadAttributes As Boolean
+            Get
+                Return _hasBadAttributes
+            End Get
+        End Property
 
         ' same as AtomicStoreReferenceAndDiagnostics, but without storing any references
         Friend Sub AddDiagnostics(diagBag As DiagnosticBag, stage As CompilationStage)

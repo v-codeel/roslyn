@@ -35,7 +35,13 @@ Namespace Microsoft.CodeAnalysis.VisualBasic
 
             ' If diagnostic is not configurable, keep it as it is.
             If diagnostic.IsNotConfigurable Then
-                Return diagnostic
+                If diagnostic.IsEnabledByDefault Then
+                    ' Enabled NotConfigurable should always be reported as it is.
+                    Return diagnostic
+                Else
+                    ' Disabled NotConfigurable should never be reported.
+                    Return Nothing
+                End If
             End If
 
             ' In the native compiler, all warnings originating from alink.dll were issued
@@ -65,7 +71,6 @@ Namespace Microsoft.CodeAnalysis.VisualBasic
             Return diagnostic.WithReportDiagnostic(report)
         End Function
 
-        ' If you update this method, also consider updating DiagnosticItemSource.GetEffectiveSeverity.
         Friend Shared Function GetDiagnosticReport(severity As DiagnosticSeverity, isEnabledByDefault As Boolean, id As String, location As Location, category As String, generalDiagnosticOption As ReportDiagnostic, caseInsensitiveSpecificDiagnosticOptions As IDictionary(Of String, ReportDiagnostic)) As ReportDiagnostic
             ' Read options (e.g., /nowarn or /warnaserror)
             Dim report As ReportDiagnostic = ReportDiagnostic.Default

@@ -187,7 +187,7 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
 
         public sealed override TypeSymbol VisitType(TypeSymbol type)
         {
-            return TypeMap.SubstituteType(type);
+            return TypeMap.SubstituteType(type).Type;
         }
 
         public override BoundNode VisitMethodInfo(BoundMethodInfo node)
@@ -473,7 +473,7 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
             if (originalArgument.Kind == BoundKind.MethodGroup && rewrittenArgument.Kind == BoundKind.MethodGroup)
             {
                 //  if the original argument was a method group AND the receiver was BoundKind.BaseReference
-                //  and the visited argument is still a method group with receiver overriden, change the 
+                //  and the visited argument is still a method group with receiver overridden, change the 
                 //  method to point to the wrapper method
                 var originalReceiver = ((BoundMethodGroup)originalArgument).ReceiverOpt;
                 var newReceiver = ((BoundMethodGroup)rewrittenArgument).ReceiverOpt;
@@ -500,12 +500,12 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
             {
                 //  Method of a regular type
                 return ((MethodSymbol)method.OriginalDefinition)
-                    .AsMember((NamedTypeSymbol)TypeMap.SubstituteType(method.ContainingType))
-                    .ConstructIfGeneric(TypeMap.SubstituteTypes(method.TypeArguments));
+                    .AsMember((NamedTypeSymbol)TypeMap.SubstituteType(method.ContainingType).AsTypeSymbolOnly())
+                    .ConstructIfGeneric(TypeMap.SubstituteTypesWithoutModifiers(method.TypeArguments));
             }
 
             //  Method of an anonymous type
-            var newType = (NamedTypeSymbol)TypeMap.SubstituteType(method.ContainingType);
+            var newType = (NamedTypeSymbol)TypeMap.SubstituteType(method.ContainingType).AsTypeSymbolOnly();
             if (ReferenceEquals(newType, method.ContainingType))
             {
                 //  Anonymous type symbol was not rewritten
@@ -535,11 +535,11 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
             {
                 //  Property of a regular type
                 return ((PropertySymbol)property.OriginalDefinition)
-                    .AsMember((NamedTypeSymbol)TypeMap.SubstituteType(property.ContainingType));
+                    .AsMember((NamedTypeSymbol)TypeMap.SubstituteType(property.ContainingType).AsTypeSymbolOnly());
             }
 
             //  Method of an anonymous type
-            var newType = (NamedTypeSymbol)TypeMap.SubstituteType(property.ContainingType);
+            var newType = (NamedTypeSymbol)TypeMap.SubstituteType(property.ContainingType).AsTypeSymbolOnly();
             if (ReferenceEquals(newType, property.ContainingType))
             {
                 //  Anonymous type symbol was not rewritten
@@ -558,9 +558,36 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
             throw ExceptionUtilities.Unreachable;
         }
 
-        private static bool BaseReferenceInReceiverWasRewritten(BoundExpression originalReceviver, BoundExpression rewrittenReceiver)
+        private FieldSymbol VisitFieldSymbol(FieldSymbol field)
         {
-            return originalReceviver != null && originalReceviver.Kind == BoundKind.BaseReference &&
+            //  Property of a regular type
+            return ((FieldSymbol)field.OriginalDefinition)
+                .AsMember((NamedTypeSymbol)TypeMap.SubstituteType(field.ContainingType).AsTypeSymbolOnly());
+        }
+
+        public override BoundNode VisitObjectInitializerMember(BoundObjectInitializerMember node)
+        {
+            ImmutableArray<BoundExpression> arguments = (ImmutableArray<BoundExpression>)this.VisitList(node.Arguments);
+            TypeSymbol type = this.VisitType(node.Type);
+
+            var member = node.MemberSymbol;
+
+            switch (member.Kind)
+            {
+                case SymbolKind.Field:
+                    member = VisitFieldSymbol((FieldSymbol)member);
+                    break;
+                case SymbolKind.Property:
+                    member = VisitPropertySymbol((PropertySymbol)member);
+                    break;
+            }
+
+            return node.Update(member, arguments, node.ArgumentNamesOpt, node.ArgumentRefKindsOpt, node.Expanded, node.ArgsToParamsOpt, node.ResultKind, type);
+        }
+
+        private static bool BaseReferenceInReceiverWasRewritten(BoundExpression originalReceiver, BoundExpression rewrittenReceiver)
+        {
+            return originalReceiver != null && originalReceiver.Kind == BoundKind.BaseReference &&
                    rewrittenReceiver != null && rewrittenReceiver.Kind != BoundKind.BaseReference;
         }
 
@@ -568,20 +595,20 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
         {
             // in a method group conversion, we may need to rewrite the selected method
             BoundMethodGroup operand = (BoundMethodGroup)conversion.Operand;
-            BoundExpression originalReceviverOpt = operand.ReceiverOpt;
+            BoundExpression originalReceiverOpt = operand.ReceiverOpt;
             BoundExpression receiverOpt;
 
-            if (originalReceviverOpt == null)
+            if (originalReceiverOpt == null)
             {
                 receiverOpt = null;
             }
             else if (!conversion.IsExtensionMethod && conversion.SymbolOpt.IsStatic)
             {
-                receiverOpt = new BoundTypeExpression(originalReceviverOpt.Syntax, null, VisitType(originalReceviverOpt.Type));
+                receiverOpt = new BoundTypeExpression(originalReceiverOpt.Syntax, null, VisitType(originalReceiverOpt.Type));
             }
             else
             {
-                receiverOpt = (BoundExpression)Visit(originalReceviverOpt);
+                receiverOpt = (BoundExpression)Visit(originalReceiverOpt);
             }
 
             TypeSymbol type = this.VisitType(conversion.Type);
@@ -590,14 +617,14 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
 
             //  if the original receiver was a base access and is was rewritten, 
             //  change the method to point to the wrapper method
-            if (BaseReferenceInReceiverWasRewritten(originalReceviverOpt, receiverOpt) && method.IsMetadataVirtual())
+            if (BaseReferenceInReceiverWasRewritten(originalReceiverOpt, receiverOpt) && method.IsMetadataVirtual())
             {
                 method = GetMethodWrapperForBaseNonVirtualCall(method, conversion.Syntax);
             }
 
             method = VisitMethodSymbol(method);
             operand = operand.Update(
-                TypeMap.SubstituteTypes(operand.TypeArgumentsOpt),
+                TypeMap.SubstituteTypesWithoutModifiers(operand.TypeArgumentsOpt),
                 method.Name,
                 operand.Methods,
                 operand.LookupSymbolOpt,
@@ -649,6 +676,13 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
                 }
 
                 AssignTypeMapAndTypeParameters(typeMap, typeParameters);
+            }
+
+            internal override void AddSynthesizedAttributes(ModuleCompilationState compilationState, ref ArrayBuilder<SynthesizedAttributeData> attributes)
+            {
+                base.AddSynthesizedAttributes(compilationState, ref attributes);
+
+                AddSynthesizedAttribute(ref attributes, this.DeclaringCompilation.TrySynthesizeAttribute(WellKnownMember.System_Diagnostics_DebuggerHiddenAttribute__ctor));
             }
         }
     }

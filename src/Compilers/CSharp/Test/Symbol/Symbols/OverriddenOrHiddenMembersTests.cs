@@ -1,4 +1,4 @@
-﻿// Copyright (c) Microsoft.  All Rights Reserved.  Licensed under the Apache License, Version 2.0.  See License.txt in the project root for license information.
+// Copyright (c) Microsoft.  All Rights Reserved.  Licensed under the Apache License, Version 2.0.  See License.txt in the project root for license information.
 
 using System.Collections.Immutable;
 using System.Linq;
@@ -1768,8 +1768,8 @@ class Derived : AccessorModifierMismatch
             var text = @"
 class Derived : Base
 {
-    public delegate void BogusDelegetate();
-    public event BogusDelegetate set_Instance;
+    public delegate void BogusDelegate();
+    public event BogusDelegate set_Instance;
 
     public int get_Instance
     {
@@ -2390,13 +2390,7 @@ class Test
         c.GAB(ref c); // modopts A, B (inside and outside ref, respectively)
     }
 }";
-            // NOTE: dev11 accepts all of these signatures, even though they are not valid
-            // according to the CLI spec.  Roslyn has special handling to accept GA, but
-            // still rejects GAB.
-            CreateCompilationWithCustomILSource(csharp, il).VerifyDiagnostics(
-                // (16,9): error CS0570: 'C.GAB(ref ?)' is not supported by the language
-                //         c.GAB(ref c);
-                Diagnostic(ErrorCode.ERR_BindToBogus, "GAB").WithArguments("C.GAB(ref ?)"));
+            CompileAndVerify(CreateCompilationWithCustomILSource(csharp, il));
         }
 
         [WorkItem(545653, "DevDiv")]
@@ -2639,7 +2633,7 @@ class D : C
         }
 
         [WorkItem(545658, "DevDiv")]
-        [Fact]
+        [ClrOnlyFact]
         public void MethodConstructedFromOverrideWithCustomModifiers()
         {
             var il = @"
@@ -2817,7 +2811,7 @@ class Test
             var ref1 = CompileIL(il);
 
             var comp = CreateCompilationWithMscorlib(csharp, new[] { ref1 }, options: TestOptions.ReleaseExe);
-            CompileAndVerify(comp, emitOptions: TestEmitters.RefEmitBug, expectedOutput: @"
+            CompileAndVerify(comp, expectedOutput: @"
 SubSubT[System.Int32].vMeth(System.Int32)
 Base[System.Int32].vMeth(System.Int32)
 SubSubGT[System.Int32].vMeth(G`1[System.Int32])
@@ -2841,7 +2835,8 @@ Base[G`1[System.Int32]].Meth(G`1[System.Int32],System.Int32)
 Base[C].Meth(C,System.Int32)");
         }
 
-        [Fact, WorkItem(546816, "DevDiv")]
+        [ClrOnlyFact]
+        [WorkItem(546816, "DevDiv")]
         public void Bug16887()
         {
             var text = @"

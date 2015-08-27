@@ -18,12 +18,12 @@ namespace Microsoft.CodeAnalysis.CompilerServer
 
         // This is a value used for logging only, do not depend on this value
         private readonly string _loggingIdentifier;
-        private static int _lastLoggingIdentifier;
+        private static int s_lastLoggingIdentifier;
 
         internal NamedPipeClientConnection(NamedPipeServerStream pipeStream)
         {
             _pipeStream = pipeStream;
-            _loggingIdentifier = Interlocked.Increment(ref _lastLoggingIdentifier).ToString();
+            _loggingIdentifier = Interlocked.Increment(ref s_lastLoggingIdentifier).ToString();
         }
 
         public string LoggingIdentifier
@@ -93,7 +93,7 @@ namespace Microsoft.CodeAnalysis.CompilerServer
         }
 
         /// <summary>
-        /// Return the current user name and whether the current user is in the administator role.
+        /// Return the current user name and whether the current user is in the administrator role.
         /// </summary>
         private static Tuple<string, bool> GetIdentity(bool impersonating)
         {

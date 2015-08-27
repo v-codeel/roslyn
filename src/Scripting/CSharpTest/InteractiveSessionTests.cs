@@ -2,294 +2,35 @@
 
 using System;
 using System.Collections.Generic;
-using System.Collections.Immutable;
 using System.ComponentModel;
 using System.Diagnostics;
-using System.Dynamic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Threading;
+using System.Threading.Tasks;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
-using Microsoft.CodeAnalysis.CSharp.Symbols;
-using Microsoft.CodeAnalysis.CSharp.Syntax;
-using Microsoft.CodeAnalysis.CSharp.Test.Utilities;
-using Microsoft.CodeAnalysis.CSharp.UnitTests;
-using Microsoft.CodeAnalysis.Test.Utilities;
-using Microsoft.CodeAnalysis.Scripting;
 using Microsoft.CodeAnalysis.Scripting.Test;
-using Microsoft.CodeAnalysis.Scripting.CSharp;
 using Roslyn.Test.Utilities;
 using Roslyn.Utilities;
 using Xunit;
 
-#region Fixtures
-
-public class InteractiveFixtures_TopLevelHostObject
-{
-    public int X, Y, Z;
-}
-
-namespace InteractiveFixtures
-{
-    namespace A
-    {
-        public class X { }
-    }
-
-    namespace B
-    {
-        public class X { }
-    }
-
-    namespace C
-    {
-        public interface System { }
-    }
-}
-
-#endregion
-
-namespace Microsoft.CodeAnalysis.Scripting.CSharp.Test
+namespace Microsoft.CodeAnalysis.Scripting.CSharp.UnitTests
 {
     public class HostModel
     {
         public readonly int Foo;
     }
 
-    public class InteractiveSessionTests : CSharpTestBase
+    public class InteractiveSessionTests : TestBase
     {
-        // TODO (tomat): to be merged with Microsoft.CSharp.dll?
-
-        static InteractiveSessionTests()
-        {
-            ScriptBuilder.DisableJitOptimizations = true;
-        }
+        private static readonly Assembly s_lazySystemRuntimeAssembly;
+        private static readonly Assembly SystemRuntimeAssembly = s_lazySystemRuntimeAssembly ?? (s_lazySystemRuntimeAssembly = Assembly.Load(new AssemblyName("System.Runtime, Version=4.0.20.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a")));
 
         #region Namespaces, Types
-
-        [Fact]
-        public void NoReferences()
-        {
-            var submission = CSharpCompilation.CreateSubmission("test", syntaxTree: SyntaxFactory.ParseSyntaxTree("1", options: TestOptions.Interactive), returnType: typeof(int));
-            submission.VerifyDiagnostics(
-                // (1,1): error CS0518: Predefined type 'System.Object' is not defined or imported
-                // 1
-                Diagnostic(ErrorCode.ERR_PredefinedTypeNotFound, "1").WithArguments("System.Object").WithLocation(1, 1),
-                // error CS0518: Predefined type 'System.Object' is not defined or imported
-                Diagnostic(ErrorCode.ERR_PredefinedTypeNotFound).WithArguments("System.Object").WithLocation(1, 1),
-                // error CS0400: The type or namespace name 'System.Int32, mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089' could not be found in the global namespace (are you missing an assembly reference?)
-                Diagnostic(ErrorCode.ERR_GlobalSingleTypeNameNotFound).WithArguments("System.Int32, mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089").WithLocation(1, 1),
-                // (1,1): error CS0518: Predefined type 'System.Int32' is not defined or imported
-                // 1
-                Diagnostic(ErrorCode.ERR_PredefinedTypeNotFound, "1").WithArguments("System.Int32").WithLocation(1, 1),
-                // error CS0518: Predefined type 'System.Object' is not defined or imported
-                Diagnostic(ErrorCode.ERR_PredefinedTypeNotFound).WithArguments("System.Object").WithLocation(1, 1));
-        }
-
-        [Fact]
-        public void NestedNamespace()
-        {
-            // NOTE: Namespace declarations are currently *cut* from interactive code. However, the code below
-            // ensures that they continue to bind correctly in case the feature comes back.
-            //
-            // At the moment, namespaces in interactive code are a little funky. Essentially, nested namespaces
-            // are not bound within the Script class. However, the Script class itself may be defined within a
-            // namespace. In fact, the same namespace that the Script class is contained within can also
-            // be declared within the Script class.
-            //
-            // Consider the following code parsed with ParseOptions(kind: SourceCodeKind.Script) and added
-            // to a compilation with CompilationOptions(scriptClassName: "Foo.Script").
-            //
-            // public class A { }
-            // namespace Foo
-            // {
-            //     public class B : Script.A { }
-            // }
-            //
-            // The resulting compilation will contain the following types in the global namespace.
-            //
-            //   * Foo.Script
-            //   * Foo.Script.A
-            //   * Foo.B : Foo.Script.A
-
-            string test = @"
-public class A { }
-namespace Foo
-{
-    public class B : Script.A { }
-}
-";
-            var tree = SyntaxFactory.ParseSyntaxTree(test, options: TestOptions.Script);
-
-            var compilation = CSharpCompilation.Create(
-                assemblyName: "Test",
-                options: TestOptions.ReleaseExe.WithScriptClassName("Foo.Script"),
-                syntaxTrees: new[] { tree });
-
-            var global = compilation.GlobalNamespace;
-
-            var foo = global.GetMembers().Single() as NamespaceSymbol;
-            Assert.Equal("Foo", foo.Name);
-
-            var script = foo.GetTypeMembers("Script").Single();
-            Assert.Equal("Foo.Script", script.ToTestDisplayString());
-
-            var a = script.GetTypeMembers("A").Single();
-            Assert.Equal("Foo.Script.A", a.ToTestDisplayString());
-
-            var b = foo.GetTypeMembers("B").Single();
-            Assert.Equal("Foo.B", b.ToTestDisplayString());
-            Assert.Same(a, b.BaseType);
-        }
-
-        [Fact]
-        public void NamespaceWithBothInteractiveAndNoninteractiveImplicitTypes()
-        {
-            string test = @"
-namespace Foo { void foo() { } }
-void bar() { }
-bar();
-";
-            var tree = SyntaxFactory.ParseSyntaxTree(test, options: TestOptions.Script);
-
-            var compilation = CSharpCompilation.Create(
-                assemblyName: "Test",
-                options: TestOptions.ReleaseExe.WithScriptClassName("Foo.Script"),
-                syntaxTrees: new[] { tree });
-
-            var global = compilation.GlobalNamespace;
-            var members = global.GetMembers();
-
-            Assert.Equal(1, members.Length);
-            Assert.Equal("Foo", members[0].Name);
-            Assert.IsAssignableFrom(typeof(NamespaceSymbol), members[0]);
-            var ns = (NamespaceSymbol)members[0];
-            members = ns.GetMembers();
-
-            Assert.Equal(2, members.Length);
-            foreach (var member in members)
-            {
-                var cls = (ImplicitNamedTypeSymbol)member;
-                var methods = cls.GetMembers();
-                if (cls.IsScriptClass)
-                {
-                    Assert.False(cls.IsImplicitClass);
-                    Assert.Equal(2, methods.Length);
-                    Assert.Equal("bar", methods[0].Name);
-                    Assert.Equal(WellKnownMemberNames.InstanceConstructorName, methods[1].Name);
-                }
-                else
-                {
-                    Assert.False(cls.IsScriptClass);
-                    Assert.Equal(TypeSymbol.ImplicitTypeName, member.Name);
-                    Assert.Equal(2, methods.Length);
-                    Assert.Equal("foo", methods[0].Name);
-                    Assert.Equal(".ctor", methods[1].Name);
-                    Assert.IsAssignableFrom(typeof(MethodSymbol), methods[0]);
-                    Assert.IsAssignableFrom(typeof(MethodSymbol), methods[1]);
-                }
-            }
-        }
-
-#if TODO
-        [Fact]
-        public void ScriptTypeMerging()
-        {
-            // test with script class name = "Foo.Script"
-            string test = @"
-namespace Foo { partial class Script { void foo() { } } }
-void bar() { }
-";
-        }
-
-        [Fact]
-        public void ScriptTypeMerging_MissingPartialError()
-        {
-            // test with script class name = "Foo.Script"
-            string test = @"
-namespace Foo { class Script { void foo() { } } }
-void bar() { }
-";
-        }
-#endif
-
-        [Fact]
-        public void TopLevelTypesShouldBeNestedInScriptClass()
-        {
-            string test = @"
-partial class C { }
-partial class C { }
-interface D { }
-struct E { }
-enum F { }
-delegate void G();
-";
-            var tree = SyntaxFactory.ParseSyntaxTree(test, options: TestOptions.Script);
-
-            var compilation = CSharpCompilation.Create(
-                assemblyName: "Test",
-                options: TestOptions.ReleaseExe.WithScriptClassName("Script"),
-                syntaxTrees: new[] { tree });
-
-            var global = compilation.GlobalNamespace;
-            ImmutableArray<NamedTypeSymbol> members;
-
-            members = global.GetTypeMembers("Script");
-            Assert.Equal(1, members.Length);
-            Assert.Equal(TypeKind.Class, members[0].TypeKind);
-            var script = members[0];
-
-            members = script.GetTypeMembers("C");
-            Assert.Equal(1, members.Length);
-            Assert.Equal(TypeKind.Class, members[0].TypeKind);
-
-            members = script.GetTypeMembers("D");
-            Assert.Equal(1, members.Length);
-            Assert.Equal(TypeKind.Interface, members[0].TypeKind);
-
-            members = script.GetTypeMembers("E");
-            Assert.Equal(1, members.Length);
-            Assert.Equal(TypeKind.Struct, members[0].TypeKind);
-
-            members = script.GetTypeMembers("F");
-            Assert.Equal(1, members.Length);
-            Assert.Equal(TypeKind.Enum, members[0].TypeKind);
-
-            members = script.GetTypeMembers("G");
-            Assert.Equal(1, members.Length);
-            Assert.Equal(TypeKind.Delegate, members[0].TypeKind);
-        }
-
-        [Fact]
-        public void UsingStaticClass()
-        {
-            string test = @"
-using static System.Console;
-WriteLine(""hello"");
-";
-            var tree = SyntaxFactory.ParseSyntaxTree(test, options: TestOptions.Script.WithLanguageVersion(LanguageVersion.CSharp6));
-
-            var compilation = CSharpCompilation.Create(
-                assemblyName: "Test",
-                options: TestOptions.ReleaseExe.WithScriptClassName("Script"),
-                syntaxTrees: new[] { tree },
-                references: new[] { MscorlibRef });
-
-            var expr = (((tree.
-                GetCompilationUnitRoot() as CompilationUnitSyntax).
-                Members[0] as GlobalStatementSyntax).
-                Statement as ExpressionStatementSyntax).
-                Expression;
-
-            var model = compilation.GetSemanticModel(tree);
-            var info = model.GetSymbolInfo(expr);
-            Assert.NotNull(info.Symbol);
-            Assert.Equal("void System.Console.WriteLine(System.String value)", info.Symbol.ToTestDisplayString());
-        }
 
         [Fact]
         public void Namespaces()
@@ -326,11 +67,10 @@ InnerClass iC = new InnerClass();
 iC.Goo();
 ");
 
-            using (var output = new StringWriter(CultureInfo.InvariantCulture))
+            using (var redirect = new OutputRedirect(CultureInfo.InvariantCulture))
             {
-                Console.SetOut(output);
                 session.Execute(@"System.Console.WriteLine(iC.innerStr);");
-                Assert.Equal("test", output.ToString().Trim());
+                Assert.Equal("test", redirect.Output.Trim());
             }
         }
 
@@ -355,11 +95,10 @@ InnerStruct iS = new InnerStruct();
 iS.Goo();
 ");
 
-            using (var output = new StringWriter(CultureInfo.InvariantCulture))
+            using (var redirect = new OutputRedirect(CultureInfo.InvariantCulture))
             {
-                Console.SetOut(output);
                 session.Execute(@"System.Console.WriteLine(iS.innerStr);");
-                Assert.Equal("test", output.ToString().Trim());
+                Assert.Equal("test", redirect.Output.Trim());
             }
         }
 
@@ -417,64 +156,6 @@ class C
 
         #region Anonymous Types 
 
-        [Fact]
-        public void AnonymousTypes_TopLevelVar()
-        {
-            string test = @"
-using System;
-var o = new { a = 1 };
-Console.WriteLine(o.ToString());
-";
-            var tree = SyntaxFactory.ParseSyntaxTree(test, options: TestOptions.Script);
-
-            CompileAndVerify(
-                CSharpCompilation.Create(
-                    assemblyName: "Test",
-                    options: TestOptions.ReleaseExe.WithScriptClassName("Script"),
-                    references: new[] { MscorlibRef },
-                    syntaxTrees: new[] { tree }),
-                expectedOutput: "{ a = 1 }"
-            );
-        }
-
-        [Fact]
-        public void AnonymousTypes_TopLevel_Object()
-        {
-            string test = @"
-using System;
-object o = new { a = 1 };
-Console.WriteLine(o.ToString());
-";
-            var tree = SyntaxFactory.ParseSyntaxTree(test, options: TestOptions.Script);
-
-            CompileAndVerify(
-                CSharpCompilation.Create(
-                    assemblyName: "Test",
-                    options: TestOptions.ReleaseExe.WithScriptClassName("Script"),
-                    references: new[] { MscorlibRef },
-                    syntaxTrees: new[] { tree }),
-                expectedOutput: "{ a = 1 }"
-            );
-        }
-
-        [Fact]
-        public void AnonymousTypes_TopLevel_NoLocal()
-        {
-            string test = @"
-using System;
-Console.WriteLine(new { a = 1 }.ToString());
-";
-            var tree = SyntaxFactory.ParseSyntaxTree(test, options: TestOptions.Script);
-
-            CompileAndVerify(
-                CSharpCompilation.Create(
-                    assemblyName: "Test",
-                    options: TestOptions.ReleaseExe.WithScriptClassName("Script"),
-                    references: new[] { MscorlibRef },
-                    syntaxTrees: new[] { tree }),
-                expectedOutput: "{ a = 1 }"
-            );
-        }
 
         [Fact]
         public void AnonymousTypes_TopLevel_MultipleSubmissions()
@@ -565,152 +246,6 @@ new object[] { new[] { a, c }, new[] { b, d } }
             Assert.Equal(2, ((Array)result.GetValue(1)).Length);
         }
 
-        [Fact]
-        public void AnonymousTypes_NestedClass_Method()
-        {
-            string test = @"
-using System;
-class CLS 
-{
-    public void M()
-    {
-        Console.WriteLine(new { a = 1 }.ToString());
-    }
-}
-
-new CLS().M();
-";
-            var tree = SyntaxFactory.ParseSyntaxTree(test, options: TestOptions.Script);
-
-            CompileAndVerify(
-                CSharpCompilation.Create(
-                    assemblyName: "Test",
-                    options: TestOptions.ReleaseExe.WithScriptClassName("Script"),
-                    references: new[] { MscorlibRef },
-                    syntaxTrees: new[] { tree }),
-                expectedOutput: "{ a = 1 }"
-            );
-        }
-
-        [Fact]
-        public void AnonymousTypes_NestedClass_MethodParamDefValue()
-        {
-            string test = @"
-using System;
-class CLS 
-{
-    public void M(object p = new { a = 1 })
-    {
-        Console.WriteLine(""OK"");
-    }
-}
-new CLS().M();
-";
-            var tree = SyntaxFactory.ParseSyntaxTree(test, options: TestOptions.Script);
-
-            var compilation = CSharpCompilation.Create(
-                                assemblyName: "Test",
-                                options: TestOptions.ReleaseExe.WithScriptClassName("Script"),
-                                references: new[] { MscorlibRef },
-                                syntaxTrees: new[] { tree });
-
-            compilation.VerifyDiagnostics(
-                // (5,30): error CS1736: Default parameter value for 'p' must be a compile-time constant
-                //     public void M(object p = new { a = 1 })
-                Diagnostic(ErrorCode.ERR_DefaultValueMustBeConstant, "new { a = 1 }").WithArguments("p"));
-        }
-
-
-        [Fact]
-        public void AnonymousTypes_TopLevel_MethodParamDefValue()
-        {
-            string test = @"
-using System;
-
-public void M(object p = new { a = 1 })
-{
-    Console.WriteLine(""OK"");
-}
-
-M();
-";
-            var tree = SyntaxFactory.ParseSyntaxTree(test, options: TestOptions.Script);
-
-            var compilation = CSharpCompilation.Create(
-                                assemblyName: "Test",
-                                options: TestOptions.ReleaseExe.WithScriptClassName("Script"),
-                                references: new[] { MscorlibRef },
-                                syntaxTrees: new[] { tree });
-
-            compilation.VerifyDiagnostics(
-                // (4,26): error CS1736: Default parameter value for 'p' must be a compile-time constant
-                // public void M(object p = new { a = 1 })
-                Diagnostic(ErrorCode.ERR_DefaultValueMustBeConstant, "new { a = 1 }").WithArguments("p"));
-        }
-
-        [Fact]
-        public void AnonymousTypes_TopLevel_MethodAttribute()
-        {
-            string test = @"
-using System;
-
-class A: Attribute
-{
-    public object P;
-}
-
-[A(P = new { a = 1 })]
-public void M()
-{
-    Console.WriteLine(""OK"");
-}
-
-M();
-";
-            var tree = SyntaxFactory.ParseSyntaxTree(test, options: TestOptions.Script);
-
-            var compilation = CSharpCompilation.Create(
-                                assemblyName: "Test",
-                                options: TestOptions.ReleaseExe.WithScriptClassName("Script"),
-                                references: new[] { MscorlibRef },
-                                syntaxTrees: new[] { tree });
-
-            compilation.VerifyDiagnostics(
-                // (9,8): error CS0182: An attribute argument must be a constant expression, typeof expression or array creation expression of an attribute parameter type
-                // [A(P = new { a = 1 })]
-                Diagnostic(ErrorCode.ERR_BadAttributeArgument, "new { a = 1 }"));
-        }
-
-        [Fact]
-        public void AnonymousTypes_NestedTypeAttribute()
-        {
-            string test = @"
-using System;
-
-class A: Attribute
-{
-    public object P;
-}
-
-[A(P = new { a = 1 })]
-class CLS 
-{
-}
-";
-            var tree = SyntaxFactory.ParseSyntaxTree(test, options: TestOptions.Script);
-
-            var compilation = CSharpCompilation.Create(
-                                assemblyName: "Test",
-                                options: TestOptions.ReleaseExe.WithScriptClassName("Script"),
-                                references: new[] { MscorlibRef },
-                                syntaxTrees: new[] { tree });
-
-            compilation.VerifyDiagnostics(
-                // (9,8): error CS0836: Cannot use anonymous type in a constant expression
-                // [A(P = new { a = 1 })]
-                Diagnostic(ErrorCode.ERR_AnonymousTypeNotAvailable, "new"));
-        }
-
         #endregion
 
         #region Dynamic
@@ -720,9 +255,8 @@ class CLS
         {
             var engine = new CSharpScriptEngine();
             var session = engine.CreateSession();
-            session.AddReference(typeof(Microsoft.CSharp.RuntimeBinder.RuntimeBinderException).Assembly);
-            session.AddReference(typeof(ExpandoObject).Assembly);
-            session.AddReference(typeof(INotifyPropertyChanged).Assembly);
+            session.AddReference(typeof(Microsoft.CSharp.RuntimeBinder.RuntimeBinderException).GetTypeInfo().Assembly);
+            session.AddReference(typeof(System.Dynamic.ExpandoObject).GetTypeInfo().Assembly);
             session.ImportNamespace("System.Dynamic");
 
             session.Execute(@"
@@ -756,7 +290,7 @@ Enum1 E = Enum1.C;
 
 E
 ");
-            Assert.True(e.GetType().IsEnum, "Expected enum");
+            Assert.True(e.GetType().GetTypeInfo().IsEnum, "Expected enum");
             Assert.Equal(typeof(int), Enum.GetUnderlyingType(e.GetType()));
         }
 
@@ -805,14 +339,14 @@ class C { }
 
 typeof(C)
 ";
-            Type c = engine.CreateCollectibleSession().Execute<Type>(source);
-            var m = c.DeclaringType.GetMethod("M");
-            Assert.Equal(MethodImplAttributes.PreserveSig, m.GetMethodImplementationFlags());
+            Type c = engine.CreateSession().Execute<Type>(source);
+            var m = c.DeclaringType.GetTypeInfo().GetDeclaredMethod("M");
+            Assert.Equal(MethodImplAttributes.PreserveSig, m.MethodImplementationFlags);
 
             // uncollectible Ref.Emit:
             c = session.Execute<Type>(source);
-            m = c.DeclaringType.GetMethod("M");
-            Assert.Equal(MethodImplAttributes.PreserveSig, m.GetMethodImplementationFlags());
+            m = c.DeclaringType.GetTypeInfo().GetDeclaredMethod("M");
+            Assert.Equal(MethodImplAttributes.PreserveSig, m.MethodImplementationFlags);
 
             // Reflection synthesizes DllImportAttribute
             var dllImport = (DllImportAttribute)m.GetCustomAttributes(typeof(DllImportAttribute), inherit: false).Single();
@@ -1071,58 +605,16 @@ pi = i + j + k + l;
             Assert.Equal(1, result);
         }
 
-        //
-        // General rule for symbol lookup: 
-        //
-        // Declaration A in submission S hides declaration B in submission T iff
-        // S precedes T, and A and B can't coexist in the same scope.
-
-        [Fact]
-        public void CompilationChain_SubmissionSlots()
-        {
-            var engine = new CSharpScriptEngine();
-            var session = engine.CreateSession();
-            session.Execute("using System;");
-            session.Execute("using static System.Environment;");
-            session.Execute("int x; x = 1;");
-            session.Execute("using static System.Math;");
-            session.Execute("int foo(int a) { return a + 1; } ");
-
-#if false
-            Assert.True(session.executionState.submissions.Length >= 2, "Expected two submissions");
-            session.executionState.submissions.Aggregate(0, (i, sub) => { Assert.Equal(i < 2, sub != null); return i + 1; });
-#endif
-            object result;
-
-            // TODO (tomat): Version is a type and property, but we are not looking for a type, so can we disambiguate?
-            ScriptingTestHelpers.AssertCompilationError(session, "Version",
-                // (1,1): error CS0229: Ambiguity between 'System.Version' and 'System.Environment.Version'
-                Diagnostic(ErrorCode.ERR_AmbigMember, "Version").WithArguments("System.Version", "System.Environment.Version")
-            );
-
-            result = session.Execute("new System.Collections.Generic.List<Version>()");
-            Assert.True(result is List<Version>, "Expected List<Version>");
-
-            result = session.Execute("Environment.Version");
-            Assert.Equal(Environment.Version, result);
-
-            result = session.Execute("foo(x)");
-            Assert.Equal(2, result);
-
-            result = session.Execute("Sin(0)");
-            Assert.Equal(0.0, result);
-        }
-
         [Fact]
         public void CompilationChain_GlobalNamespaceAndUsings()
         {
             var engine = new CSharpScriptEngine();
             var session = engine.CreateSession();
-            session.AddReference(this.GetType().Assembly);
+            session.AddReference(this.GetType().GetTypeInfo().Assembly);
             session.Execute("using InteractiveFixtures.C;");
 
-            object result = session.Execute(@"System.Environment.Version");
-            Assert.Equal(Environment.Version, result);
+            object result = session.Execute(@"System.Environment.ProcessorCount");
+            Assert.Equal(Environment.ProcessorCount, result);
         }
 
         [Fact]
@@ -1133,14 +625,14 @@ pi = i + j + k + l;
             object result;
 
             session = engine.CreateSession();
-            session.AddReference(this.GetType().Assembly);
+            session.AddReference(this.GetType().GetTypeInfo().Assembly);
             session.Execute("class X { public int foo() { return 1; } }");
             session.Execute("using InteractiveFixtures.A;");
             result = session.Execute("new X().foo()");
             Assert.Equal(1, result);
 
             session = engine.CreateSession();
-            session.AddReference(this.GetType().Assembly);
+            session.AddReference(this.GetType().GetTypeInfo().Assembly);
             session.Execute("class X { public int foo() { return 1; } }");
             result = session.Execute(@"
 using InteractiveFixtures.A;
@@ -1148,32 +640,6 @@ new X().foo()
 ");
 
             Assert.Equal(1, result);
-        }
-
-        [Fact]
-        public void CompilationChain_UsingRebinding_AddReference()
-        {
-            var engine = new CSharpScriptEngine();
-            var session = engine.CreateSession();
-
-            session.Execute(@"using System.Diagnostics;");
-
-            session.AddReference(typeof(Process).Assembly);
-
-            session.Execute(@"Process.GetCurrentProcess()");
-        }
-
-        [Fact]
-        public void CompilationChain_UsingRebinding_Directive()
-        {
-            var engine = new CSharpScriptEngine();
-            var session = engine.CreateSession();
-
-            session.Execute(@"using System.Diagnostics;");
-
-            session.Execute(@"
-#r """ + typeof(Process).Assembly.Location + @"""
-Process.GetCurrentProcess()");
         }
 
         [Fact]
@@ -1190,8 +656,8 @@ using System;");
 using System;
 using System;");
 
-            var result = session.Execute(@"Environment.Version");
-            Assert.Equal(Environment.Version, result);
+            var result = session.Execute(@"Environment.ProcessorCount");
+            Assert.Equal(Environment.ProcessorCount, result);
         }
 
         [Fact]
@@ -1203,34 +669,15 @@ using System;");
             // imported namespaces on engine are captured by the session
             var session1 = engine.CreateSession();
 
-            var result = session1.Execute("Environment.Version");
-            Assert.Equal(Environment.Version, result);
+            var result = session1.Execute("Environment.ProcessorCount");
+            Assert.Equal(Environment.ProcessorCount, result);
 
-            result = session1.Execute("Environment.Version");
-            Assert.Equal(Environment.Version, result);
+            result = session1.Execute("Environment.ProcessorCount");
+            Assert.Equal(Environment.ProcessorCount, result);
 
             var session2 = engine.CreateSession();
-            result = session2.Execute("Environment.Version");
-            Assert.Equal(Environment.Version, result);
-        }
-
-        [Fact]
-        public void CompilationChain_GlobalImportsRebinding()
-        {
-            var engine = new CSharpScriptEngine();
-            var session = engine.CreateSession();
-            session.ImportNamespace("System.Diagnostics");
-
-            ScriptingTestHelpers.AssertCompilationError(session, @"
-Process.GetCurrentProcess()",
-                // (2,1): error CS0103: The name 'Process' does not exist in the current context
-                Diagnostic(ErrorCode.ERR_NameNotInContext, "Process").WithArguments("Process"));
-
-            session.Execute(@"
-#r """ + typeof(Process).Assembly.Location + @"""");
-
-            session.Execute(@"
-Process.GetCurrentProcess()");
+            result = session2.Execute("Environment.ProcessorCount");
+            Assert.Equal(Environment.ProcessorCount, result);
         }
 
         [Fact]
@@ -1243,103 +690,11 @@ Process.GetCurrentProcess()");
             {
                 session.Execute(@"public int i =  1;");
             }
-            using (var output = new StringWriter(CultureInfo.InvariantCulture))
+            using (var redirect = new OutputRedirect(CultureInfo.InvariantCulture))
             {
-                Console.SetOut(output);
                 session.Execute(@"System.Console.WriteLine(i);");
-                Assert.Equal(1, int.Parse(output.ToString()));
+                Assert.Equal(1, int.Parse(redirect.Output));
             }
-        }
-
-        [Fact]
-        public void CompilationChain_AnonymousTypeTemplates()
-        {
-            MetadataReference[] references = { MscorlibRef, SystemCoreRef };
-
-            var parseOptions = TestOptions.Interactive;
-            var s0 = CSharpCompilation.CreateSubmission("s0.dll",
-                                                  syntaxTree: SyntaxFactory.ParseSyntaxTree("var x = new { a = 1 }; ", options: parseOptions),
-                                                  references: references,
-                                                  returnType: typeof(object));
-
-            var sx = CSharpCompilation.CreateSubmission("sx.dll",
-                                                  syntaxTree: SyntaxFactory.ParseSyntaxTree("var y = new { b = 2 }; ", options: parseOptions),
-                                                  previousSubmission: s0,
-                                                  references: references,
-                                                  returnType: typeof(object));
-
-            var s1 = CSharpCompilation.CreateSubmission("s1.dll",
-                                                  syntaxTree: SyntaxFactory.ParseSyntaxTree("var y = new { b = new { a = 3 } }; ", options: parseOptions),
-                                                  previousSubmission: s0,
-                                                  references: references,
-                                                  returnType: typeof(object));
-
-            var s2 = CSharpCompilation.CreateSubmission("s2.dll",
-                                                  syntaxTree: SyntaxFactory.ParseSyntaxTree("x = y.b; ", options: parseOptions),
-                                                  previousSubmission: s1,
-                                                  references: references,
-                                                  returnType: typeof(object));
-
-            var diagnostics = s2.GetDiagnostics().ToArray();
-            Assert.Equal(0, diagnostics.Length);
-
-            using (MemoryStream stream = new MemoryStream())
-            {
-                s2.Emit(stream);
-            }
-
-            Assert.True(s2.AnonymousTypeManager.AreTemplatesSealed);
-            Assert.Equal(0, s2.AnonymousTypeManager.GetAllCreatedTemplates().Length);
-
-            Assert.True(s1.AnonymousTypeManager.AreTemplatesSealed);
-            Assert.Equal(1, s1.AnonymousTypeManager.GetAllCreatedTemplates().Length);
-
-            Assert.True(s0.AnonymousTypeManager.AreTemplatesSealed);
-            Assert.Equal(1, s0.AnonymousTypeManager.GetAllCreatedTemplates().Length);
-
-            Assert.False(sx.AnonymousTypeManager.AreTemplatesSealed);
-        }
-
-        [Fact]
-        public void CompilationChain_DynamicSiteDelegates()
-        {
-            MetadataReference[] references = { MscorlibRef, SystemCoreRef, CSharpRef };
-
-            var parseOptions = TestOptions.Interactive;
-            var s0 = CSharpCompilation.CreateSubmission("s0.dll",
-                                                  syntaxTree: SyntaxFactory.ParseSyntaxTree("var i = 1; dynamic d = null; d.m(ref i);", options: parseOptions),
-                                                  references: references,
-                                                  returnType: typeof(object));
-
-            var sx = CSharpCompilation.CreateSubmission("sx.dll",
-                                                  syntaxTree: SyntaxFactory.ParseSyntaxTree("var i = 1; dynamic d = null; d.m(ref i, ref i);", options: parseOptions),
-                                                  previousSubmission: s0,
-                                                  references: references,
-                                                  returnType: typeof(object));
-
-            var s1 = CSharpCompilation.CreateSubmission("s1.dll",
-                                                  syntaxTree: SyntaxFactory.ParseSyntaxTree("var i = 1; dynamic d = null; d.m(out i);", options: parseOptions),
-                                                  previousSubmission: s0,
-                                                  references: references,
-                                                  returnType: typeof(object));
-
-            var diagnostics = s1.GetDiagnostics().ToArray();
-            diagnostics.Verify();
-
-            using (MemoryStream stream = new MemoryStream())
-            {
-                s1.Emit(stream);
-            }
-
-            // no new delegates should have been created:
-            Assert.True(s1.AnonymousTypeManager.AreTemplatesSealed);
-            Assert.Equal(0, s1.AnonymousTypeManager.GetAllCreatedTemplates().Length);
-
-            // delegate for (ref)
-            Assert.True(s0.AnonymousTypeManager.AreTemplatesSealed);
-            Assert.Equal(1, s0.AnonymousTypeManager.GetAllCreatedTemplates().Length);
-
-            Assert.False(sx.AnonymousTypeManager.AreTemplatesSealed);
         }
 
         [Fact]
@@ -1379,156 +734,15 @@ public class E
 int z; z = x + y;
 ");
 
-            using (var output = new StringWriter(CultureInfo.InvariantCulture))
+            using (var redirect = new OutputRedirect(CultureInfo.InvariantCulture))
             {
-                Console.SetOut(output);
-
                 // Ref.Emit
                 session.Execute(@"
 System.Console.Write(new E());
 System.Console.Write(x + y);
 ");
-                Assert.True(output.ToString().Trim().EndsWith("+E2", StringComparison.Ordinal), output.ToString());
+                Assert.True(redirect.Output.Trim().EndsWith("+E2", StringComparison.Ordinal), redirect.Output);
             }
-        }
-
-        // Simulates a sensible override of object.Equals.
-        private class TestDocumentationProviderEquals : DocumentationProvider
-        {
-            protected internal override string GetDocumentationForSymbol(string documentationMemberID, CultureInfo preferredCulture, CancellationToken cancellationToken = default(CancellationToken))
-            {
-                return "";
-            }
-
-            public override bool Equals(object obj)
-            {
-                return obj != null && this.GetType() == obj.GetType();
-            }
-
-            public override int GetHashCode()
-            {
-                return GetType().GetHashCode();
-            }
-        }
-
-        // Simulates no override of object.Equals.
-        private class TestDocumentationProviderNoEquals : DocumentationProvider
-        {
-            protected internal override string GetDocumentationForSymbol(string documentationMemberID, CultureInfo preferredCulture, CancellationToken cancellationToken = default(CancellationToken))
-            {
-                return "";
-            }
-
-            public override bool Equals(object obj)
-            {
-                return ReferenceEquals(this, obj);
-            }
-
-            public override int GetHashCode()
-            {
-                return System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(this);
-            }
-        }
-
-        private class TestMetadataReferenceProvider : Microsoft.CodeAnalysis.MetadataFileReferenceProvider
-        {
-            public Func<DocumentationProvider> MakeDocumentationProvider;
-            private readonly Dictionary<string, AssemblyMetadata> _cache = new Dictionary<string, AssemblyMetadata>();
-
-            public override PortableExecutableReference GetReference(string fullPath, MetadataReferenceProperties properties = default(MetadataReferenceProperties))
-            {
-                AssemblyMetadata metadata;
-                if (_cache.TryGetValue(fullPath, out metadata))
-                {
-                    return metadata.GetReference(MakeDocumentationProvider());
-                }
-
-                _cache.Add(fullPath, metadata = AssemblyMetadata.CreateFromFile(fullPath));
-                return metadata.GetReference(MakeDocumentationProvider());
-            }
-        }
-
-        [WorkItem(546173)]
-        [Fact]
-        public void CompilationChain_SystemObject_OrderDependency1()
-        {
-            CompilationChain_SystemObject_NotEquals();
-            CompilationChain_SystemObject_Equals();
-        }
-
-        [WorkItem(546173)]
-        [Fact]
-        public void CompilationChain_SystemObject_OrderDependency2()
-        {
-            CompilationChain_SystemObject_Equals();
-            CompilationChain_SystemObject_NotEquals();
-        }
-
-        [WorkItem(545665)]
-        [Fact]
-        public void CompilationChain_SystemObject_NotEquals()
-        {
-            // As in VS/ETA, make a new list of references for each submission.
-
-            var provider = new TestMetadataReferenceProvider() { MakeDocumentationProvider = () => new TestDocumentationProviderNoEquals() };
-
-            var s1 = CSharpCompilation.CreateSubmission("s1.dll",
-                                                  syntaxTree: SyntaxFactory.ParseSyntaxTree("struct S { }", options: TestOptions.Interactive),
-                                                  references: MakeReferencesViaCommandLine(provider),
-                                                  returnType: typeof(object));
-            s1.GetDiagnostics().Verify();
-
-            var s2 = CSharpCompilation.CreateSubmission("s2.dll",
-                                                  syntaxTree: SyntaxFactory.ParseSyntaxTree("System.Collections.IEnumerable Iterator() { yield return new S(); }", options: TestOptions.Interactive),
-                                                  previousSubmission: s1,
-                                                  references: MakeReferencesViaCommandLine(provider),
-                                                  returnType: typeof(object));
-
-            Assert.NotEqual(s1.GetSpecialType(SpecialType.System_Object), s2.GetSpecialType(SpecialType.System_Object));
-
-            s2.GetDiagnostics().Verify(
-                // (1,58): error CS0029: Cannot implicitly convert type 'S' to 'object'
-                // System.Collections.IEnumerable Iterator() { yield return new S(); }
-                Diagnostic(ErrorCode.ERR_NoImplicitConv, "new S()").WithArguments("S", "object"));
-        }
-
-        [WorkItem(545665)]
-        [Fact]
-        public void CompilationChain_SystemObject_Equals()
-        {
-            // As in VS/ETA, make a new list of references for each submission.
-
-            var provider = new TestMetadataReferenceProvider() { MakeDocumentationProvider = () => new TestDocumentationProviderEquals() };
-
-            var s1 = CSharpCompilation.CreateSubmission("s1.dll",
-                syntaxTree: SyntaxFactory.ParseSyntaxTree("struct S { }", options: TestOptions.Interactive),
-                references: MakeReferencesViaCommandLine(provider),
-                returnType: typeof(object));
-            s1.GetDiagnostics().Verify();
-
-            var s2 = CSharpCompilation.CreateSubmission("s2.dll",
-                syntaxTree: SyntaxFactory.ParseSyntaxTree("System.Collections.IEnumerable Iterator() { yield return new S(); }", options: TestOptions.Interactive),
-                previousSubmission: s1,
-                references: MakeReferencesViaCommandLine(provider),
-                returnType: typeof(object));
-
-            s2.GetDiagnostics().Verify();
-
-            Assert.Equal(s1.GetSpecialType(SpecialType.System_Object), s2.GetSpecialType(SpecialType.System_Object));
-        }
-
-        /// <summary>
-        /// NOTE: We're going through the command line parser to mimic the approach of visual studio and the ETA.
-        /// Crucially, this CommandLineArguments will use the provided TestMetadataReferenceProvider to attach a fresh
-        /// DocumentationProvider to each reference.
-        /// </summary>
-        private static IEnumerable<MetadataReference> MakeReferencesViaCommandLine(TestMetadataReferenceProvider metadataReferenceProvider)
-        {
-            var commandLineArguments = CSharpCommandLineParser.Interactive.Parse(
-                new[] { "/r:" + typeof(Script).Assembly.Location }, //get corlib by default
-                Directory.GetDirectoryRoot(".")); //NOTE: any absolute path will do - we're not going to use this.
-            var references = commandLineArguments.ResolveMetadataReferences(new AssemblyReferenceResolver(MetadataFileReferenceResolver.Default, metadataReferenceProvider));
-            return references;
         }
 
         [Fact]
@@ -1621,7 +835,7 @@ abstract public class C : I<int>
         public void GenericInterfaceImplementation_Explicit_NoGenericParametersInSignature()
         {
             var engine = new CSharpScriptEngine();
-            engine.CreateCollectibleSession().Execute(@"
+            engine.CreateSession().Execute(@"
 public interface I<T>
 {
     void m(byte x);
@@ -1683,7 +897,7 @@ abstract public class D : C<int>.I
         public void NestedGenericInterfaceImplementation_Explicit()
         {
             var engine = new CSharpScriptEngine();
-            engine.CreateCollectibleSession().Execute(@"
+            engine.CreateSession().Execute(@"
 class C<T>
 {
     public interface I
@@ -1704,7 +918,7 @@ abstract public class D : C<int>.I
         {
             var engine = new CSharpScriptEngine();
 
-            engine.CreateCollectibleSession().Execute(@"
+            engine.CreateSession().Execute(@"
 using System.Collections;
 using System.Collections.Generic;
 
@@ -1784,7 +998,7 @@ int i = 2;
         {
             var engine = new CSharpScriptEngine();
             var session = engine.CreateSession(new C1());
-            session.AddReference(typeof(C1).Assembly);
+            session.AddReference(typeof(C1).GetTypeInfo().Assembly);
             object result = session.Execute("System");
             Assert.Equal(1, result);
         }
@@ -1794,7 +1008,7 @@ int i = 2;
         {
             var engine = new CSharpScriptEngine();
             var session = engine.CreateSession(new C1());
-            session.AddReference(typeof(C1).Assembly);
+            session.AddReference(typeof(C1).GetTypeInfo().Assembly);
             session.Execute("using System;");
             var result = session.Execute("Environment");
             Assert.Equal(2, result);
@@ -1805,7 +1019,7 @@ int i = 2;
         {
             var engine = new CSharpScriptEngine();
             var session = engine.CreateSession(new C1());
-            session.AddReference(typeof(C1).Assembly);
+            session.AddReference(typeof(C1).GetTypeInfo().Assembly);
             session.Execute("int System = 2;");
             var result = session.Execute("System");
             Assert.Equal(2, result);
@@ -1936,115 +1150,12 @@ class D
         }
 
         [Fact]
-        public void Submissions_EmitToPeStream()
-        {
-            var references = new[] { MetadataReference.CreateFromAssembly(typeof(object).Assembly) };
-
-            CSharpCompilation s0 = CSharpCompilation.CreateSubmission("s0", syntaxTree: SyntaxFactory.ParseSyntaxTree("int a = 1;", options: TestOptions.Interactive), references: references, returnType: typeof(object));
-            CSharpCompilation s11 = CSharpCompilation.CreateSubmission("s11", syntaxTree: SyntaxFactory.ParseSyntaxTree("a + 1", options: TestOptions.Interactive), previousSubmission: s0, references: references, returnType: typeof(object));
-            CSharpCompilation s12 = CSharpCompilation.CreateSubmission("s12", syntaxTree: SyntaxFactory.ParseSyntaxTree("a + 2", options: TestOptions.Interactive), previousSubmission: s0, references: references, returnType: typeof(object));
-
-            CompileAndVerify(s11, emitOptions: TestEmitters.CCI);
-            CompileAndVerify(s12, emitOptions: TestEmitters.CCI);
-        }
-
-        /// <summary>
-        /// Previous submission has to have no errors.
-        /// </summary>
-        [Fact]
-        public void Submissions_ExecutionOrder3()
-        {
-            var references = new[] { MetadataReference.CreateFromAssembly(typeof(object).Assembly) };
-
-            CSharpCompilation s0 = CSharpCompilation.CreateSubmission("s0.dll", syntaxTree: SyntaxFactory.ParseSyntaxTree("int a = \"x\";", options: TestOptions.Interactive), references: references, returnType: typeof(object));
-
-            Assert.Throws<InvalidOperationException>(() =>
-            {
-                CSharpCompilation.CreateSubmission("s11.dll", syntaxTree: SyntaxFactory.ParseSyntaxTree("a + 1", options: TestOptions.Interactive), previousSubmission: s0, references: references, returnType: typeof(object));
-            });
-        }
-
-        [Fact]
         public void Submissions_Errors()
         {
             var session = new CSharpScriptEngine().CreateSession();
 
             // missing semicolon (script):
             Assert.Throws<CompilationErrorException>(() => session.CompileSubmission<object>("1", isInteractive: false));
-        }
-
-        [Fact]
-        public void SubmissionCompilation_Errors()
-        {
-            var genericParameter = typeof(List<>).GetGenericArguments()[0];
-            var open = typeof(Dictionary<,>).MakeGenericType(typeof(int), genericParameter);
-            var ptr = typeof(int).MakePointerType();
-            var byref = typeof(int).MakeByRefType();
-
-            Assert.Throws<ArgumentException>(() => CSharpCompilation.CreateSubmission("a", returnType: genericParameter));
-            Assert.Throws<ArgumentException>(() => CSharpCompilation.CreateSubmission("a", returnType: open));
-            Assert.Throws<ArgumentException>(() => CSharpCompilation.CreateSubmission("a", returnType: typeof(void)));
-            Assert.Throws<ArgumentException>(() => CSharpCompilation.CreateSubmission("a", returnType: byref));
-
-            Assert.Throws<ArgumentException>(() => CSharpCompilation.CreateSubmission("a", hostObjectType: genericParameter));
-            Assert.Throws<ArgumentException>(() => CSharpCompilation.CreateSubmission("a", hostObjectType: open));
-            Assert.Throws<ArgumentException>(() => CSharpCompilation.CreateSubmission("a", hostObjectType: typeof(void)));
-            Assert.Throws<ArgumentException>(() => CSharpCompilation.CreateSubmission("a", hostObjectType: typeof(int)));
-            Assert.Throws<ArgumentException>(() => CSharpCompilation.CreateSubmission("a", hostObjectType: ptr));
-            Assert.Throws<ArgumentException>(() => CSharpCompilation.CreateSubmission("a", hostObjectType: byref));
-
-            var s0 = CSharpCompilation.CreateSubmission("a0", hostObjectType: typeof(List<int>));
-            Assert.Throws<ArgumentException>(() => CSharpCompilation.CreateSubmission("a1", previousSubmission: s0, hostObjectType: typeof(List<bool>)));
-
-            // invalid options:
-            Assert.Throws<ArgumentException>(() => CSharpCompilation.CreateSubmission("a", options: TestOptions.ReleaseExe));
-            Assert.Throws<ArgumentException>(() => CSharpCompilation.CreateSubmission("a", options: TestOptions.ReleaseDll.WithOutputKind(OutputKind.NetModule)));
-            Assert.Throws<ArgumentException>(() => CSharpCompilation.CreateSubmission("a", options: TestOptions.ReleaseDll.WithOutputKind(OutputKind.WindowsRuntimeMetadata)));
-            Assert.Throws<ArgumentException>(() => CSharpCompilation.CreateSubmission("a", options: TestOptions.ReleaseDll.WithOutputKind(OutputKind.WindowsRuntimeApplication)));
-            Assert.Throws<ArgumentException>(() => CSharpCompilation.CreateSubmission("a", options: TestOptions.ReleaseDll.WithOutputKind(OutputKind.WindowsApplication)));
-            Assert.Throws<ArgumentException>(() => CSharpCompilation.CreateSubmission("a", options: TestOptions.ReleaseDll.WithCryptoKeyContainer("foo")));
-            Assert.Throws<ArgumentException>(() => CSharpCompilation.CreateSubmission("a", options: TestOptions.ReleaseDll.WithCryptoKeyFile("foo.snk")));
-            Assert.Throws<ArgumentException>(() => CSharpCompilation.CreateSubmission("a", options: TestOptions.ReleaseDll.WithDelaySign(true)));
-            Assert.Throws<ArgumentException>(() => CSharpCompilation.CreateSubmission("a", options: TestOptions.ReleaseDll.WithDelaySign(false)));
-        }
-
-        private CSharpCompilation CreateSubmission(string code, CSharpParseOptions options, int expectedErrorCount = 0)
-        {
-            var submission = CSharpCompilation.CreateSubmission("sub",
-                references: new[] { MetadataReference.CreateFromAssembly(typeof(object).Assembly) },
-                syntaxTree: Parse(code, options: options));
-
-            Assert.Equal(expectedErrorCount, submission.GetDiagnostics(CompilationStage.Declare, true, CancellationToken.None).Count());
-
-            return submission;
-        }
-
-        private static void TestResult(CSharpCompilation s, SpecialType? expectedType, bool expectedHasValue)
-        {
-            bool hasValue;
-            var type = s.GetSubmissionResultType(out hasValue);
-            Assert.Equal(expectedType, type != null ? type.SpecialType : (SpecialType?)null);
-            Assert.Equal(expectedHasValue, hasValue);
-        }
-
-        [Fact]
-        public void SubmissionResultType()
-        {
-            var submission = CSharpCompilation.CreateSubmission("sub");
-            bool hasValue;
-            Assert.Equal(SpecialType.System_Void, submission.GetSubmissionResultType(out hasValue).SpecialType);
-            Assert.False(hasValue);
-
-            TestResult(CreateSubmission("1", TestOptions.Script, expectedErrorCount: 1), expectedType: SpecialType.System_Void, expectedHasValue: false);
-            TestResult(CreateSubmission("1", TestOptions.Interactive), expectedType: SpecialType.System_Int32, expectedHasValue: true);
-            TestResult(CreateSubmission("1;", TestOptions.Interactive), expectedType: SpecialType.System_Void, expectedHasValue: false);
-            TestResult(CreateSubmission("void foo() { }", TestOptions.Interactive), expectedType: SpecialType.System_Void, expectedHasValue: false);
-            TestResult(CreateSubmission("using System;", TestOptions.Interactive), expectedType: SpecialType.System_Void, expectedHasValue: false);
-            TestResult(CreateSubmission("int i;", TestOptions.Interactive), expectedType: SpecialType.System_Void, expectedHasValue: false);
-            TestResult(CreateSubmission("System.Console.WriteLine();", TestOptions.Interactive), expectedType: SpecialType.System_Void, expectedHasValue: false);
-            TestResult(CreateSubmission("System.Console.WriteLine()", TestOptions.Interactive), expectedType: SpecialType.System_Void, expectedHasValue: true);
-            TestResult(CreateSubmission("null", TestOptions.Interactive), expectedType: null, expectedHasValue: true);
-            TestResult(CreateSubmission("System.Console.WriteLine", TestOptions.Interactive), expectedType: null, expectedHasValue: true);
         }
 
         public class HostObjectWithOverrides
@@ -2070,7 +1181,11 @@ class D
         {
             var engine = new CSharpScriptEngine();
             var session = engine.CreateSession(new HostObjectWithOverrides());
-            session.AddReference(typeof(HostObjectWithOverrides).Assembly);
+
+            // TODO: should not be neccessary
+            session.AddReference(SystemRuntimeAssembly);
+
+            session.AddReference(typeof(HostObjectWithOverrides).GetTypeInfo().Assembly);
 
             Assert.Equal(true, session.Execute<bool>(@"Equals(null)"));
             Assert.Equal(1234567, session.Execute<int>(@"GetHashCode()"));
@@ -2135,7 +1250,7 @@ InnerClass<int> iC = new InnerClass<int>();
 
             // TODO: compiler should report an error (see Metadata spec 9.2 Generics and recursive inheritance graphs)
 
-            engine.CreateCollectibleSession().Execute(@"
+            engine.CreateSession().Execute(@"
 class A<T> { }
 class B<T> : A<B<B<T>>> { }
 ");
@@ -2147,7 +1262,7 @@ class B<T> : A<B<B<T>>> { }
             var engine = new CSharpScriptEngine();
 
             // need MethodSpec token
-            Assert.Equal(0, engine.CreateCollectibleSession().Execute(@"System.Activator.CreateInstance<int>()"));
+            Assert.Equal(0, engine.CreateSession().Execute(@"System.Activator.CreateInstance<int>()"));
         }
 
         [WorkItem(5378, "DevDiv_Projects/Roslyn")]
@@ -2171,7 +1286,7 @@ public static T bar<T>(T i)
         }
 
         /// <summary>
-        /// Tests that we emit ldftn and ldvirtftn instructions corectly.
+        /// Tests that we emit ldftn and ldvirtftn instructions correctly.
         /// </summary>
         [Fact]
         public void CompilationChain_Ldftn()
@@ -2206,7 +1321,7 @@ new System.Func<int>(new C().gh<bool>)()
         }
 
         /// <summary>
-        /// Tests that we emit ldftn and ldvirtftn instructions corectly.
+        /// Tests that we emit ldftn and ldvirtftn instructions correctly.
         /// </summary>
         [Fact]
         public void CompilationChain_Ldftn_GenericType()
@@ -2248,7 +1363,7 @@ new System.Func<int>(new C<byte>().gh<bool>)()
         public void AbstractAccessors()
         {
             var engine = new CSharpScriptEngine();
-            engine.CreateCollectibleSession().Execute(@"
+            engine.CreateSession().Execute(@"
 public abstract class C
 {
     public abstract event System.Action vEv;
@@ -2264,7 +1379,7 @@ public abstract class C
             Assert.Throws<CompilationErrorException>(() =>
             {
                 var engine = new CSharpScriptEngine();
-                object result = engine.CreateCollectibleSession().Execute(@"
+                object result = engine.CreateSession().Execute(@"
 delegate bool D();
 D del;
 public static void Foo(int input)
@@ -2311,10 +1426,10 @@ x
         public void ExprStmtParenthesesUsedToOverrideDefaultEval()
         {
             var engine = new CSharpScriptEngine();
-            int i = engine.CreateCollectibleSession().Execute<int>(@"(4 + 5) * 2");
+            int i = engine.CreateSession().Execute<int>(@"(4 + 5) * 2");
             Assert.Equal(18, i);
 
-            long l = engine.CreateCollectibleSession().Execute<long>(@"6 / (2 * 3)");
+            long l = engine.CreateSession().Execute<long>(@"6 / (2 * 3)");
             Assert.Equal(1, l);
         }
 
@@ -2331,7 +1446,7 @@ int Foo() { return 2;}
         }
 
         [Fact]
-        public void ArithmeticOperators_IdentiferAddition()
+        public void ArithmeticOperators_IdentifierAddition()
         {
             var engine = new CSharpScriptEngine();
             var session = engine.CreateSession();
@@ -2406,11 +1521,10 @@ delegate void TestDelegate(string s);
 TestDelegate testDelB = delegate (string s) { Console.WriteLine(s); };
 ");
 
-            using (var output = new StringWriter(CultureInfo.InvariantCulture))
+            using (var redirect = new OutputRedirect(CultureInfo.InvariantCulture))
             {
-                Console.SetOut(output);
                 session.Execute(@"testDelB(""hello"");");
-                Assert.Equal("hello", output.ToString().Trim());
+                Assert.Equal("hello", redirect.Output.Trim());
             }
         }
 
@@ -2419,7 +1533,7 @@ TestDelegate testDelB = delegate (string s) { Console.WriteLine(s); };
         {
             var engine = new CSharpScriptEngine();
 
-            var f = engine.CreateCollectibleSession().Execute<Func<int, int>>(@"
+            var f = engine.CreateSession().Execute<Func<int, int>>(@"
 int Foo(int arg) { return arg + 1; }
 
 System.Func<int, int> f = (arg) =>
@@ -2437,7 +1551,7 @@ f
         {
             var engine = new CSharpScriptEngine();
 
-            var result = engine.CreateCollectibleSession().Execute<List<string>>(@"
+            var result = engine.CreateSession().Execute<List<string>>(@"
 #r ""System.Core""
 using System;
 using System.Linq;
@@ -2491,7 +1605,7 @@ arr_2[0] = 5;
         public void FieldInitializers()
         {
             var engine = new CSharpScriptEngine();
-            var result = (List<int>)engine.CreateCollectibleSession().Execute(@"
+            var result = (List<int>)engine.CreateSession().Execute(@"
 using System.Collections.Generic;
 static List<int> result = new List<int>();
 int b = 2;
@@ -2516,7 +1630,7 @@ result
         public void FieldInitializersWithBlocks()
         {
             var engine = new CSharpScriptEngine();
-            var result = (List<int>)engine.CreateCollectibleSession().Execute(@"
+            var result = (List<int>)engine.CreateSession().Execute(@"
 using System.Collections.Generic;
 static List<int> result = new List<int>();
 const int constant = 1;
@@ -2564,7 +1678,7 @@ static List<int> result = new List<int>();");
         {
             var engine = new CSharpScriptEngine();
             var session = engine.CreateSession();
-            session.AddReference(typeof(Enumerable).Assembly);
+            session.AddReference(typeof(Enumerable).GetTypeInfo().Assembly);
             var result = (int)session.Execute(
 @"using System.Linq;
 string[] fruit = { ""banana"", ""orange"", ""lime"", ""apple"", ""kiwi"" };
@@ -2581,13 +1695,13 @@ fruit.Skip(1).Where(s => s.Length > 4).Count()
             var session = engine.CreateSession();
             session.AddReference(TestReferences.NetFx.v4_0_30319.System_Core);
 
-            ScriptingTestHelpers.AssertCompilationError(session, "static void E(this object o) { }",
-                // error CS1106: Extension methods must be defined in a non-generic static class
-                Diagnostic(ErrorCode.ERR_BadExtensionAgg, "E"));
+            // No error for extension method defined in interactive session.
+            session.Execute("static void E(this object o) { }");
 
             ScriptingTestHelpers.AssertCompilationError(session, "void F(this object o) { }",
-                // (1,6): error CS1106: Extension method must be defined in a non-generic static class
-                Diagnostic(ErrorCode.ERR_BadExtensionAgg, "F").WithLocation(1, 6));
+                // (1,6): error CS1105: Extension method must be static
+                // void F(this object o) { }
+                Diagnostic(ErrorCode.ERR_BadExtensionMeth, "F").WithLocation(1, 6));
 
             ScriptingTestHelpers.AssertCompilationError(session, "static void G(this dynamic o) { }",
                 // error CS1103: The first parameter of an extension method cannot be of type 'dynamic'
@@ -2598,7 +1712,7 @@ fruit.Skip(1).Where(s => s.Length > 4).Count()
         public void ImplicitlyTypedFields()
         {
             var engine = new CSharpScriptEngine();
-            var result = engine.CreateCollectibleSession().Execute<object[]>(@"
+            var result = engine.CreateSession().Execute<object[]>(@"
 var x = 1;
 var y = x;
 var z = foo(x);
@@ -2612,255 +1726,97 @@ new object[] { x, y, z }
         }
 
         /// <summary>
-        /// Name of PrivateImplementationDetails type needs to be unique accross submissions.
+        /// Name of PrivateImplementationDetails type needs to be unique across submissions.
         /// The compiler should suffix it with a MVID of the current submission module so we should be fine.
         /// </summary>
         [WorkItem(949559)]
         [WorkItem(540237)]
         [WorkItem(9229, "DevDiv_Projects/Roslyn")]
-        [Fact(Skip = "949559")]
+        [WorkItem(2721, "https://github.com/dotnet/roslyn/issues/2721")]
+        [Fact]
         public void PrivateImplementationDetailsType()
         {
             var engine = new CSharpScriptEngine();
-            object result = engine.CreateCollectibleSession().Execute(@"new int[] { 1,2,3,4 }");
+            object result = engine.CreateSession().Execute(@"new int[] { 1,2,3,4 }");
             Assert.IsType<int[]>(result);
 
-            result = engine.CreateCollectibleSession().Execute(@"new int[] { 1,2,3,4,5 }");
+            result = engine.CreateSession().Execute(@"new int[] { 1,2,3,4,5 }");
             Assert.IsType<int[]>(result);
         }
 
-        [WorkItem(543890)]
         [Fact]
-        public void ThisIndexerAccessInScript()
+        public void NoAwait()
         {
-            string test = @"
-this[1]
-";
-            var compilation = CreateCompilationWithMscorlib(test, parseOptions: TestOptions.Interactive);
-            var tree = compilation.SyntaxTrees.Single();
-            var model = compilation.GetSemanticModel(tree);
-
-            compilation.VerifyDiagnostics(
-                // (2,1): error CS0027: Keyword 'this' is not available in the current context
-                // this[1]
-                Diagnostic(ErrorCode.ERR_ThisInBadContext, "this"));
-
-            var syntax = tree.GetCompilationUnitRoot().DescendantNodes().OfType<ExpressionSyntax>().First();
-            Assert.Equal(SyntaxKind.ElementAccessExpression, syntax.Kind());
-
-            var summary = model.GetSemanticInfoSummary(syntax);
-            Assert.Null(summary.Symbol);
-            Assert.Equal(0, summary.CandidateSymbols.Length);
-            Assert.Equal(CandidateReason.None, summary.CandidateReason);
-            Assert.Equal(TypeKind.Error, summary.Type.TypeKind);
-            Assert.Equal(TypeKind.Error, summary.ConvertedType.TypeKind);
-            Assert.Equal(Conversion.Identity, summary.ImplicitConversion);
-            Assert.Equal(0, summary.MethodGroup.Length);
+            var engine = new CSharpScriptEngine();
+            var session = engine.CreateSession();
+            // No await. The return value is Task<int> rather than int.
+            var result = (Task<int>)session.Execute("System.Threading.Tasks.Task.FromResult(1)");
+            Assert.Equal(1, result.Result);
         }
 
-        [WorkItem(543890)]
+        /// <summary>
+        /// 'await' expression at top-level.
+        /// </summary>
         [Fact]
-        public void ThisIndexerAccessInSubmission()
+        public void Await()
         {
-            string test = @"
-this[1]
-";
-            var compilation = CreateSubmission(test, TestOptions.Interactive);
-            var tree = compilation.SyntaxTrees.Single();
-            var model = compilation.GetSemanticModel(tree);
+            var engine = new CSharpScriptEngine();
+            var session = engine.CreateSession();
+            var result = session.Execute("await System.Threading.Tasks.Task.FromResult(2)");
+            Assert.Equal(2, result);
+        }
 
-            compilation.VerifyDiagnostics(
-                // (2,1): error CS0027: Keyword 'this' is not available in the current context
-                // this[1]
-                Diagnostic(ErrorCode.ERR_ThisInBadContext, "this"));
+        /// <summary>
+        /// 'await' in sub-expression.
+        /// </summary>
+        [Fact]
+        public void AwaitSubExpression()
+        {
+            var engine = new CSharpScriptEngine();
+            var session = engine.CreateSession();
+            var result = session.Execute("0 + await System.Threading.Tasks.Task.FromResult(3)");
+            Assert.Equal(3, result);
+        }
 
-            var syntax = tree.GetCompilationUnitRoot().DescendantNodes().OfType<ExpressionSyntax>().First();
-            Assert.Equal(SyntaxKind.ElementAccessExpression, syntax.Kind());
+        [Fact]
+        public void AwaitVoid()
+        {
+            var engine = new CSharpScriptEngine();
+            var session = engine.CreateSession();
+            var task = session.ExecuteAsync<object>("await System.Threading.Tasks.Task.Run(() => { })");
+            Assert.Equal(null, task.Result);
+            Assert.Equal(TaskStatus.RanToCompletion, task.Status);
+        }
 
-            var summary = model.GetSemanticInfoSummary(syntax);
-            Assert.Null(summary.Symbol);
-            Assert.Equal(0, summary.CandidateSymbols.Length);
-            Assert.Equal(CandidateReason.None, summary.CandidateReason);
-            Assert.Equal(TypeKind.Error, summary.Type.TypeKind);
-            Assert.Equal(TypeKind.Error, summary.ConvertedType.TypeKind);
-            Assert.Equal(Conversion.Identity, summary.ImplicitConversion);
-            Assert.Equal(0, summary.MethodGroup.Length);
+        /// <summary>
+        /// 'await' in lambda should be ignored.
+        /// </summary>
+        [Fact]
+        public void AwaitInLambda()
+        {
+            var engine = new CSharpScriptEngine();
+            var session = engine.CreateSession();
+            session.Execute(
+@"using System;
+using System.Threading.Tasks;
+static T F<T>(Func<Task<T>> f)
+{
+    return f().Result;
+}
+static T G<T>(T t, Func<T, Task<T>> f)
+{
+    return f(t).Result;
+}");
+            var result = session.Execute("F(async () => await Task.FromResult(4))");
+            Assert.Equal(4, result);
+            result = session.Execute("G(5, async x => await Task.FromResult(x))");
+            Assert.Equal(5, result);
         }
 
         #endregion
 
         #region References
-
-        [Fact]
-        public void Submission_TypeDisambiguationBasedUponAssemblyName()
-        {
-            var compilation = CreateCompilationWithMscorlib("namespace System { public struct Int32 { } }");
-
-            compilation.VerifyDiagnostics();
-
-            // TODO:
-            // Assert.Throws<NotSupportedException>(() => new ScriptEngine(references: new[] { new CompilationReference(compilation) }));
-            //int i = engine.Execute<int>(@"1+1");
-            //Assert.Equal(2, i);
-        }
-
-        /// <summary>
-        /// By default Framework directory is included in search paths.
-        /// </summary>
-        [Fact]
-        public void SearchPaths_DefaultWithSession()
-        {
-            var engine = new CSharpScriptEngine();
-            var session = engine.CreateSession();
-
-            object result = session.Execute(@"
-#r ""System.Data.dll""
-#r ""System""
-#r """ + typeof(System.Xml.Serialization.IXmlSerializable).Assembly.Location + @"""
-new System.Data.DataSet()
-");
-
-            Assert.True(result is System.Data.DataSet, "Expected DataSet");
-        }
-
-        /// <summary>
-        /// Default search paths can be removed.
-        /// </summary>
-        [Fact]
-        public void SearchPaths_RemoveDefault()
-        {
-            var engine = new CSharpScriptEngine();
-            var session = engine.CreateSession();
-
-            // remove default paths:
-            session.SetReferenceSearchPaths();
-
-            ScriptingTestHelpers.AssertCompilationError(session, @"
-#r ""System.Data.dll""
-new System.Data.DataSet()
-",
-                // (2,1): error CS0006: Metadata file 'System.Data.dll' could not be found
-                // #r "System.Data.dll"
-                Diagnostic(ErrorCode.ERR_NoMetadataFile, @"#r ""System.Data.dll""").WithArguments("System.Data.dll"),
-                // (3,12): error CS0234: The type or namespace name 'Data' does not exist in the namespace 'System' (are you missing an assembly reference?)
-                // new System.Data.DataSet()
-                Diagnostic(ErrorCode.ERR_DottedTypeNameNotFoundInNS, "Data").WithArguments("Data", "System")
-            );
-        }
-
-        private class MetadataReferenceProvider : Microsoft.CodeAnalysis.MetadataFileReferenceProvider
-        {
-            private Dictionary<string, PortableExecutableReference> _metadata;
-
-            public MetadataReferenceProvider(Dictionary<string, PortableExecutableReference> metadata)
-            {
-                _metadata = metadata;
-                metadata.Add(typeof(object).Assembly.Location, (PortableExecutableReference)MscorlibRef);
-            }
-
-            public override PortableExecutableReference GetReference(string fullPath, MetadataReferenceProperties properties = default(MetadataReferenceProperties))
-            {
-                return _metadata[fullPath];
-            }
-        }
-
-        /// <summary>
-        /// Look at base directory (or directory containing #r) before search paths.
-        /// </summary>
-        [Fact]
-        public void SearchPaths_BaseDirectory()
-        {
-            var engine = new CSharpScriptEngine(new MetadataReferenceProvider(new Dictionary<string, PortableExecutableReference>
-            {
-                { @"C:\dir\x.dll", (PortableExecutableReference)SystemCoreRef }
-            }));
-
-            engine.MetadataReferenceResolver = new VirtualizedFileReferenceResolver(
-                existingFullPaths: new[]
-                {
-                    @"C:\dir\x.dll"
-                },
-                baseDirectory: @"C:\foo\bar"
-            );
-
-            var session = engine.CreateSession();
-
-            var source = @"
-#r ""x.dll""
-using System.Linq;
-
-var x = from a in new[] { 1,2,3 }
-        select a + 1;
-";
-
-            var submission = session.CompileSubmission<object>(source, @"C:\dir\a.csx", isInteractive: false);
-            submission.Execute();
-        }
-
-        [Fact]
-        public void References1()
-        {
-            var engine = new CSharpScriptEngine();
-            var session = engine.CreateSession();
-            session.AddReference(typeof(Process).Assembly.FullName);
-            session.AddReference(typeof(System.Linq.Expressions.Expression).Assembly);
-
-            var process = (Process)session.Execute(@"
-#r """ + typeof(System.Data.DataSet).Assembly.Location + @"""
-#r ""System""
-#r """ + typeof(System.Xml.Serialization.IXmlSerializable).Assembly.Location + @"""
-new System.Data.DataSet();
-System.Linq.Expressions.Expression.Constant(123);
-System.Diagnostics.Process.GetCurrentProcess()
-");
-
-            Assert.NotNull(process);
-
-            session.AddReference(typeof(System.Xml.XmlDocument).Assembly);
-
-            var xmlDoc = (System.Xml.XmlDocument)session.Execute(@"
-new System.Xml.XmlDocument()
-");
-
-            Assert.NotNull(xmlDoc);
-
-            session.AddReference("System.Drawing, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a");
-
-            var color = session.Execute(@"
-System.Drawing.Color.Coral
-");
-
-            Assert.NotNull(color);
-
-            session.AddReference(typeof(System.Windows.Forms.Form).Assembly.Location);
-
-            var form = (System.Windows.Forms.Form)session.Execute(@"
-new System.Windows.Forms.Form();
-");
-
-            Assert.NotNull(form);
-        }
-
-        [Fact]
-        public void References2()
-        {
-            var engine = new CSharpScriptEngine();
-            engine.AddReference("System.Core");
-            engine.AddReference("System.dll");
-            engine.AddReference(typeof(System.Data.DataSet).Assembly);
-
-            var session = engine.CreateSession();
-
-            var process = (Process)session.Execute(@"
-#r """ + typeof(System.Xml.Serialization.IXmlSerializable).Assembly.Location + @"""
-new System.Data.DataSet();
-System.Linq.Expressions.Expression.Constant(123);
-System.Diagnostics.Process.GetCurrentProcess()
-");
-
-            Assert.NotNull(process);
-        }
-
+        
         [Fact]
         public void AddReference_Errors()
         {
@@ -2896,98 +1852,6 @@ new Metadata.ICSPropImpl()
             Assert.NotNull(result);
         }
 
-        [Fact]
-        public void MissingDependency()
-        {
-            var engine = new CSharpScriptEngine();
-
-            ScriptingTestHelpers.AssertCompilationError(engine, @"
-#r ""WindowsBase""
-#r ""PresentationCore""
-#r ""PresentationFramework""
-
-using System.Windows;
-System.Collections.IEnumerable w = new Window();
-",
-    // (7,36): error CS0012: The type 'System.ComponentModel.ISupportInitialize' is defined in an assembly that is not referenced. You must add a reference to assembly 'System, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.
-    // System.Collections.IEnumerable w = new Window();
-    Diagnostic(ErrorCode.ERR_NoTypeDef, "new Window()").WithArguments("System.ComponentModel.ISupportInitialize", "System, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089"),
-    // (7,36): error CS0012: The type 'System.Windows.Markup.IQueryAmbient' is defined in an assembly that is not referenced. You must add a reference to assembly 'System.Xaml, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.
-    // System.Collections.IEnumerable w = new Window();
-    Diagnostic(ErrorCode.ERR_NoTypeDef, "new Window()").WithArguments("System.Windows.Markup.IQueryAmbient", "System.Xaml, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089"),
-    // (7,36): error CS0266: Cannot implicitly convert type 'System.Windows.Window' to 'System.Collections.IEnumerable'. An explicit conversion exists (are you missing a cast?)
-    // System.Collections.IEnumerable w = new Window();
-    Diagnostic(ErrorCode.ERR_NoImplicitConvCast, "new Window()").WithArguments("System.Windows.Window", "System.Collections.IEnumerable")
-        );
-        }
-
-        [WorkItem(529637)]
-        [Fact]
-        public void AssemblyResolution()
-        {
-            // uncollectible:
-            var engine = new CSharpScriptEngine();
-            var session = engine.CreateSession();
-            var instance = session.Execute("var x = new { a = 3 }; x");
-            var type = session.Execute("System.Type.GetType(x.GetType().AssemblyQualifiedName, true)");
-            Assert.Equal(instance.GetType(), type);
-
-            // collectible:
-            // - This is a little bit tricky because using session implies uncollectibility.
-            //   We rely on the fact that multiple snippets are emitted in the same dynamic assembly.
-            var foo = engine.CreateCollectibleSession().Execute("class Foo { }; new Foo()");
-
-            object fooType = null;
-            try
-            {
-                fooType = engine.CreateCollectibleSession().Execute("System.Type.GetType(\"" + foo.GetType().AssemblyQualifiedName + "\", true)");
-            }
-            catch (FileLoadException e)
-            {
-                // TODO (tomat): Type.GetType API currently doesn't support collectible assemblies  
-                Assert.IsType<NotSupportedException>(e.InnerException);
-            }
-
-            //Assert.Equal(foo.GetType(), fooType);
-            Assert.Null(fooType);
-        }
-
-        [Fact]
-        public void ReferenceToInvalidType()
-        {
-            var badTypeBytes = TestResources.MetadataTests.Invalid.ClassLayout;
-            var badTypeRef = MetadataReference.CreateFromImage(badTypeBytes.AsImmutableOrNull());
-
-            // TODO: enable this with our AssemblyLoader:
-            ResolveEventHandler handler = (_, args) =>
-            {
-                if (args.Name.StartsWith("b,", StringComparison.Ordinal))
-                {
-                    return Assembly.Load(badTypeBytes);
-                }
-
-                return null;
-            };
-
-            AppDomain.CurrentDomain.AssemblyResolve += handler;
-            try
-            {
-                var engine = new CSharpScriptEngine();
-                var session = engine.CreateSession();
-                session.AddReference(badTypeRef);
-
-                // we shouldn't throw while compiling:
-                var submission = session.CompileSubmission<object>("new S1()");
-
-                // we should throw while executing:
-                Assert.Throws<TypeLoadException>(() => submission.Execute());
-            }
-            finally
-            {
-                AppDomain.CurrentDomain.AssemblyResolve -= handler;
-            }
-        }
-
         #endregion
 
         #region UsingDeclarations
@@ -3014,7 +1878,7 @@ d
             var session = engine.CreateSession();
             session.ImportNamespace("System");
             session.ImportNamespace("System.Linq");
-            session.AddReference(typeof(Enumerable).Assembly);
+            session.AddReference(typeof(Enumerable).GetTypeInfo().Assembly);
 
             // TODO: AssertEx.Equal(new[] { "System", "System.Linq" }, session.GetImportedNamespaces());
 
@@ -3031,7 +1895,7 @@ d
             engine.ImportNamespace("System.Linq");
 
             var session = engine.CreateSession();
-            session.AddReference(typeof(Enumerable).Assembly);
+            session.AddReference(typeof(Enumerable).GetTypeInfo().Assembly);
 
             object result = session.Execute("new int[] { 1, 2, 3 }.First()");
             Assert.Equal(1, result);
@@ -3089,15 +1953,15 @@ d
         public void Submission_HostConversions()
         {
             var engine = new CSharpScriptEngine();
-            int value = engine.CreateCollectibleSession().Execute<int>(@"1+1");
+            int value = engine.CreateSession().Execute<int>(@"1+1");
             Assert.Equal(2, value);
 
-            string str = engine.CreateCollectibleSession().Execute<string>(@"null");
+            string str = engine.CreateSession().Execute<string>(@"null");
             Assert.Equal(null, str);
 
             try
             {
-                engine.CreateCollectibleSession().Execute<C<int>>(@"null");
+                engine.CreateSession().Execute<C<int>>(@"null");
                 Assert.True(false, "Expected an exception");
             }
             catch (CompilationErrorException e)
@@ -3108,7 +1972,7 @@ d
             }
 
             var session = engine.CreateSession();
-            session.AddReference(typeof(C<>).Assembly);
+            session.AddReference(typeof(C<>).GetTypeInfo().Assembly);
             var cint = session.Execute<C<int>>(@"null");
             Assert.Equal(null, cint);
 
@@ -3118,7 +1982,7 @@ d
 
             try
             {
-                engine.CreateCollectibleSession().Execute<int>(@"null");
+                engine.CreateSession().Execute<int>(@"null");
                 Assert.True(false, "Expected an exception");
             }
             catch (CompilationErrorException e)
@@ -3131,7 +1995,7 @@ d
 
             try
             {
-                engine.CreateCollectibleSession().Execute<string>(@"1+1");
+                engine.CreateSession().Execute<string>(@"1+1");
                 Assert.True(false, "Expected an exception");
             }
             catch (CompilationErrorException e)
@@ -3238,7 +2102,7 @@ new List<ArgumentException>()
         public void CreateSession_Arguments()
         {
             var engine = new CSharpScriptEngine();
-            engine.AddReference(typeof(C).Assembly);
+            engine.AddReference(typeof(C).GetTypeInfo().Assembly);
 
             Assert.Throws<ArgumentNullException>(() => engine.CreateSession(null));
             Assert.Throws<ArgumentNullException>(() => engine.CreateSession(null, typeof(C)));
@@ -3263,7 +2127,10 @@ new List<ArgumentException>()
             var c = new C();
             var session = engine.CreateSession(c);
 
-            session.AddReference(typeof(C).Assembly);
+            // TODO: should not be neccessary
+            session.AddReference(SystemRuntimeAssembly);
+
+            session.AddReference(typeof(C).GetTypeInfo().Assembly);
 
             int result = session.Execute<int>("x + Y + Z()");
             Assert.Equal(6, result);
@@ -3284,7 +2151,10 @@ new List<ArgumentException>()
             var m = new M<string>();
             var session = engine.CreateSession(m);
 
-            session.AddReference(typeof(M<string>).Assembly);
+            // TODO: should not be neccessary
+            session.AddReference(SystemRuntimeAssembly);
+
+            session.AddReference(typeof(M<string>).GetTypeInfo().Assembly);
 
             string result = session.Execute<string>("G()");
             Assert.Equal(null, result);
@@ -3297,7 +2167,7 @@ new List<ArgumentException>()
             var c = new C();
             var session = engine.CreateSession<I>(c);
 
-            session.AddReference(typeof(C).Assembly);
+            session.AddReference(typeof(C).GetTypeInfo().Assembly);
 
             int result = session.Execute<int>("Z()");
             Assert.Equal(3, result);
@@ -3319,7 +2189,10 @@ new List<ArgumentException>()
             var c = new PrivateClass();
             var session = engine.CreateSession(c);
 
-            session.AddReference(typeof(PrivateClass).Assembly);
+            // TODO: should not be neccessary
+            session.AddReference(SystemRuntimeAssembly);
+
+            session.AddReference(typeof(PrivateClass).GetTypeInfo().Assembly);
 
             ScriptingTestHelpers.AssertCompilationError(session, @"Z()",
                 // (1,1): error CS0122: '<Fully Qualified Name of PrivateClass>.Z()' is inaccessible due to its protection level
@@ -3334,7 +2207,10 @@ new List<ArgumentException>()
             object m = new M<int>();
             var session = engine.CreateSession(m);
 
-            session.AddReference(typeof(M<int>).Assembly);
+            // TODO: should not be neccessary
+            session.AddReference(SystemRuntimeAssembly);
+
+            session.AddReference(typeof(M<int>).GetTypeInfo().Assembly);
 
             ScriptingTestHelpers.AssertCompilationError(session, @"Z()",
                 // (1,1): error CS0103: The name 'z' does not exist in the current context
@@ -3349,7 +2225,7 @@ new List<ArgumentException>()
             var c = new PrivateClass();
             var session = engine.CreateSession<I>(c);
 
-            session.AddReference(typeof(PrivateClass).Assembly);
+            session.AddReference(typeof(PrivateClass).GetTypeInfo().Assembly);
 
             int result = session.Execute<int>("Z()");
             Assert.Equal(3, result);
@@ -3417,37 +2293,12 @@ x",
 #endif
 
         [Fact]
-        public void HostObjectBinding_DuplicateReferences()
-        {
-            var engine = new CSharpScriptEngine();
-            var c = new C();
-            var session = engine.CreateSession(c);
-
-            session.AddReference(typeof(C).Assembly);
-            session.AddReference(typeof(C).Assembly);
-
-            // includes mscorlib
-            Assert.Equal(3, session.References.Length);
-
-            int result = session.Execute<int>("x");
-            Assert.Equal(1, result);
-
-            int result2 = session.Execute<int>(@"
-#r """ + typeof(C).Assembly.Location + @"""
-#r """ + typeof(C).Assembly.Location + @"""
-x            
-");
-
-            Assert.Equal(1, result);
-        }
-
-        [Fact]
         public void HostObjectBinding_MissingHostObjectContext()
         {
             var engine = new CSharpScriptEngine();
             var session = engine.CreateSession();
 
-            session.AddReference(typeof(PrivateClass).Assembly);
+            session.AddReference(typeof(PrivateClass).GetTypeInfo().Assembly);
 
             ScriptingTestHelpers.AssertCompilationError(session, @"Z()",
                 // (1,1): error CS0103: The name 'z' does not exist in the current context
@@ -3461,7 +2312,11 @@ x
             var engine = new CSharpScriptEngine();
             var c = new C();
             var session = engine.CreateSession(c);
-            session.AddReference(typeof(C).Assembly);
+
+            // TODO: should not be neccessary
+            session.AddReference(SystemRuntimeAssembly);
+
+            session.AddReference(typeof(C).GetTypeInfo().Assembly);
 
             var typeName = typeof(InteractiveSessionTests).FullName;
 
@@ -3487,7 +2342,7 @@ static int Baz = w;
             var engine = new CSharpScriptEngine();
             var c = new C();
             var session = engine.CreateSession(c);
-            session.AddReference(typeof(C).Assembly);
+            session.AddReference(typeof(C).GetTypeInfo().Assembly);
             object result;
 
             session.Execute("static int foo = StaticField;");
@@ -3511,7 +2366,7 @@ static int Baz = w;
             var engine = new CSharpScriptEngine();
             var d = new D();
             var session = engine.CreateSession(d);
-            session.AddReference(typeof(D).Assembly);
+            session.AddReference(typeof(D).GetTypeInfo().Assembly);
             object result;
 
             session.Execute("int foo(double a) { return 2; }");
@@ -3529,7 +2384,7 @@ static int Baz = w;
             var engine = new CSharpScriptEngine();
             var obj = new InteractiveFixtures_TopLevelHostObject { X = 1, Y = 2, Z = 3 };
             var session = engine.CreateSession(obj);
-            session.AddReference(typeof(InteractiveFixtures_TopLevelHostObject).Assembly);
+            session.AddReference(typeof(InteractiveFixtures_TopLevelHostObject).GetTypeInfo().Assembly);
             session.Execute("X + Y + Z");
 
             obj = new InteractiveFixtures_TopLevelHostObject { X = 1, Y = 2, Z = 3 };
@@ -3543,51 +2398,6 @@ static int Baz = w;
                 Diagnostic(ErrorCode.ERR_NameNotInContextPossibleMissingReference, "X").
                 WithArguments("X", typeof(InteractiveFixtures_TopLevelHostObject).Assembly.FullName));
 #endif
-        }
-
-        [WorkItem(540875)]
-        [Fact]
-        public void MainInScript1()
-        {
-            var text = @"static void Main() { }";
-
-            var tree = SyntaxFactory.ParseSyntaxTree(text, options: TestOptions.Script);
-
-            var compilation = CreateCompilationWithMscorlib(tree, options: TestOptions.ReleaseExe.WithScriptClassName("Script"));
-
-            compilation.VerifyDiagnostics(
-                // (1,13): warning CS7022: The entry point of the program is global script code; ignoring 'Main()' entry point.
-                Diagnostic(ErrorCode.WRN_MainIgnored, "Main").WithArguments("Main()"));
-        }
-
-        [WorkItem(540875)]
-        [Fact]
-        public void MainInScript2()
-        {
-            var text = @"static void Main() { }";
-
-            var tree = SyntaxFactory.ParseSyntaxTree(text, options: TestOptions.Script);
-
-            var compilation = CreateCompilationWithMscorlib(tree, options: TestOptions.ReleaseExe.WithScriptClassName("Script"));
-
-            compilation.VerifyDiagnostics(
-                // (1,13): warning CS7022: The entry point of the program is global script code; ignoring 'Main()' entry point.
-                Diagnostic(ErrorCode.WRN_MainIgnored, "Main").WithArguments("Main()"));
-        }
-
-        [Fact]
-        public void HostObjectBinding_Diagnostics()
-        {
-            var submission = CSharpCompilation.CreateSubmission("foo",
-                syntaxTree: SyntaxFactory.ParseSyntaxTree("x", options: TestOptions.Interactive),
-                references: new[]
-                {
-                    MscorlibRef,
-                    MetadataReference.CreateFromAssembly(typeof(InteractiveSessionTests).Assembly)
-                },
-                hostObjectType: typeof(B));
-
-            submission.VerifyDiagnostics();
         }
 
         #endregion
@@ -3696,7 +2506,7 @@ System.TypedReference c;
         {
             var engine = new CSharpScriptEngine();
             var session = engine.CreateSession(new B());
-            session.AddReference(typeof(B).Assembly);
+            session.AddReference(typeof(B).GetTypeInfo().Assembly);
             ScriptingTestHelpers.AssertCompilationError(session, "&x",
                 // (1,1): error CS0212: You can only take the address of an unfixed expression inside of a fixed statement initializer
                 // &x
@@ -3709,135 +2519,13 @@ System.TypedReference c;
         {
             var engine = new CSharpScriptEngine();
             var session = engine.CreateSession();
-            session.AddReference(typeof(System.Linq.Expressions.Expression).Assembly);
+            session.AddReference(typeof(System.Linq.Expressions.Expression).GetTypeInfo().Assembly);
             var source = "(System.Linq.Expressions.Expression<System.Func<object>>)(() => null ?? new object())";
             ScriptingTestHelpers.AssertCompilationError(session, source,
                 // (1,65): error CS0845: An expression tree lambda may not contain a coalescing operator with a null literal left-hand side
                 Diagnostic(ErrorCode.ERR_ExpressionTreeContainsBadCoalesce, "null").WithLocation(1, 65));
         }
 
-        /// <summary>
-        /// LookupSymbols should not include the submission class.
-        /// </summary>
-        [WorkItem(530986)]
-        [Fact]
-        public void LookupSymbols()
-        {
-            var text = "1 + ";
-            var compilation = CreateSubmission(text, TestOptions.Interactive, expectedErrorCount: 1);
-            var tree = compilation.SyntaxTrees.Single();
-            var model = compilation.GetSemanticModel(tree);
-            var symbols = model.LookupSymbols(text.Length);
-
-            // Should return some symbols, but not the submission class.
-            Assert.True(symbols.Length > 0);
-            foreach (var symbol in symbols)
-            {
-                if (symbol.Kind == SymbolKind.NamedType)
-                {
-                    var type = (NamedTypeSymbol)symbol;
-                    Assert.False(type.IsScriptClass);
-                    Assert.False(type.IsSubmissionClass);
-                    Assert.NotEqual(type.TypeKind, TypeKind.Submission);
-                }
-            }
-
-            // #1010871
-            //Assert.False(symbols.Any(s => s.Name == "Roslyn"));
-        }
-
-        [WorkItem(543370)]
-        [Fact]
-        public void CheckedDecimalAddition()
-        {
-            string source = @"
-#r ""System""
-decimal d = checked(2M + 1M);
-";
-
-            var tree = SyntaxFactory.ParseSyntaxTree(source, options: TestOptions.Script);
-
-            var compilation = CSharpCompilation.Create(
-                "Test",
-                new[] { tree },
-                new[] { MscorlibRef },
-                TestOptions.ReleaseExe
-                    .WithScriptClassName("Foo.Script")
-                    .WithMetadataReferenceResolver(new AssemblyReferenceResolver(GacFileResolver.Default, new MetadataFileReferenceProvider())));
-
-            compilation.VerifyDiagnostics();
-        }
-
-        [WorkItem(543370)]
-        [Fact]
-        public void CheckedEnumAddition()
-        {
-            string source = @"
-#r ""System""
-using System.IO;
-FileAccess fa = checked(FileAccess.Read + 1);
-";
-
-            var tree = SyntaxFactory.ParseSyntaxTree(source, options: TestOptions.Script);
-
-            var compilation = CSharpCompilation.Create(
-                "Test",
-                new[] { tree },
-                new[] { MscorlibRef },
-                TestOptions.ReleaseExe
-                    .WithScriptClassName("Foo.Script")
-                    .WithMetadataReferenceResolver(new AssemblyReferenceResolver(GacFileResolver.Default, new MetadataFileReferenceProvider())));
-
-            compilation.VerifyDiagnostics();
-        }
-
-        [WorkItem(543370)]
-        [Fact]
-        public void DelegateAddition()
-        {
-            string source = @"
-#r ""System""
-System.Action a = null;
-a += null;
-";
-
-            var tree = SyntaxFactory.ParseSyntaxTree(source, options: TestOptions.Script);
-
-            var compilation = CSharpCompilation.Create(
-                "Test",
-                new[] { tree },
-                new[] { MscorlibRef },
-                TestOptions.ReleaseExe
-                    .WithScriptClassName("Foo.Script")
-                    .WithMetadataReferenceResolver(new AssemblyReferenceResolver(GacFileResolver.Default, new MetadataFileReferenceProvider())));
-
-            compilation.VerifyDiagnostics();
-        }
-
-        [WorkItem(870885)]
-        [Fact]
-        public void Bug870885()
-        {
-            var source = @"var o = o.F;";
-            var syntaxTree = SyntaxFactory.ParseSyntaxTree(source, options: TestOptions.Interactive);
-            var compilation = CSharpCompilation.CreateSubmission(
-                GetUniqueName(),
-                syntaxTree: syntaxTree,
-                references: new MetadataReference[] { MscorlibRef, SystemCoreRef },
-                returnType: typeof(object));
-            compilation.VerifyDiagnostics(
-                // (1,5): error CS7019: Type of 'o' cannot be inferred since its initializer directly or indirectly refers to the definition.
-                // var o = o.F;
-                Diagnostic(ErrorCode.ERR_RecursivelyTypedVariable, "o").WithArguments("o").WithLocation(1, 5));
-        }
-
         #endregion
-
-        // TODO: (tomat)
-        // test 
-        // - reserved assembly name
-        // - symbol hiding
-        // - overload resolution
-        // - collectibility
     }
 }

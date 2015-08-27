@@ -94,7 +94,7 @@ namespace Microsoft.CodeAnalysis.Formatting
                 return;
             }
 
-            var initialContextFinder = new InitialContextFinder(_tokenStream, formattingRules, rootNode);
+            var initialContextFinder = new InitialContextFinder(_tokenStream, formattingRules, rootNode, endToken);
             var results = initialContextFinder.Do(startToken, endToken);
 
             if (results.Item1 != null)
@@ -106,7 +106,8 @@ namespace Microsoft.CodeAnalysis.Formatting
                                                 formattingRules,
                                                 this.OptionSet.GetOption(FormattingOptions.TabSize, _language),
                                                 this.OptionSet.GetOption(FormattingOptions.IndentationSize, _language),
-                                                _tokenStream);
+                                                _tokenStream,
+                                                endToken);
                 var initialIndentation = baseIndentationFinder.GetIndentationOfCurrentPosition(
                     rootNode,
                     initialOperation,
@@ -198,7 +199,7 @@ namespace Microsoft.CodeAnalysis.Formatting
             // relative indentation case where indentation depends on other token
             if (operation.IsRelativeIndentation)
             {
-                var inseparableRegionStartingPosition = operation.Option.IsOn(IndentBlockOption.RelativeToFirstTokenOnBaseTokenLine) ? 0 : operation.BaseToken.FullSpan.Start;
+                var inseparableRegionStartingPosition = operation.Option.IsOn(IndentBlockOption.RelativeToFirstTokenOnBaseTokenLine) ? _tokenStream.FirstTokenOfBaseTokenLine(operation.BaseToken).FullSpan.Start : operation.BaseToken.FullSpan.Start;
                 var relativeIndentationGetter = new Lazy<int>(() =>
                 {
                     var indentationDelta = operation.IndentationDeltaOrPosition * this.OptionSet.GetOption(FormattingOptions.IndentationSize, _language);
@@ -406,28 +407,40 @@ namespace Microsoft.CodeAnalysis.Formatting
 
         public IEnumerable<IndentBlockOperation> GetAllRelativeIndentBlockOperations()
         {
-            return _relativeIndentationTree.GetIntersectingInOrderIntervals(this.TreeData.StartPosition, this.TreeData.EndPosition, this).Select(i => i.Operation);
+            return _relativeIndentationTree.GetIntersectingIntervals(this.TreeData.StartPosition, this.TreeData.EndPosition, this).Select(i => i.Operation);
         }
 
-        public SyntaxToken GetEndTokenForRelativeIndentationSpan(SyntaxToken token)
+        public bool TryGetEndTokenForRelativeIndentationSpan(SyntaxToken token, int maxChainDepth, out SyntaxToken endToken, CancellationToken cancellationToken)
         {
-            var span = token.Span;
-            var indentationData = _relativeIndentationTree.GetSmallestContainingInterval(span.Start, 0);
-            if (indentationData == null)
-            {
-                // this means the given token is not inside of inseparable regions
-                return token;
-            }
+            endToken = default(SyntaxToken);
 
-            // recursively find the end token outside of inseparable regions
-            var nextToken = indentationData.EndToken.GetNextToken(includeZeroWidth: true);
-            if (nextToken.RawKind == 0)
+            var depth = 0;
+            while (true)
             {
-                // reached end of tree
-                return default(SyntaxToken);
-            }
+                cancellationToken.ThrowIfCancellationRequested();
 
-            return GetEndTokenForRelativeIndentationSpan(nextToken);
+                if (depth++ > maxChainDepth)
+                {
+                    return false;
+                }
+
+                var span = token.Span;
+                var indentationData = _relativeIndentationTree.GetSmallestContainingInterval(span.Start, 0);
+                if (indentationData == null)
+                {
+                    // this means the given token is not inside of inseparable regions
+                    endToken = token;
+                    return true;
+                }
+
+                // recursively find the end token outside of inseparable regions
+                token = indentationData.EndToken.GetNextToken(includeZeroWidth: true);
+                if (token.RawKind == 0)
+                {
+                    // reached end of tree
+                    return true;
+                }
+            }
         }
 
         private AnchorData GetAnchorData(SyntaxToken token)
@@ -502,7 +515,7 @@ namespace Microsoft.CodeAnalysis.Formatting
 
             // our anchor operation is very flexible so it not only let one anchor to contain others, it also
             // let anchors to overlap each other for whatever reasons
-            // below, we will try to flat the overlaped anchor span, and find the last position (token) of that span
+            // below, we will try to flat the overlapped anchor span, and find the last position (token) of that span
 
             // find other anchors overlapping with current anchor span
             var anchorData = _anchorTree.GetOverlappingIntervals(baseAnchorData.TextSpan.Start, baseAnchorData.TextSpan.Length);
@@ -570,7 +583,7 @@ namespace Microsoft.CodeAnalysis.Formatting
 
         public bool IsSpacingSuppressed(TextSpan textSpan)
         {
-            // use edge exclusive version of GetSmallestCointainingInterval
+            // use edge exclusive version of GetSmallestContainingInterval
             var data = _suppressSpacingTree.GetSmallestEdgeExclusivelyContainingInterval(textSpan.Start, textSpan.Length);
             if (data == null)
             {

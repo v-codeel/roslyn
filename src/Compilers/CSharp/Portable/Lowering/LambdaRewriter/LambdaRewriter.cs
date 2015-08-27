@@ -29,7 +29,7 @@ namespace Microsoft.CodeAnalysis.CSharp
     /// Then we make a frame, or compiler-generated class, represented by an instance of
     /// <see cref="LambdaFrame"/> for each scope with captured variables.  The generated frames are kept
     /// in <see cref="_frames"/>.  Each frame is given a single field for each captured
-    /// variable in the corresponding scope.  These are are maintained in <see cref="MethodToClassRewriter.proxies"/>.
+    /// variable in the corresponding scope.  These are maintained in <see cref="MethodToClassRewriter.proxies"/>.
     /// 
     /// Finally, we walk and rewrite the input bound tree, keeping track of the following:
     /// (1) The current set of active frame pointers, in <see cref="_framePointers"/>
@@ -85,7 +85,7 @@ namespace Microsoft.CodeAnalysis.CSharp
         // The "this" symbol for the current method.
         private ParameterSymbol _currentFrameThis;
 
-        private ArrayBuilder<LambdaDebugInfo> _lambdaDebugInfoBuilder;
+        private readonly ArrayBuilder<LambdaDebugInfo> _lambdaDebugInfoBuilder;
 
         // ID dispenser for field names of frame references
         private int _synthesizedFieldNameIdDispenser;
@@ -303,13 +303,10 @@ namespace Microsoft.CodeAnalysis.CSharp
                 var syntax = scope.Syntax;
                 Debug.Assert(syntax != null);
 
-                int closureOrdinal = closureDebugInfo.Count;
-                int syntaxOffset = _topLevelMethod.CalculateLocalSyntaxOffset(syntax.SpanStart, syntax.SyntaxTree);
-                closureDebugInfo.Add(new ClosureDebugInfo(syntaxOffset));
+                DebugId methodId = GetTopLevelMethodId();
+                DebugId closureId = GetClosureId(syntax, closureDebugInfo);
 
-                var methodId = new MethodDebugId(_topLevelMethodOrdinal, CompilationState.ModuleBuilderOpt.CurrentGenerationOrdinal);
-
-                frame = new LambdaFrame(slotAllocatorOpt, _topLevelMethod, methodId, syntax, closureOrdinal);
+                frame = new LambdaFrame(_topLevelMethod, syntax, methodId, closureId);
                 _frames.Add(scope, frame);
 
                 CompilationState.ModuleBuilderOpt.AddSynthesizedDefinition(this.ContainingType, frame);
@@ -334,19 +331,20 @@ namespace Microsoft.CodeAnalysis.CSharp
 
                 if (_lazyStaticLambdaFrame == null)
                 {
-                    MethodDebugId methodId;
+                    DebugId methodId;
                     if (isNonGeneric)
                     {
-                        methodId = new MethodDebugId(MethodDebugId.UndefinedOrdinal, CompilationState.ModuleBuilderOpt.CurrentGenerationOrdinal);
+                        methodId = new DebugId(DebugId.UndefinedOrdinal, CompilationState.ModuleBuilderOpt.CurrentGenerationOrdinal);
                     }
                     else
                     {
-                        methodId = slotAllocatorOpt?.PreviousMethodId ?? new MethodDebugId(_topLevelMethodOrdinal, CompilationState.ModuleBuilderOpt.CurrentGenerationOrdinal);
+                        methodId = GetTopLevelMethodId();
                     }
 
-                    _lazyStaticLambdaFrame = new LambdaFrame(slotAllocatorOpt, _topLevelMethod, methodId, scopeSyntaxOpt: null, closureOrdinal: -1);
+                    DebugId closureId = default(DebugId);
+                    _lazyStaticLambdaFrame = new LambdaFrame(_topLevelMethod, scopeSyntaxOpt: null, methodId: methodId, closureId: closureId);
 
-                    // nongeneric static lambdas can share the frame
+                    // non-generic static lambdas can share the frame
                     if (isNonGeneric)
                     {
                         CompilationState.staticLambdaFrame = _lazyStaticLambdaFrame;
@@ -363,8 +361,8 @@ namespace Microsoft.CodeAnalysis.CSharp
                         FlowAnalysisPass.AppendImplicitReturn(MethodCompiler.BindMethodBody(frame.Constructor, CompilationState, null),
                         frame.Constructor));
 
-                    // associate the frame with the the first lambda that caused it to exist. 
-                    // we need to associate this with somme syntax.
+                    // associate the frame with the first lambda that caused it to exist. 
+                    // we need to associate this with some syntax.
                     // unfortunately either containing method or containing class could be synthetic
                     // therefore could have no syntax.
                     CSharpSyntaxNode syntax = lambda.Syntax;
@@ -450,7 +448,7 @@ namespace Microsoft.CodeAnalysis.CSharp
         /// <returns>The translated statement, as returned from F</returns>
         private T IntroduceFrame<T>(BoundNode node, LambdaFrame frame, Func<ArrayBuilder<BoundExpression>, ArrayBuilder<LocalSymbol>, T> F)
         {
-            NamedTypeSymbol frameType = frame.ConstructIfGeneric(StaticCast<TypeSymbol>.From(_currentTypeParameters));
+            NamedTypeSymbol frameType = frame.ConstructIfGeneric(_currentTypeParameters.SelectAsArray(TypeMap.TypeSymbolAsTypeWithModifiers));
 
             Debug.Assert(frame.ScopeSyntaxOpt != null);
             LocalSymbol framePointer = new SynthesizedLocal(_topLevelMethod, frameType, SynthesizedLocalKind.LambdaDisplayClass, frame.ScopeSyntaxOpt);
@@ -522,7 +520,6 @@ namespace Microsoft.CodeAnalysis.CSharp
             }
 
             Symbol oldInnermostFramePointer = _innermostFramePointer;
-
             _innermostFramePointer = framePointer;
             var addedLocals = ArrayBuilder<LocalSymbol>.GetInstance();
             addedLocals.Add(framePointer);
@@ -761,7 +758,7 @@ namespace Microsoft.CodeAnalysis.CSharp
 
             // If exception variable got lifted, IntroduceFrame will give us frame init prologue.
             // It needs to run before the exception variable is accessed.
-            // To ensure that, we will make exception variable a sequence that performs prologue as its its sideeffecs.
+            // To ensure that, we will make exception variable a sequence that performs prologue as its side-effects.
             BoundExpression rewrittenExceptionSource = null;
             var rewrittenFilter = (BoundExpression)this.Visit(node.ExceptionFilterOpt);
             if (node.ExceptionSourceOpt != null)
@@ -911,57 +908,77 @@ namespace Microsoft.CodeAnalysis.CSharp
             }
         }
 
-        private void GetLambdaId(SyntaxNode syntax, ClosureKind closureKind, int closureOrdinal, out MethodDebugId topLevelMethodId, out int lambdaOrdinal)
+        private DebugId GetTopLevelMethodId()
+        {
+            return slotAllocatorOpt?.MethodId ?? new DebugId(_topLevelMethodOrdinal, CompilationState.ModuleBuilderOpt.CurrentGenerationOrdinal);
+        }
+
+        private DebugId GetClosureId(SyntaxNode syntax, ArrayBuilder<ClosureDebugInfo> closureDebugInfo)
+        {
+            Debug.Assert(syntax != null);
+
+            DebugId closureId;
+            DebugId previousClosureId;
+            if (slotAllocatorOpt != null && slotAllocatorOpt.TryGetPreviousClosure(syntax, out previousClosureId))
+            {
+                closureId = previousClosureId;
+            }
+            else
+            {
+                closureId = new DebugId(closureDebugInfo.Count, CompilationState.ModuleBuilderOpt.CurrentGenerationOrdinal);
+            }
+
+            int syntaxOffset = _topLevelMethod.CalculateLocalSyntaxOffset(syntax.SpanStart, syntax.SyntaxTree);
+            closureDebugInfo.Add(new ClosureDebugInfo(syntaxOffset, closureId));
+
+            return closureId;
+        }
+
+        private DebugId GetLambdaId(SyntaxNode syntax, ClosureKind closureKind, int closureOrdinal)
         {
             Debug.Assert(syntax != null);
 
             SyntaxNode lambdaOrLambdaBodySyntax;
             var anonymousFunction = syntax as AnonymousFunctionExpressionSyntax;
+            bool isLambdaBody;
+
             if (anonymousFunction != null)
             {
                 lambdaOrLambdaBodySyntax = anonymousFunction.Body;
+                isLambdaBody = true;
             }
-            else if (SyntaxFacts.IsQueryPairLambda(syntax))
+            else if (LambdaUtilities.IsQueryPairLambda(syntax))
             {
                 // "pair" query lambdas
                 lambdaOrLambdaBodySyntax = syntax;
+                isLambdaBody = false;
                 Debug.Assert(closureKind == ClosureKind.Static);
             }
             else
             {
                 // query lambdas
-                Debug.Assert(SyntaxFacts.IsLambdaBody(syntax));
                 lambdaOrLambdaBodySyntax = syntax;
+                isLambdaBody = true;
             }
 
-            // determine lambda ordinal and calculate syntax offset:
-            lambdaOrdinal = _lambdaDebugInfoBuilder.Count;
-            int syntaxOffset = _topLevelMethod.CalculateLocalSyntaxOffset(lambdaOrLambdaBodySyntax.SpanStart, lambdaOrLambdaBodySyntax.SyntaxTree);
-            _lambdaDebugInfoBuilder.Add(new LambdaDebugInfo(syntaxOffset, closureOrdinal));
+            Debug.Assert(!isLambdaBody || LambdaUtilities.IsLambdaBody(lambdaOrLambdaBodySyntax));
 
-            int previousLambdaOrdinal;
-            if (slotAllocatorOpt != null &&
-                slotAllocatorOpt.TryGetPreviousLambda(
-                    lambdaOrLambdaBodySyntax,
-                    !SyntaxFacts.IsQueryPairLambda(lambdaOrLambdaBodySyntax),
-                    out previousLambdaOrdinal))
+            // determine lambda ordinal and calculate syntax offset
+
+            DebugId lambdaId;
+            DebugId previousLambdaId;
+            if (slotAllocatorOpt != null && slotAllocatorOpt.TryGetPreviousLambda(lambdaOrLambdaBodySyntax, isLambdaBody, out previousLambdaId))
             {
-                topLevelMethodId = slotAllocatorOpt.PreviousMethodId;
-                lambdaOrdinal = previousLambdaOrdinal;
+                lambdaId = previousLambdaId;
             }
             else
             {
-                // If we haven't found existing closure in the previous generation, use the current generation method ordinal.
-                // That is, don't try to reuse previous generation method ordinal as that might create name conflict. 
-                // E.g. 
-                //     Gen0                    Gen1
-                //                             F() { new lambda } // ordinal 0
-                //     G() { } // ordinal 0    G() { new lambda } // ordinal 1
-                //
-                // In the example above G is updated and F is added. 
-                // G's ordinal in Gen0 is 0. If we used that ordinal for updated G's new lambda it would conflict with F's ordinal.
-                topLevelMethodId = new MethodDebugId(_topLevelMethodOrdinal, CompilationState.ModuleBuilderOpt.CurrentGenerationOrdinal);
+                lambdaId = new DebugId(_lambdaDebugInfoBuilder.Count, CompilationState.ModuleBuilderOpt.CurrentGenerationOrdinal);
             }
+
+            int syntaxOffset = _topLevelMethod.CalculateLocalSyntaxOffset(lambdaOrLambdaBodySyntax.SpanStart, lambdaOrLambdaBodySyntax.SyntaxTree);
+            _lambdaDebugInfoBuilder.Add(new LambdaDebugInfo(syntaxOffset, lambdaId, closureOrdinal));
+            return lambdaId;
         }
 
         private BoundNode RewriteLambdaConversion(BoundLambda node)
@@ -1006,12 +1023,10 @@ namespace Microsoft.CodeAnalysis.CSharp
             }
 
             // Move the body of the lambda to a freshly generated synthetic method on its frame.
-            MethodDebugId topLevelMethodId;
-            int lambdaOrdinal;
+            DebugId topLevelMethodId = GetTopLevelMethodId();
+            DebugId lambdaId = GetLambdaId(node.Syntax, closureKind, closureOrdinal);
 
-            GetLambdaId(node.Syntax, closureKind, closureOrdinal, out topLevelMethodId, out lambdaOrdinal);
-
-            var synthesizedMethod = new SynthesizedLambdaMethod(translatedLambdaContainer, closureKind, _topLevelMethod, topLevelMethodId, node, lambdaOrdinal);
+            var synthesizedMethod = new SynthesizedLambdaMethod(translatedLambdaContainer, closureKind, _topLevelMethod, topLevelMethodId, node, lambdaId);
             CompilationState.ModuleBuilderOpt.AddSynthesizedDefinition(translatedLambdaContainer, synthesizedMethod);
 
             foreach (var parameter in node.Symbol.Parameters)
@@ -1072,7 +1087,7 @@ namespace Microsoft.CodeAnalysis.CSharp
 
             // Rewrite the lambda expression (and the enclosing anonymous method conversion) as a delegate creation expression
             NamedTypeSymbol constructedFrame = (object)containerAsFrame != null ?
-                translatedLambdaContainer.ConstructIfGeneric(StaticCast<TypeSymbol>.From(_currentTypeParameters)) :
+                translatedLambdaContainer.ConstructIfGeneric(_currentTypeParameters.SelectAsArray(TypeMap.TypeSymbolAsTypeWithModifiers)) :
                 translatedLambdaContainer;
 
             // for instance lambdas, receiver is the frame
@@ -1098,7 +1113,7 @@ namespace Microsoft.CodeAnalysis.CSharp
 
             // static lambdas are emitted as instance methods on a singleton receiver
             // delegates invoke dispatch is optimized for instance delegates so 
-            // it is preferrable to emit lambdas as instance methods even when lambdas 
+            // it is preferable to emit lambdas as instance methods even when lambdas 
             // do not capture anything
             BoundExpression result = new BoundDelegateCreationExpression(
                 node.Syntax,
@@ -1129,15 +1144,18 @@ namespace Microsoft.CodeAnalysis.CSharp
                     BoundExpression cache;
                     if (shouldCacheForStaticMethod || shouldCacheInLoop && (object)containerAsFrame != null)
                     {
-                        var cacheVariableType = containerAsFrame?.TypeMap.SubstituteType(type) ?? translatedLambdaContainer;
-
-                        // If we are generating the field into a display class created exclusively for the lambda the lambdaOrdinal itself is unique already, 
-                        // no need to include the top-level method ordinal in the field name.
+                        // Since the cache variable will be in a container with possibly alpha-rewritten generic parameters, we need to
+                        // substitute the original type according to the type map for that container. That substituted type may be
+                        // different from the local variable `type`, which has the node's type substituted for the current container.
+                        var cacheVariableType = containerAsFrame.TypeMap.SubstituteType(node.Type).Type;
 
                         var cacheVariableName = GeneratedNames.MakeLambdaCacheFieldName(
+                            // If we are generating the field into a display class created exclusively for the lambda the lambdaOrdinal itself is unique already, 
+                            // no need to include the top-level method ordinal in the field name.
                             (closureKind == ClosureKind.General) ? -1 : topLevelMethodId.Ordinal,
                             topLevelMethodId.Generation,
-                            lambdaOrdinal);
+                            lambdaId.Ordinal,
+                            lambdaId.Generation);
 
                         var cacheField = new SynthesizedLambdaCacheFieldSymbol(translatedLambdaContainer, cacheVariableType, cacheVariableName, _topLevelMethod, isReadOnly: false, isStatic: closureKind == ClosureKind.Static);
                         CompilationState.ModuleBuilderOpt.AddSynthesizedDefinition(translatedLambdaContainer, cacheField);

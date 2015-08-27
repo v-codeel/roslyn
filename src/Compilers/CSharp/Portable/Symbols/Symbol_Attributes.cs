@@ -218,7 +218,7 @@ namespace Microsoft.CodeAnalysis.CSharp
         /// has executed <see cref="DecodeWellKnownAttribute"/> for attributes applied on the symbol and has stored the decoded data in the
         /// lazyCustomAttributesBag on the symbol. Bound attributes haven't been stored on the bag yet.
         /// 
-        /// Post-validation for attributes that is dependant on other attributes can be done here.
+        /// Post-validation for attributes that is dependent on other attributes can be done here.
         /// 
         /// This method should not have any side effects on the symbol, i.e. it SHOULD NOT change the symbol state.
         /// </remarks>
@@ -244,7 +244,7 @@ namespace Microsoft.CodeAnalysis.CSharp
         ///     (a) Store the bound attributes in lazyCustomAttributes in a thread safe manner.
         ///     (b) Perform some additional post attribute validations, such as
         ///         1) Duplicate attributes, attribute usage target validation, etc.
-        ///         2) Post validation for attributes dependant on other attributes
+        ///         2) Post validation for attributes dependent on other attributes
         ///         These validations cannot be performed prior to step 6(a) as we might need to
         ///         perform a GetAttributes() call on a symbol which can introduce a cycle in attribute binding.
         ///         We avoid this cycle by performing such validations in PostDecodeWellKnownAttributes after lazyCustomAttributes have been set.
@@ -348,6 +348,7 @@ namespace Microsoft.CodeAnalysis.CSharp
             bool lazyAttributesStoredOnThisThread = false;
             if (lazyCustomAttributesBag.SetAttributes(boundAttributes))
             {
+                this.RecordPresenceOfBadAttributes(boundAttributes);
                 this.AddDeclarationDiagnostics(diagnostics);
                 lazyAttributesStoredOnThisThread = true;
                 if (lazyCustomAttributesBag.IsEmpty) lazyCustomAttributesBag = CustomAttributesBag<CSharpAttributeData>.Empty;
@@ -356,6 +357,20 @@ namespace Microsoft.CodeAnalysis.CSharp
             Debug.Assert(lazyCustomAttributesBag.IsSealed);
             diagnostics.Free();
             return lazyAttributesStoredOnThisThread;
+        }
+
+        private void RecordPresenceOfBadAttributes(ImmutableArray<CSharpAttributeData> boundAttributes)
+        {
+            foreach (var attribute in boundAttributes)
+            {
+                if (attribute.HasErrors)
+                {
+                    CSharpCompilation compilation = this.DeclaringCompilation;
+                    Debug.Assert(compilation != null);
+                    ((SourceModuleSymbol)compilation.SourceModule).RecordPresenceOfBadAttributes();
+                    break;
+                }
+            }
         }
 
         /// <summary>

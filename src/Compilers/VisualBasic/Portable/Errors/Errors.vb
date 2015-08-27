@@ -904,8 +904,8 @@ Namespace Microsoft.CodeAnalysis.VisualBasic
         ERR_MixingWinRTAndNETEvents = 31202
         ERR_AddParamWrongForWinRT = 31203
         ERR_RemoveParamWrongForWinRT = 31204
-        ERR_ReImplementatingWinRTInterface5 = 31205
-        ERR_ReImplementatingWinRTInterface4 = 31206
+        ERR_ReImplementingWinRTInterface5 = 31205
+        ERR_ReImplementingWinRTInterface4 = 31206
         ERR_XmlEndElementNoMatchingStart = 31207
         ERR_UndefinedTypeOrNamespace1 = 31208
         ERR_BadInterfaceInterfaceSpecifier1 = 31209
@@ -988,7 +988,7 @@ Namespace Microsoft.CodeAnalysis.VisualBasic
         '//       Failure to do so may break customer code.
 
         '// AVAILABLE                             31451 - 31497
-        ERR_ContantStringTooLong = 31498
+        ERR_ConstantStringTooLong = 31498
         ERR_MustInheritEventNotOverridden = 31499
         ERR_BadAttributeSharedProperty1 = 31500
         ERR_BadAttributeReadOnlyProperty1 = 31501
@@ -1667,7 +1667,7 @@ Namespace Microsoft.CodeAnalysis.VisualBasic
         ERR_NullPropagatingOpInExpressionTree = 37240
         ERR_TooLongOrComplexExpression = 37241
 
-        ' available: 37242
+        ERR_BadPdbData = 37242
         ERR_AutoPropertyCantBeWriteOnly = 37243
 
         ERR_ExpressionDoesntHaveName = 37244
@@ -1678,6 +1678,7 @@ Namespace Microsoft.CodeAnalysis.VisualBasic
         ERR_InterpolationFormatWhitespace = 37249
         ERR_InterpolationAlignmentOutOfRange = 37250
         ERR_InterpolatedStringFactoryError = 37251
+        ERR_DebugEntryPointNotSourceMethodDefinition = 37252
 
         ERR_LastPlusOne
 
@@ -1729,7 +1730,7 @@ Namespace Microsoft.CodeAnalysis.VisualBasic
         WRN_ExpectedInitComponentCall2 = 40054
         WRN_NamespaceCaseMismatch3 = 40055
         WRN_UndefinedOrEmptyNamespaceOrClass1 = 40056
-        WRN_UndefinedOrEmpyProjectNamespaceOrClass1 = 40057
+        WRN_UndefinedOrEmptyProjectNamespaceOrClass1 = 40057
         'WRN_InterfacesWithNoPIAMustHaveGuid1 = 40058 ' Not reported by Dev11.
         WRN_IndirectRefToLinkedAssembly2 = 40059
         WRN_DelaySignButNoKey = 40060
@@ -1772,7 +1773,7 @@ Namespace Microsoft.CodeAnalysis.VisualBasic
         WRN_SharedMemberThroughInstance = 42025
         WRN_RecursivePropertyCall = 42026
 
-        WRN_OverlapingCatch = 42029
+        WRN_OverlappingCatch = 42029
         WRN_DefAsgUseNullRefByRef = 42030
         WRN_DuplicateCatch = 42031
         WRN_ObjectMath1Not = 42032
@@ -1920,6 +1921,7 @@ Namespace Microsoft.CodeAnalysis.VisualBasic
         IDS_LogoLine2 = 56008
         IDS_VBCHelp = 56009
         IDS_InvalidPreprocessorConstantType = 56010
+        IDS_ToolName = 56011
 
         ' Feature codes
         FEATURE_AutoProperties

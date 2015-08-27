@@ -48,6 +48,28 @@ Namespace Microsoft.CodeAnalysis.VisualBasic.Symbols
             End Get
         End Property
 
+        ''' <summary>
+        ''' Returns custom modifiers for the type arguments that have been substituted for the type parameters. 
+        ''' </summary>
+        Friend MustOverride ReadOnly Property TypeArgumentsCustomModifiers As ImmutableArray(Of ImmutableArray(Of CustomModifier))
+
+        Friend Function CreateEmptyTypeArgumentsCustomModifiers() As ImmutableArray(Of ImmutableArray(Of CustomModifier))
+            Dim arity = Me.Arity
+
+            If arity > 0 Then
+                Return CreateEmptyTypeArgumentsCustomModifiers(arity)
+            Else
+                Return ImmutableArray(Of ImmutableArray(Of CustomModifier)).Empty
+            End If
+        End Function
+
+        Friend Shared Function CreateEmptyTypeArgumentsCustomModifiers(arity As Integer) As ImmutableArray(Of ImmutableArray(Of CustomModifier))
+            Debug.Assert(arity > 0)
+            Return ArrayBuilder(Of ImmutableArray(Of CustomModifier)).GetInstance(arity, ImmutableArray(Of CustomModifier).Empty).ToImmutableAndFree()
+        End Function
+
+        Friend MustOverride ReadOnly Property HasTypeArgumentsCustomModifiers As Boolean
+
         Friend MustOverride ReadOnly Property TypeArgumentsNoUseSiteDiagnostics As ImmutableArray(Of TypeSymbol)
 
         Friend Function TypeArgumentsWithDefinitionUseSiteDiagnostics(<[In], Out> ByRef useSiteDiagnostics As HashSet(Of DiagnosticInfo)) As ImmutableArray(Of TypeSymbol)
@@ -260,7 +282,7 @@ Namespace Microsoft.CodeAnalysis.VisualBasic.Symbols
 
         ''' <summary>
         ''' This method is an entry point for the Binder to collect extension methods with the given name
-        ''' declared within this named type. Overriden by RetargetingNamedTypeSymbol.
+        ''' declared within this named type. Overridden by RetargetingNamedTypeSymbol.
         ''' </summary>
         Friend Overridable Sub AppendProbableExtensionMethods(name As String, methods As ArrayBuilder(Of MethodSymbol))
             If Me.MightContainExtensionMethods Then
@@ -305,7 +327,7 @@ Namespace Microsoft.CodeAnalysis.VisualBasic.Symbols
                 Dim candidates = Me.GetSimpleNonTypeMembers(Name)
 
                 For Each member In candidates
-                    appendThrough.AddMemeberIfExtension(methods, member)
+                    appendThrough.AddMemberIfExtension(methods, member)
                 Next
             End If
         End Sub
@@ -482,7 +504,7 @@ Namespace Microsoft.CodeAnalysis.VisualBasic.Symbols
             ' Validate the map for use of alpha-renamed type parameters.
             substitution.ThrowIfSubstitutingToAlphaRenamedTypeParameter()
 
-            Return DirectCast(InternalSubstituteTypeParameters(substitution), NamedTypeSymbol)
+            Return DirectCast(InternalSubstituteTypeParameters(substitution).AsTypeSymbolOnly(), NamedTypeSymbol)
         End Function
 
         ''' <summary>
@@ -530,11 +552,27 @@ Namespace Microsoft.CodeAnalysis.VisualBasic.Symbols
         ''' <summary>
         ''' Returns true if the type is a submission class. 
         ''' </summary>
-        Public Overridable ReadOnly Property IsSubmissionClass As Boolean
+        Public ReadOnly Property IsSubmissionClass As Boolean
             Get
-                Return False
+                Return TypeKind = TypeKind.Submission
             End Get
         End Property
+
+        Friend Function GetScriptConstructor() As SynthesizedConstructorBase
+            Debug.Assert(IsScriptClass)
+            Return DirectCast(InstanceConstructors.Single(), SynthesizedConstructorBase)
+        End Function
+
+        Friend Function GetScriptInitializer() As SynthesizedInteractiveInitializerMethod
+            Debug.Assert(IsScriptClass)
+            Return DirectCast(GetMembers(SynthesizedInteractiveInitializerMethod.InitializerName).Single(), SynthesizedInteractiveInitializerMethod)
+        End Function
+
+        Friend Function GetScriptEntryPoint() As SynthesizedEntryPointSymbol
+            Debug.Assert(IsScriptClass)
+            Dim name = If(TypeKind = TypeKind.Submission, SynthesizedEntryPointSymbol.FactoryName, SynthesizedEntryPointSymbol.MainName)
+            Return DirectCast(GetMembers(name).Single(), SynthesizedEntryPointSymbol)
+        End Function
 
         ''' <summary>
         ''' Returns true if the type is the implicit class that holds onto invalid global members (like methods or
@@ -633,7 +671,7 @@ Namespace Microsoft.CodeAnalysis.VisualBasic.Symbols
         ''' </summary>
         ''' <remarks>
         ''' Forces binding and decoding of attributes.
-        ''' NOTE: Conditional symbols on base type must be inherited by derived type, but the native VB compiler doesn't do so. We maintain comptability.
+        ''' NOTE: Conditional symbols on base type must be inherited by derived type, but the native VB compiler doesn't do so. We maintain compatibility.
         ''' </remarks>
         Friend ReadOnly Property IsConditional As Boolean
             Get
@@ -853,7 +891,7 @@ Namespace Microsoft.CodeAnalysis.VisualBasic.Symbols
 
             'NOTE: we can be at race with another thread here.
             ' the worst thing that can happen though, is that error on same cycle may be reported twice
-            ' if two threads analyse the same cycle at the same time but start from different ends.
+            ' if two threads analyze the same cycle at the same time but start from different ends.
             '
             ' For now we decided that this is something we can live with.
 
@@ -974,6 +1012,16 @@ Namespace Microsoft.CodeAnalysis.VisualBasic.Symbols
                     End If
                 End If
             Next
+
+            If Me.HasTypeArgumentsCustomModifiers Then
+                Dim modifiersErrorInfo As DiagnosticInfo = Nothing
+
+                For Each modifiers In Me.TypeArgumentsCustomModifiers
+                    modifiersErrorInfo = MergeUseSiteErrorInfo(modifiersErrorInfo, DeriveUseSiteErrorInfoFromCustomModifiers(modifiers))
+                Next
+
+                Return MergeUseSiteErrorInfo(argsErrorInfo, modifiersErrorInfo)
+            End If
 
             Return argsErrorInfo
         End Function

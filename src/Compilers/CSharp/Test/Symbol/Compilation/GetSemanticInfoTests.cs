@@ -450,7 +450,7 @@ public class Test
     public void Testing(int x, Test obj02)
     {
         uint y = 5678;
-        // ExplicitNumberic - CS0266
+        // ExplicitNumeric - CS0266
         y = x;
 
         // Boxing
@@ -644,7 +644,7 @@ class C {
             ValidateConversion(Conversion.IntPtr, ConversionKind.IntPtr);
         }
 
-        #region "Convertion helper"
+        #region "Conversion helper"
         private void ValidateConversion(Conversion conv, ConversionKind kind)
         {
             Assert.Equal(conv.Kind, kind);
@@ -2324,7 +2324,7 @@ class D
     static void Main(string[] args)
     {
         string[] str = new string[] { };
-    lable1:
+    label1:
         var s = str.Where(out /*<bind>*/x/*</bind>*/ =>
         {
             return x == ""1"";
@@ -3331,7 +3331,7 @@ class Z
             // be an implicit nullable conversion.
             //
             // This is not at all what the native compiler does, and we match the native
-            // compiler behaviour. The native compiler says that there is a "half lifted"
+            // compiler behavior. The native compiler says that there is a "half lifted"
             // conversion from L-->G?, and that this is the winner. Therefore the conversion
             // "on the back end" of the user-defined conversion is in fact an *identity*
             // conversion, even though obviously we are going to have to
@@ -3858,7 +3858,7 @@ class C
         }
 
         [WorkItem(544651, "DevDiv")]
-        [Fact]
+        [ClrOnlyFact]
         public void SpeculativelyBindPropertyGroup1()
         {
             var source1 =
@@ -3897,7 +3897,7 @@ class C
         }
 
         [WorkItem(544651, "DevDiv")]
-        [Fact]
+        [ClrOnlyFact]
         public void SpeculativelyBindPropertyGroup2()
         {
             var source1 =
@@ -3946,7 +3946,7 @@ class C
         //public void UnambiguousPropertyGroupWithoutBoundParent1()
 
         [WorkItem(546117, "DevDiv")]
-        [Fact]
+        [ClrOnlyFact]
         public void UnambiguousPropertyGroupWithoutBoundParent2()
         {
             var source1 =

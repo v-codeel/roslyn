@@ -511,7 +511,7 @@ DoneWithErrorReporting:
                 ' (not a derived interface), since this is the metadata rule from Partition II, section 12.2.
                 '
                 ' Consider:
-                '     Interface IFoo ' from metadta
+                '     Interface IFoo ' from metadata
                 '         Sub Foo()
                 '     Class A ' from metadata
                 '         Public Sub Foo()
@@ -595,7 +595,7 @@ DoneWithErrorReporting:
                     substitutedImplementations(i) = unsubstitutedImplementations(i) ' default: no substitution necessary
 
                     If unsubstitutedInterfaceType.IsGenericType Then
-                        Dim substitutedInterfaceType = TryCast(unsubstitutedInterfaceType.InternalSubstituteTypeParameters(substitution), SubstitutedNamedType)
+                        Dim substitutedInterfaceType = TryCast(unsubstitutedInterfaceType.InternalSubstituteTypeParameters(substitution).AsTypeSymbolOnly(), SubstitutedNamedType)
 
                         If substitutedInterfaceType IsNot Nothing Then
                             ' Get the substituted version of the member

@@ -39,7 +39,7 @@ Namespace Microsoft.CodeAnalysis.VisualBasic
         ''' Defines whether or not fields of intrinsic type should be tracked. Such fields should 
         ''' not be tracked for error reporting purposes, but should be tracked for region flow analysis
         ''' </summary>
-        Private _trackStructsWithIntrinsicTypedFields As Boolean
+        Private ReadOnly _trackStructsWithIntrinsicTypedFields As Boolean
 
         ''' <summary>
         ''' Variables that were used anywhere, in the sense required to suppress warnings about unused variables.
@@ -56,7 +56,7 @@ Namespace Microsoft.CodeAnalysis.VisualBasic
         ''' WARNING: if variable identifier maps into SlotKind.NotTracked, it may mean that VariableIdentifier 
         '''          is a structure without traceable fields. This mapping is created in MakeSlotImpl(...)
         ''' </summary>
-        Private _variableSlot As Dictionary(Of VariableIdentifier, Integer) = New Dictionary(Of VariableIdentifier, Integer)()
+        Private ReadOnly _variableSlot As Dictionary(Of VariableIdentifier, Integer) = New Dictionary(Of VariableIdentifier, Integer)()
 
         ''' <summary>
         ''' A mapping from the local variable slot to the symbol for the local variable itself.  This is used in the
@@ -484,7 +484,7 @@ Namespace Microsoft.CodeAnalysis.VisualBasic
         ' struct, and we'd need two different caches depending on _trackStructsWithIntrinsicTypedFields.
         ' So this optimization is not done for now in VB.
 
-        Private _isEmptyStructType As New Dictionary(Of NamedTypeSymbol, Boolean)()
+        Private ReadOnly _isEmptyStructType As New Dictionary(Of NamedTypeSymbol, Boolean)()
 
         Protected Overridable Function IsEmptyStructType(type As TypeSymbol) As Boolean
             Dim namedType = TryCast(type, NamedTypeSymbol)
@@ -746,7 +746,7 @@ Namespace Microsoft.CodeAnalysis.VisualBasic
             End If
 
             ' it the type is a type parameter and also type does NOT guarantee it is 
-            ' always a reference type, we igrore the field following Dev11 implementation
+            ' always a reference type, we ignore the field following Dev11 implementation
             If fieldType.IsTypeParameter() Then
                 Dim typeParam = DirectCast(fieldType, TypeParameterSymbol)
                 If Not typeParam.IsReferenceType Then
@@ -1087,14 +1087,14 @@ Namespace Microsoft.CodeAnalysis.VisualBasic
             Dim localOrFieldType As TypeSymbol
             Dim isFunctionValue As Boolean
             Dim isStaticLocal As Boolean
-            Dim isImplicityDeclared As Boolean = False
+            Dim isImplicitlyDeclared As Boolean = False
 
             If sym.Kind = SymbolKind.Local Then
                 Dim locSym = DirectCast(sym, LocalSymbol)
                 localOrFieldType = locSym.Type
                 isFunctionValue = locSym.IsFunctionValue AndAlso EnableBreakingFlowAnalysisFeatures
                 isStaticLocal = locSym.IsStatic
-                isImplicityDeclared = locSym.IsImplicitlyDeclared
+                isImplicitlyDeclared = locSym.IsImplicitlyDeclared
             Else
                 isFunctionValue = False
                 isStaticLocal = False
@@ -1109,7 +1109,7 @@ Namespace Microsoft.CodeAnalysis.VisualBasic
                 ' NOTE: error, thus we don't want to generate redundant warning; we base such an analysis on node
                 ' NOTE: and symbol locations
                 Dim firstLocation As Location = GetUnassignedSymbolFirstLocation(sym, boundFieldAccess)
-                If isImplicityDeclared OrElse firstLocation Is Nothing OrElse firstLocation.SourceSpan.Start < node.SpanStart Then
+                If isImplicitlyDeclared OrElse firstLocation Is Nothing OrElse firstLocation.SourceSpan.Start < node.SpanStart Then
 
                     ' Because VB does not support out parameters, only locals OR fields of local structures can be unassigned.
                     If localOrFieldType IsNot Nothing AndAlso Not isStaticLocal Then
@@ -1202,7 +1202,7 @@ Namespace Microsoft.CodeAnalysis.VisualBasic
                         Debug.Assert(type.IsValueType)
                         Select Case MethodSymbol.MethodKind
                             Case MethodKind.Conversion, MethodKind.UserDefinedOperator
-                            ' no warning is given in this case.
+                                ' no warning is given in this case.
                             Case MethodKind.PropertyGet
                                 warning = ERRID.WRN_DefAsgNoRetValPropRef1
                             Case MethodKind.EventAdd
@@ -1767,7 +1767,7 @@ Namespace Microsoft.CodeAnalysis.VisualBasic
             Assign(node.ControlVariable, Nothing)
         End Sub
 
-        Protected Overrides Sub VisitForStatementVariableDeclation(node As BoundForStatement)
+        Protected Overrides Sub VisitForStatementVariableDeclaration(node As BoundForStatement)
             ' if the for each statement declared a variable explicitly or by using local type inference we'll
             ' need to create a new slot for the new variable that is initially unassigned.
             If node.DeclaredOrInferredLocalOpt IsNot Nothing Then
@@ -1884,7 +1884,7 @@ Namespace Microsoft.CodeAnalysis.VisualBasic
                     End If
 
                 Case BoundKind.EventAccess
-                    Debug.Assert(False)  ' TODO: is this reachable at all?
+                    Throw ExceptionUtilities.UnexpectedValue(expr.Kind) ' TODO: is this reachable at all?
 
                 Case BoundKind.MeReference,
                      BoundKind.MyClassReference,
@@ -1979,7 +1979,7 @@ Namespace Microsoft.CodeAnalysis.VisualBasic
             '
             '       In this case Roslyn (following Dev10/Dev11) consecutively calls constructors 
             '       and executes initializers for all declared variables. Thus, when the first 
-            '       initialzier is being executed, all other locals are not assigned yet.
+            '       initializer is being executed, all other locals are not assigned yet.
             '
             '       This behavior is emulated below by assigning the first local and visiting
             '       the initializer before assigning all the other locals. We don't really need

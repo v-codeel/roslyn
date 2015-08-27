@@ -70,7 +70,7 @@ namespace Microsoft.CodeAnalysis.Editor.Implementation.InlineRename
 
             this.Focus();
             textView.Caret.IsHidden = false;
-            ShouldReceiveKeyboardNavigation = true;
+            ShouldReceiveKeyboardNavigation = false;
         }
 
         private void ShowCaret()
@@ -89,7 +89,7 @@ namespace Microsoft.CodeAnalysis.Editor.Implementation.InlineRename
             {
                 var current = _tabNavigableChildren.IndexOf(_focusedElement);
                 current = selector(current);
-                _focusedElement = _tabNavigableChildren.ElementAt(current);
+                _focusedElement = _tabNavigableChildren[current];
             }
 
             _focusedElement.Focus();
@@ -110,7 +110,7 @@ namespace Microsoft.CodeAnalysis.Editor.Implementation.InlineRename
         {
             if (args.NewSource == null)
             {
-                this.DisonnectFromPresentationSource();
+                this.DisconnectFromPresentationSource();
             }
             else
             {
@@ -122,7 +122,7 @@ namespace Microsoft.CodeAnalysis.Editor.Implementation.InlineRename
         {
             if (presentationSource == null)
             {
-                throw new ArgumentNullException("presentationSource");
+                throw new ArgumentNullException(nameof(presentationSource));
             }
 
             _presentationSource = presentationSource;
@@ -189,7 +189,7 @@ namespace Microsoft.CodeAnalysis.Editor.Implementation.InlineRename
             }
         }
 
-        private void DisonnectFromPresentationSource()
+        private void DisconnectFromPresentationSource()
         {
             if (_rootInputElement != null)
             {

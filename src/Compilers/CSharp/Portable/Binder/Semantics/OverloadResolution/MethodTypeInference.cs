@@ -493,10 +493,10 @@ namespace Microsoft.CodeAnalysis.CSharp
             // or there may be input parameters fixed to _unfixed_ method type variables.
             // Both of those scenarios are legal.)
 
-            var fixedArguments = ArrayBuilder<TypeSymbol>.GetInstance(_methodTypeParameters.Length, fillWithValue: null);
+            var fixedArguments = ArrayBuilder<TypeWithModifiers>.GetInstance(_methodTypeParameters.Length);
             for (int iParam = 0; iParam < _methodTypeParameters.Length; iParam++)
             {
-                fixedArguments[iParam] = IsUnfixed(iParam) ? _methodTypeParameters[iParam] : _fixedResults[iParam];
+                fixedArguments.Add(new TypeWithModifiers(IsUnfixed(iParam) ? _methodTypeParameters[iParam] : _fixedResults[iParam]));
             }
 
             TypeMap typeMap = new TypeMap(_constructedContainingTypeOfMethod, _methodTypeParameters, fixedArguments.ToImmutableAndFree());
@@ -2454,7 +2454,7 @@ namespace Microsoft.CodeAnalysis.CSharp
         /// <summary>
         /// Return the interface with an original definition matches
         /// the original definition of the target. If the are no matches,
-        /// or multiple multiple matches, the return value is null.
+        /// or multiple matches, the return value is null.
         /// </summary>
         private static NamedTypeSymbol GetInterfaceInferenceBound(ImmutableArray<NamedTypeSymbol> interfaces, NamedTypeSymbol target)
         {
@@ -2575,18 +2575,12 @@ namespace Microsoft.CodeAnalysis.CSharp
         }
 
         /// <summary>
-        /// Return the inferred type arguments using the original type
-        /// parameters for any type arguments that were not inferred.
+        /// Return the inferred type arguments using null
+        /// for any type arguments that were not inferred.
         /// </summary>
         private ImmutableArray<TypeSymbol> GetInferredTypeArguments()
         {
-            var typeArgs = ArrayBuilder<TypeSymbol>.GetInstance();
-            for (int i = 0; i < _methodTypeParameters.Length; i++)
-            {
-                var typeArg = _fixedResults[i] ?? _methodTypeParameters[i];
-                typeArgs.Add(typeArg);
-            }
-            return typeArgs.ToImmutableAndFree();
+            return _fixedResults.AsImmutable();
         }
 
         private static bool IsReallyAType(TypeSymbol type)

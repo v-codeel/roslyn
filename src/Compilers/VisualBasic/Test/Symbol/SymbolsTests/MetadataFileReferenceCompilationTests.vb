@@ -6,7 +6,6 @@ Imports Microsoft.CodeAnalysis.Test.Utilities
 Imports Microsoft.CodeAnalysis.VisualBasic
 Imports Microsoft.CodeAnalysis.VisualBasic.UnitTests
 Imports Roslyn.Test.Utilities
-Imports ProprietaryTestResources = Microsoft.CodeAnalysis.Test.Resources.Proprietary
 
 Public Class MetadataFileReferenceCompilationTests
     Inherits BasicTestBase
@@ -18,7 +17,7 @@ Public Class MetadataFileReferenceCompilationTests
         Dim ref = MetadataReference.CreateFromImage({}, filePath:="Foo.dll")
         Dim compilation1 = CompilationUtils.CreateCompilationWithMscorlib(
 <compilation name="BadRefLib1">
-<file name="a.vb">
+    <file name="a.vb">
 Class C1
 End Class
     </file>
@@ -36,7 +35,7 @@ BC31519: 'Foo.dll' cannot be referenced because it is not a valid assembly.
         Dim ref = ModuleMetadata.CreateFromImage({}).GetReference(filePath:="Foo.dll")
         Dim compilation1 = CompilationUtils.CreateCompilationWithMscorlib(
 <compilation name="BadRefLib1">
-<file name="a.vb">
+    <file name="a.vb">
 Class C1
 End Class
     </file>
@@ -52,7 +51,7 @@ BC31007: Unable to load module file 'Foo.dll': Image is too small.
     <WorkItem(545062, "DevDiv")>
     <Fact>
     Public Sub DuplicateReferences()
-        Dim mscorlibMetadata = AssemblyMetadata.CreateFromImage(ProprietaryTestResources.NetFX.v4_0_30319.mscorlib)
+        Dim mscorlibMetadata = AssemblyMetadata.CreateFromImage(TestResources.NetFX.v4_0_30319.mscorlib)
 
         Dim mscorlib1 = mscorlibMetadata.GetReference(filePath:="lib1.dll")
         Dim mscorlib2 = mscorlibMetadata.GetReference(filePath:="lib1.dll")
@@ -78,12 +77,12 @@ BC31007: Unable to load module file 'Foo.dll': Image is too small.
 
     <Fact>
     Public Sub ReferencesVersioning()
-        Dim metadata1 = AssemblyMetadata.CreateFromImage(TestResources.SymbolsTests.General.C1)
-        Dim metadata2 = AssemblyMetadata.CreateFromImage(TestResources.SymbolsTests.General.C2)
+        Dim metadata1 = AssemblyMetadata.CreateFromImage(TestResources.General.C1)
+        Dim metadata2 = AssemblyMetadata.CreateFromImage(TestResources.General.C2)
 
         Dim b = CompilationUtils.CreateCompilationWithMscorlibAndReferences(
 <compilation name="b">
-<file name="b.vb">
+    <file name="b.vb">
 Public Class B
     Public Shared Function Main() As Integer
         Return C.Main()
@@ -91,14 +90,14 @@ Public Class B
 End Class
     </file>
 </compilation>,
-        references:={MetadataReference.CreateFromImage(TestResources.SymbolsTests.General.C2)},
+        references:={MetadataReference.CreateFromImage(TestResources.General.C2)},
         options:=TestOptions.ReleaseDll)
 
         Dim metadata3 = AssemblyMetadata.CreateFromImage(b.EmitToArray())
 
         Dim a = CompilationUtils.CreateCompilationWithMscorlibAndReferences(
 <compilation name="a">
-<file name="a.vb">
+    <file name="a.vb">
 Class A
         Public Shared Sub Main()
             B.Main()

@@ -22,12 +22,12 @@ namespace Microsoft.VisualStudio.InteractiveWindow
         {
             if (editorFactory == null)
             {
-                throw new ArgumentNullException("editorFactory");
+                throw new ArgumentNullException(nameof(editorFactory));
             }
 
             if (indentProviders == null)
             {
-                throw new ArgumentNullException("indentProviders");
+                throw new ArgumentNullException(nameof(indentProviders));
             }
 
             _editorFactory = editorFactory;
@@ -36,7 +36,7 @@ namespace Microsoft.VisualStudio.InteractiveWindow
 
         public ISmartIndent CreateSmartIndent(ITextView view)
         {
-            var window = InteractiveWindow.FromBuffer(view.TextBuffer);
+            var window = view.TextBuffer.GetInteractiveWindow();
             if (window == null || window.CurrentLanguageBuffer == null)
             {
                 return null;

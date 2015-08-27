@@ -153,7 +153,7 @@ Namespace Microsoft.CodeAnalysis.VisualBasic
             End If
 
             ' Check for external symbols marked with 'Microsoft.VisualBasic.Embedded' attribute
-            If Me.Compilation.SourceModule IsNot unwrappedSym.ContainingModule AndAlso unwrappedSym.IsHiddenByEmbeddedAttribute() Then
+            If unwrappedSym.ContainingModule IsNot Me.ContainingModule AndAlso unwrappedSym.IsHiddenByEmbeddedAttribute() Then
                 Return SingleLookupResult.Empty
             End If
 
@@ -186,7 +186,7 @@ Namespace Microsoft.CodeAnalysis.VisualBasic
                         ' Since raw generics cannot be imported, the import aliases would always refer to
                         ' constructed types when referring to generics. So any other generic arity besides
                         ' -1 or 0 are invalid.
-                        If arity <> 0 Then ' aliases are always arity 0, but error refers to the taget
+                        If arity <> 0 Then ' aliases are always arity 0, but error refers to the target
                             ' Note, Dev11 doesn't stop lookup in case of arity mismatch for an alias.
                             Return SingleLookupResult.WrongArity(unwrappedSym, WrongArityErrid(0, arity))
                         End If
@@ -396,7 +396,7 @@ Namespace Microsoft.CodeAnalysis.VisualBasic
             End Sub
 
             ''' <summary>
-            ''' Lookup an immediate (without decending into modules) member name in a namespace, 
+            ''' Lookup an immediate (without descending into modules) member name in a namespace, 
             ''' returning a LookupResult that summarizes the results of the lookup. 
             ''' See LookupResult structure for a detailed discussion of the meaning of the results. 
             ''' The supplied binder is used for accessibility checks and base class suppression.
@@ -426,7 +426,7 @@ Namespace Microsoft.CodeAnalysis.VisualBasic
 
                     Dim currentResult As SingleLookupResult = binder.CheckViability(sym, arity, options, Nothing, useSiteDiagnostics)
 
-                    lookupResult.MergeMembersOfTheSameNamespace(currentResult, sourceModule)
+                    lookupResult.MergeMembersOfTheSameNamespace(currentResult, sourceModule, options)
                 Next
             End Sub
 
@@ -1197,7 +1197,7 @@ Namespace Microsoft.CodeAnalysis.VisualBasic
                     Return
                 End If
 
-                Dim symbol = compilation.GetWellKnownTypeMember(WellKnownMember.My_InternalXmlHelper__Value)
+                Dim symbol = binder.GetInternalXmlHelperValueExtensionProperty()
                 Dim singleResult As SingleLookupResult
                 If symbol Is Nothing Then
                     ' Match the native compiler which reports ERR_XmlFeaturesNotAvailable in this case.
@@ -2020,7 +2020,7 @@ ExitForFor:
                     ' Only named types have members that are types. Go through all the types in this type and
                     ' validate them. If there's multiple, give an error.
                     If TypeOf container Is NamedTypeSymbol Then
-                        members = ImmutableArray.Create(Of Symbol, NamedTypeSymbol)(container.GetTypeMembers(name))
+                        members = ImmutableArray(Of Symbol).CastUp(container.GetTypeMembers(name))
                     End If
                 ElseIf (options And LookupOptions.LabelsOnly) = 0 Then
                     members = container.GetMembers(name)

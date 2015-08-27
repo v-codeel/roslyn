@@ -4,14 +4,13 @@ Imports Microsoft.CodeAnalysis
 Imports Microsoft.CodeAnalysis.Test.Utilities
 Imports Microsoft.CodeAnalysis.VisualBasic
 Imports Roslyn.Test.Utilities
-Imports ProprietaryTestResources = Microsoft.CodeAnalysis.Test.Resources.Proprietary
 
 Namespace Microsoft.CodeAnalysis.VisualBasic.UnitTests
     Public Class CodeGenWinMdEvents
         Inherits BasicTestBase
 
         <Fact()>
-        Public Sub MissingReferences_SyntehesizedAccessors()
+        Public Sub MissingReferences_SynthesizedAccessors()
             Dim source =
                 <compilation name="MissingReferences">
                     <file name="a.vb">
@@ -537,7 +536,7 @@ End Namespace
 
             Dim serializationRef = TestReferences.NetFx.v4_0_30319.System_Runtime_Serialization
             Dim comp2 = CreateCompilationWithReferences(source2, WinRtRefs.Concat({New VisualBasicCompilationReference(comp1), serializationRef, MsvbRef, SystemXmlRef}), options:=TestOptions.ReleaseExe)
-            CompileAndVerify(comp2, emitOptions:=TestEmitters.RefEmitBug, expectedOutput:=<![CDATA[
+            CompileAndVerify(comp2, expectedOutput:=<![CDATA[
 A
 False
 

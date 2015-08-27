@@ -1,5 +1,6 @@
 // Copyright (c) Microsoft.  All Rights Reserved.  Licensed under the Apache License, Version 2.0.  See License.txt in the project root for license information.
 
+using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.IO;
@@ -511,7 +512,7 @@ class D
         }
 
         [Fact]
-        public void TestMethodsAreNotEquivalentOutToRef()
+        public void TestMethodsAreEquivalentOutToRef()
         {
             var csharpCode1 =
 @"class Type1
@@ -533,7 +534,7 @@ class D
                 var method_v1 = type1_v1.GetMembers("Foo").Single();
                 var method_v2 = type1_v2.GetMembers("Foo").Single();
 
-                Assert.False(SymbolEquivalenceComparer.Instance.Equals(method_v1, method_v2));
+                Assert.True(SymbolEquivalenceComparer.Instance.Equals(method_v1, method_v2));
             }
         }
 
@@ -1146,6 +1147,47 @@ class Type1
             }
         }
 
+        [WorkItem(599, "https://github.com/dotnet/roslyn/issues/599")]
+        [Fact]
+        public void TestRefVersusOut()
+        {
+            var csharpCode1 =
+@"
+class C
+{
+    void M(out int i) { }
+}";
+
+            var csharpCode2 =
+@"
+class C
+{
+    void M(ref int i) { }
+}";
+
+            using (var workspace1 = CSharpWorkspaceFactory.CreateWorkspaceFromLines(csharpCode1))
+            using (var workspace2 = CSharpWorkspaceFactory.CreateWorkspaceFromLines(csharpCode2))
+            {
+                var type1_v1 = workspace1.CurrentSolution.Projects.Single().GetCompilationAsync().Result.GlobalNamespace.GetTypeMembers("C").Single();
+                var type1_v2 = workspace2.CurrentSolution.Projects.Single().GetCompilationAsync().Result.GlobalNamespace.GetTypeMembers("C").Single();
+
+                var method_v1 = type1_v1.GetMembers("M").Single();
+                var method_v2 = type1_v2.GetMembers("M").Single();
+
+                var trueComp = new SymbolEquivalenceComparer(assemblyComparerOpt: null, distinguishRefFromOut: true);
+                var falseComp = new SymbolEquivalenceComparer(assemblyComparerOpt: null, distinguishRefFromOut: false);
+
+                Assert.False(trueComp.Equals(method_v1, method_v2));
+                Assert.False(trueComp.Equals(method_v2, method_v1));
+                // The hashcodes of distinct objects don't have to be distinct.
+
+                Assert.True(falseComp.Equals(method_v1, method_v2));
+                Assert.True(falseComp.Equals(method_v2, method_v1));
+                Assert.Equal(falseComp.GetHashCode(method_v1),
+                             falseComp.GetHashCode(method_v2));
+            }
+        }
+
         [Fact]
         public void TestCSharpReducedExtensionMethodsAreEquivalent()
         {
@@ -1337,7 +1379,7 @@ End Class
             var tb2 = (ITypeSymbol)b2.GlobalNamespace.GetMembers("T").Single();
             var tb3 = (ITypeSymbol)b3.GlobalNamespace.GetMembers("T").Single();
 
-            var identityComparer = new SymbolEquivalenceComparer(AssemblySymbolIdentityComparer.Instance);
+            var identityComparer = new SymbolEquivalenceComparer(AssemblySymbolIdentityComparer.Instance, distinguishRefFromOut: false);
 
             // same name:
             Assert.True(SymbolEquivalenceComparer.IgnoreAssembliesInstance.Equals(ta1, ta2));
@@ -1415,19 +1457,19 @@ End Class
 }
 ";
             MetadataReference r1, r2;
-            using (var tempAssembly = SharedCompilationUtils.IlasmTempAssembly(ilSource))
+            using (var tempAssembly = IlasmUtilities.CreateTempAssembly(ilSource))
             {
                 byte[] bytes = File.ReadAllBytes(tempAssembly.Path);
                 r1 = MetadataReference.CreateFromImage(bytes);
                 r2 = MetadataReference.CreateFromImage(bytes);
             }
 
-            var c1 = CS.CSharpCompilation.Create("comp1", new SyntaxTree[0], new[] { TestReferences.NetFx.v4_0_30319.mscorlib, r1 });
-            var c2 = CS.CSharpCompilation.Create("comp2", new SyntaxTree[0], new[] { TestReferences.NetFx.v4_0_30319.mscorlib, r2 });
+            var c1 = CS.CSharpCompilation.Create("comp1", Array.Empty<SyntaxTree>(), new[] { TestReferences.NetFx.v4_0_30319.mscorlib, r1 });
+            var c2 = CS.CSharpCompilation.Create("comp2", Array.Empty<SyntaxTree>(), new[] { TestReferences.NetFx.v4_0_30319.mscorlib, r2 });
             var type1 = (ITypeSymbol)c1.GlobalNamespace.GetMembers("C").Single();
             var type2 = (ITypeSymbol)c2.GlobalNamespace.GetMembers("C").Single();
 
-            var identityComparer = new SymbolEquivalenceComparer(AssemblySymbolIdentityComparer.Instance);
+            var identityComparer = new SymbolEquivalenceComparer(AssemblySymbolIdentityComparer.Instance, distinguishRefFromOut: false);
 
             var f1 = type1.GetMembers("F");
             var f2 = type2.GetMembers("F");

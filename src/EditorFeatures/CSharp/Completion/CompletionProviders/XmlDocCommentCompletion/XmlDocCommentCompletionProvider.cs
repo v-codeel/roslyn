@@ -21,25 +21,9 @@ namespace Microsoft.CodeAnalysis.Editor.CSharp.Completion.CompletionProviders.Xm
     [ExportCompletionProvider("DocCommentCompletionProvider", LanguageNames.CSharp)]
     internal partial class XmlDocCommentCompletionProvider : AbstractDocCommentCompletionProvider
     {
-        public override bool IsCommitCharacter(CompletionItem completionItem, char ch, string textTypedSoFar)
-        {
-            if ((ch == '"' || ch == ' ')
-                && completionItem.DisplayText.Contains(ch))
-            {
-                return false;
-            }
-
-            return CompletionUtilities.IsCommitCharacter(completionItem, ch, textTypedSoFar) || ch == '>' || ch == '\t';
-        }
-
         public override bool IsTriggerCharacter(SourceText text, int characterPosition, OptionSet options)
         {
             return text[characterPosition] == '<';
-        }
-
-        public override bool SendEnterThroughToEditor(CompletionItem completionItem, string textTypedSoFar)
-        {
-            return false;
         }
 
         protected override async Task<IEnumerable<CompletionItem>> GetItemsWorkerAsync(Document document, int position, CompletionTriggerInfo triggerInfo, CancellationToken cancellationToken)
@@ -49,7 +33,7 @@ namespace Microsoft.CodeAnalysis.Editor.CSharp.Completion.CompletionProviders.Xm
                 return null;
             }
 
-            var tree = await document.GetCSharpSyntaxTreeAsync(cancellationToken).ConfigureAwait(false);
+            var tree = await document.GetSyntaxTreeAsync(cancellationToken).ConfigureAwait(false);
             var token = tree.FindTokenOnLeftOfPosition(position, cancellationToken);
             var parentTrivia = token.GetAncestor<DocumentationCommentTriviaSyntax>();
 
@@ -68,7 +52,7 @@ namespace Microsoft.CodeAnalysis.Editor.CSharp.Completion.CompletionProviders.Xm
                 return null;
             }
 
-            var semanticModel = await document.GetCSharpSemanticModelForNodeAsync(attachedToken.Parent, cancellationToken).ConfigureAwait(false);
+            var semanticModel = await document.GetSemanticModelForNodeAsync(attachedToken.Parent, cancellationToken).ConfigureAwait(false);
 
             ISymbol declaredSymbol = null;
             var memberDeclaration = attachedToken.GetAncestor<MemberDeclarationSyntax>();
@@ -177,7 +161,7 @@ namespace Microsoft.CodeAnalysis.Editor.CSharp.Completion.CompletionProviders.Xm
 
             if (symbol is IPropertySymbol)
             {
-                return GetTagsForProperty((IPropertySymbol)symbol, filterSpan, trivia);
+                return GetTagsForProperty((IPropertySymbol)symbol, filterSpan, trivia, token);
             }
 
             if (symbol is INamedTypeSymbol)
@@ -196,9 +180,9 @@ namespace Microsoft.CodeAnalysis.Editor.CSharp.Completion.CompletionProviders.Xm
 
             RemoveExistingTags(trivia, typeParameters, x => AttributeSelector(x, "typeparam"));
 
-            items.AddRange(typeParameters.Select(t => new XmlItem(this,
+            items.AddRange(typeParameters.Select(t => new XmlDocCommentCompletionItem(this,
                 filterSpan,
-                FormatParameter("typeparam", t))));
+                FormatParameter("typeparam", t), GetCompletionItemRules())));
             return items;
         }
 
@@ -220,16 +204,42 @@ namespace Microsoft.CodeAnalysis.Editor.CSharp.Completion.CompletionProviders.Xm
             return null;
         }
 
-        private IEnumerable<CompletionItem> GetTagsForProperty(IPropertySymbol symbol, TextSpan filterSpan, DocumentationCommentTriviaSyntax trivia)
+        private IEnumerable<XmlDocCommentCompletionItem> GetTagsForProperty(IPropertySymbol symbol, TextSpan filterSpan, DocumentationCommentTriviaSyntax trivia, SyntaxToken token)
         {
-            var items = new List<CompletionItem>();
+            var items = new List<XmlDocCommentCompletionItem>();
+
+            if (symbol.IsIndexer)
+            {
+                var parameters = symbol.GetParameters().Select(p => p.Name).ToSet();
+
+                // User is trying to write a name, try to suggest only names.
+                if (token.Parent.IsKind(SyntaxKind.XmlNameAttribute) ||
+                    (token.Parent.IsKind(SyntaxKind.IdentifierName) && token.Parent.IsParentKind(SyntaxKind.XmlNameAttribute)))
+                {
+                    string parentElementName = null;
+
+                    var emptyElement = token.GetAncestor<XmlEmptyElementSyntax>();
+                    if (emptyElement != null)
+                    {
+                        parentElementName = emptyElement.Name.LocalName.Text;
+                    }
+
+                    // We're writing the name of a paramref
+                    if (parentElementName == "paramref")
+                    {
+                        items.AddRange(parameters.Select(p => new XmlDocCommentCompletionItem(this, filterSpan, p, GetCompletionItemRules())));
+                    }
+
+                    return items;
+                }
+
+                RemoveExistingTags(trivia, parameters, x => AttributeSelector(x, "param"));
+                items.AddRange(parameters.Select(p => new XmlDocCommentCompletionItem(this, filterSpan, FormatParameter("param", p), GetCompletionItemRules())));
+            }
 
             var typeParameters = symbol.GetTypeArguments().Select(p => p.Name).ToSet();
-
-            RemoveExistingTags(trivia, typeParameters, x => AttributeSelector(x, "typeparam"));
-
-            items.AddRange(typeParameters.Select(t => new XmlItem(this, filterSpan, "typeparam", "name", t)));
-            items.Add(new XmlItem(this, filterSpan, "value"));
+            items.AddRange(typeParameters.Select(t => new XmlDocCommentCompletionItem(this, filterSpan, "typeparam", "name", t, GetCompletionItemRules())));
+            items.Add(new XmlDocCommentCompletionItem(this, filterSpan, "value", GetCompletionItemRules()));
             return items;
         }
 
@@ -255,11 +265,11 @@ namespace Microsoft.CodeAnalysis.Editor.CSharp.Completion.CompletionProviders.Xm
                 // We're writing the name of a paramref or typeparamref
                 if (parentElementName == "paramref")
                 {
-                    items.AddRange(parameters.Select(p => new XmlItem(this, filterSpan, p)));
+                    items.AddRange(parameters.Select(p => new XmlDocCommentCompletionItem(this, filterSpan, p, GetCompletionItemRules())));
                 }
                 else if (parentElementName == "typeparamref")
                 {
-                    items.AddRange(typeParameters.Select(t => new XmlItem(this, filterSpan, t)));
+                    items.AddRange(typeParameters.Select(t => new XmlDocCommentCompletionItem(this, filterSpan, t, GetCompletionItemRules())));
                 }
 
                 return items;
@@ -285,15 +295,20 @@ namespace Microsoft.CodeAnalysis.Editor.CSharp.Completion.CompletionProviders.Xm
                 }
             }
 
-            items.AddRange(parameters.Select(p => new XmlItem(this, filterSpan, FormatParameter("param", p))));
-            items.AddRange(typeParameters.Select(t => new XmlItem(this, filterSpan, FormatParameter("typeparam", t))));
+            items.AddRange(parameters.Select(p => new XmlDocCommentCompletionItem(this, filterSpan, FormatParameter("param", p), GetCompletionItemRules())));
+            items.AddRange(typeParameters.Select(t => new XmlDocCommentCompletionItem(this, filterSpan, FormatParameter("typeparam", t), GetCompletionItemRules())));
 
             if (returns && !symbol.ReturnsVoid)
             {
-                items.Add(new XmlItem(this, filterSpan, "returns"));
+                items.Add(new XmlDocCommentCompletionItem(this, filterSpan, "returns", GetCompletionItemRules()));
             }
 
             return items;
+        }
+
+        protected override AbstractXmlDocCommentCompletionItemRules GetCompletionItemRules()
+        {
+            return XmlDocCommentCompletionItemRules.Instance;
         }
     }
 }

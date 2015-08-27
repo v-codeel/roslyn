@@ -18,7 +18,7 @@ namespace Microsoft.CodeAnalysis.CSharp
         //ERR_FatalError = 10,
         //ERR_CantImportBase = 11,
         ERR_NoTypeDef = 12,
-        //FTL_MetadataEmitFailure = 13,     Roslyn does not catch stream writing exceptions. Those are proprogated to the caller.
+        //FTL_MetadataEmitFailure = 13,     Roslyn does not catch stream writing exceptions. Those are propagated to the caller.
         //FTL_RequiredFileNotFound = 14,
         //ERR_ClassNameTooLong = 15,    Deprecated in favor of ERR_MetadataNameTooLong.
         ERR_OutputWriteFailed = 16,
@@ -771,7 +771,7 @@ namespace Microsoft.CodeAnalysis.CSharp
         ERR_ParamsCantBeRefOut = 1611,
         ERR_ReturnNotLValue = 1612,
         ERR_MissingCoClass = 1613,
-        ERR_AmbigousAttribute = 1614,
+        ERR_AmbiguousAttribute = 1614,
         ERR_BadArgExtraRef = 1615,
         WRN_CmdOptionConflictsSource = 1616,
         ERR_BadCompatMode = 1617,
@@ -847,7 +847,7 @@ namespace Microsoft.CodeAnalysis.CSharp
         ERR_CantConvAnonMethNoParams = 1688,
         ERR_ConditionalOnNonAttributeClass = 1689,
         WRN_CallOnNonAgileField = 1690,
-        // WRN_BadWarningNumber = 1691,    // we no longer generate this warning for an unrecognized warning ID specified as an argument to /nowarn or /warnasserror.
+        // WRN_BadWarningNumber = 1691,    // we no longer generate this warning for an unrecognized warning ID specified as an argument to /nowarn or /warnaserror.
         WRN_InvalidNumber = 1692,
         // WRN_FileNameTooLong = 1694, //unused.
         WRN_IllegalPPChecksum = 1695,
@@ -1270,7 +1270,8 @@ namespace Microsoft.CodeAnalysis.CSharp
         WRN_NoAnalyzerInAssembly = 8033,
         WRN_UnableToLoadAnalyzer = 8034,
         ERR_CantReadRulesetFile = 8035,
-        // available 8036-8039
+        ERR_BadPdbData = 8036,
+        // available 8037-8039
         INF_UnableToLoadSomeTypesInAnalyzer = 8040,
         // available 8041-8049
         ERR_InitializerOnNonAutoProperty = 8050,
@@ -1281,7 +1282,7 @@ namespace Microsoft.CodeAnalysis.CSharp
         ERR_EncodinglessSyntaxTree = 8055,
         ERR_AccessorListAndExpressionBody = 8056,
         ERR_BlockBodyAndExpressionBody = 8057,
-        // ERR_FeatureIsExperimental = 8058,
+        ERR_FeatureIsExperimental = 8058,
         ERR_FeatureNotAvailableInVersion6 = 8059,
         // available 8060-8069
         ERR_SwitchFallOut = 8070,
@@ -1309,6 +1310,7 @@ namespace Microsoft.CodeAnalysis.CSharp
         ERR_ExpressionOrDeclarationExpected = 8092,
         ERR_NameofExtensionMethod = 8093,
         WRN_AlignmentMagnitude = 8094,
-        ERR_ContantStringTooLong = 8095,
+        ERR_ConstantStringTooLong = 8095,
+        ERR_DebugEntryPointNotSourceMethodDefinition = 8096,
     }
 }

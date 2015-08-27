@@ -1,6 +1,6 @@
 ﻿// Copyright (c) Microsoft.  All Rights Reserved.  Licensed under the Apache License, Version 2.0.  See License.txt in the project root for license information.
 
-using Microsoft.CodeAnalysis.Completion.Providers;
+using Microsoft.CodeAnalysis.Completion;
 using Microsoft.CodeAnalysis.Editor.CSharp.Completion.CompletionProviders.XmlDocCommentCompletion;
 using Roslyn.Test.Utilities;
 using Xunit;
@@ -9,7 +9,7 @@ namespace Microsoft.CodeAnalysis.Editor.CSharp.UnitTests.Completion.CompletionPr
 {
     public class XmlDocumentationCommentCompletionProviderTests : AbstractCSharpCompletionProviderTests
     {
-        internal override ICompletionProvider CreateCompletionProvider()
+        internal override CompletionListProvider CreateCompletionProvider()
         {
             return new XmlDocCommentCompletionProvider();
         }
@@ -247,6 +247,18 @@ public class foo<T>
     /// $$
     public int bar<T>(T green) { }
 }", "typeparam name=\"T\"", "param name=\"green\"");
+        }
+
+        [Fact, Trait(Traits.Feature, Traits.Features.Completion)]
+        public void IndexerParamTypeParam()
+        {
+            VerifyItemsExist(@"
+public class foo<T>
+{
+
+    /// $$
+    public int this[T green] { get { } set { } }
+}", "param name=\"green\"");
         }
 
         [Fact, Trait(Traits.Feature, Traits.Features.Completion)]
@@ -513,7 +525,7 @@ public class foo<T>
         }
 
         [Fact, Trait(Traits.Feature, Traits.Features.Completion)]
-        public void CommitCommentnNoOpenAngle()
+        public void CommitCommentNoOpenAngle()
         {
             var markupBeforeCommit = @"class c
 {

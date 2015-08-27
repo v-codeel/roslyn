@@ -9,6 +9,12 @@ namespace Microsoft.CodeAnalysis.ExpressionEvaluator
 {
     internal sealed class NativeViewExpansion : Expansion
     {
+        internal static readonly NativeViewExpansion Instance = new NativeViewExpansion();
+
+        private NativeViewExpansion()
+        {
+        }
+
         internal override void GetRows(
             ResultProvider resultProvider,
             ArrayBuilder<EvalResultDataItem> rows,
@@ -43,15 +49,15 @@ namespace Microsoft.CodeAnalysis.ExpressionEvaluator
                 // Native View requires native debugging to be enabled.
                 return new EvalResultDataItem(Resources.NativeView, Resources.NativeViewNotNativeDebugging);
             }
-            
-            var name = "(IUnknown*)0x" + string.Format(IntPtr.Size == 4 ? "{0:X8}" : "{0:X16}", comObject.NativeComPointer);
+
+            var name = "(IUnknown*)0x" + string.Format(IntPtr.Size == 4 ? "{0:x8}" : "{0:x16}", comObject.NativeComPointer);
             var fullName = "{C++}" + name;
-            
+
             return new EvalResultDataItem(
                 ExpansionKind.NativeView,
                 name: name,
-                typeDeclaringMember: null,
-                declaredType: comObject.Type.GetLmrType(),
+                typeDeclaringMemberAndInfo: default(TypeAndCustomInfo),
+                declaredTypeAndInfo: new TypeAndCustomInfo(comObject.Type), // DkmClrValue types don't have attributes.
                 parent: null,
                 value: comObject,
                 displayValue: null,

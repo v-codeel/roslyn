@@ -32,7 +32,7 @@ namespace Microsoft.CodeAnalysis.Text
         {
             if (newText == null)
             {
-                throw new ArgumentNullException("newText");
+                throw new ArgumentNullException(nameof(newText));
             }
 
             this.Span = span;
@@ -86,6 +86,6 @@ namespace Microsoft.CodeAnalysis.Text
         /// <summary>
         /// An empty set of changes.
         /// </summary>
-        public static readonly IReadOnlyList<TextChange> NoChanges = SpecializedCollections.EmptyReadOnlyList<TextChange>();
+        public static IReadOnlyList<TextChange> NoChanges => SpecializedCollections.EmptyReadOnlyList<TextChange>();
     }
 }

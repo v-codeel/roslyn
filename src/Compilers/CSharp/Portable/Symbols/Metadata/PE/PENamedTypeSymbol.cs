@@ -426,7 +426,7 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols.Metadata.PE
                 try
                 {
                     var moduleSymbol = ContainingPEModule;
-                    Handle token = moduleSymbol.Module.GetBaseTypeOfTypeOrThrow(_handle);
+                    EntityHandle token = moduleSymbol.Module.GetBaseTypeOfTypeOrThrow(_handle);
 
                     if (!token.IsNil)
                     {
@@ -458,7 +458,7 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols.Metadata.PE
                     int i = 0;
                     foreach (var interfaceImpl in interfaceImpls)
                     {
-                        Handle interfaceHandle = moduleSymbol.Module.MetadataReader.GetInterfaceImplementation(interfaceImpl).Interface;
+                        EntityHandle interfaceHandle = moduleSymbol.Module.MetadataReader.GetInterfaceImplementation(interfaceImpl).Interface;
                         TypeSymbol typeSymbol = tokenDecoder.GetTypeOfToken(interfaceHandle);
 
                         var namedTypeSymbol = typeSymbol as NamedTypeSymbol;
@@ -538,8 +538,7 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols.Metadata.PE
                         break;
 
                     default:
-                        Debug.Assert(false, "Unexpected!!!");
-                        break;
+                        throw ExceptionUtilities.UnexpectedValue(_flags & TypeAttributes.VisibilityMask);
                 }
 
                 return access;
@@ -813,8 +812,72 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols.Metadata.PE
             }
             else
             {
-                // If there are any fields, they are at the very beginning.
-                return GetMembers<FieldSymbol>(this.GetMembers(), SymbolKind.Field, offset: 0);
+                // If there are any non-event fields, they are at the very beginning.
+                IEnumerable<FieldSymbol> nonEventFields = GetMembers<FieldSymbol>(this.GetMembers(), SymbolKind.Field, offset: 0);
+
+                // Event backing fields are not part of the set returned by GetMembers. Let's add them manually.
+                ArrayBuilder<FieldSymbol> eventFields = null;
+
+                foreach (var eventSymbol in GetEventsToEmit())
+                {
+                    FieldSymbol associatedField = eventSymbol.AssociatedField;
+                    if ((object)associatedField != null)
+                    {
+                        Debug.Assert((object)associatedField.AssociatedSymbol != null);
+                        Debug.Assert(!nonEventFields.Contains(associatedField));
+
+                        if (eventFields == null)
+                        {
+                            eventFields = ArrayBuilder<FieldSymbol>.GetInstance();
+                        }
+
+                        eventFields.Add(associatedField);
+                    }
+                }
+
+                if (eventFields == null)
+                {
+                    // Simple case
+                    return nonEventFields;
+                }
+
+                // We need to merge non-event fields with event fields while preserving their relative declaration order
+                var handleToFieldMap = new SmallDictionary<FieldDefinitionHandle, FieldSymbol>();
+                int count = 0;
+
+                foreach (PEFieldSymbol field in nonEventFields)
+                {
+                    handleToFieldMap.Add(field.Handle, field);
+                    count++;
+                }
+
+                foreach (PEFieldSymbol field in eventFields)
+                {
+                    handleToFieldMap.Add(field.Handle, field);
+                }
+
+                count += eventFields.Count;
+                eventFields.Free();
+
+                var result = ArrayBuilder<FieldSymbol>.GetInstance(count);
+
+                try
+                {
+                    foreach (var handle in this.ContainingPEModule.Module.GetFieldsOfTypeOrThrow(_handle))
+                    {
+                        FieldSymbol field;
+                        if (handleToFieldMap.TryGetValue(handle, out field))
+                        {
+                            result.Add(field);
+                        }
+                    }
+                }
+                catch (BadImageFormatException)
+                { }
+
+                Debug.Assert(result.Count == count);
+
+                return result.ToImmutableAndFree();
             }
         }
 
@@ -1396,6 +1459,22 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols.Metadata.PE
             }
         }
 
+        internal override bool HasTypeArgumentsCustomModifiers
+        {
+            get
+            {
+                return false;
+            }
+        }
+
+        internal override ImmutableArray<ImmutableArray<CustomModifier>> TypeArgumentsCustomModifiers
+        {
+            get
+            {
+                return ImmutableArray<ImmutableArray<CustomModifier>>.Empty;
+            }
+        }
+
         public override ImmutableArray<TypeParameterSymbol> TypeParameters
         {
             get
@@ -1853,7 +1932,7 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols.Metadata.PE
                     // NOTE: the default member name is frequently null (e.g. if there is not indexer in the type).
                     // Make sure we set a non-null value so that we don't recompute it repeatedly.
                     // CONSIDER: this makes it impossible to distinguish between not having the attribute and
-                    // haveing the attribute with a value of "".
+                    // having the attribute with a value of "".
                     Interlocked.CompareExchange(ref uncommon.lazyDefaultMemberName, defaultMemberName ?? "", null);
                 }
                 return uncommon.lazyDefaultMemberName;
@@ -2172,6 +2251,22 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols.Metadata.PE
                 {
                     // This is always the instance type, so the type arguments are the same as the type parameters.
                     return this.TypeParameters.Cast<TypeParameterSymbol, TypeSymbol>();
+                }
+            }
+
+            internal override bool HasTypeArgumentsCustomModifiers
+            {
+                get
+                {
+                    return false;
+                }
+            }
+
+            internal override ImmutableArray<ImmutableArray<CustomModifier>> TypeArgumentsCustomModifiers
+            {
+                get
+                {
+                    return CreateEmptyTypeArgumentsCustomModifiers();
                 }
             }
 

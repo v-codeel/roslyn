@@ -277,7 +277,7 @@ namespace Microsoft.CodeAnalysis
         {
             // currently we only support one level branching. 
             // my reasonings are
-            // 1. it seems there is no one who needs sub branches.
+            // 1. it seems there is no-one who needs sub branches.
             // 2. this lets us to branch without explicit branch API
             return _branchId == Workspace.PrimaryBranchId ? BranchId.GetNextId() : _branchId;
         }
@@ -588,13 +588,13 @@ namespace Microsoft.CodeAnalysis
             var language = projectInfo.Language;
             if (language == null)
             {
-                throw new ArgumentNullException("language");
+                throw new ArgumentNullException(nameof(language));
             }
 
             var displayName = projectInfo.Name;
             if (displayName == null)
             {
-                throw new ArgumentNullException("name");
+                throw new ArgumentNullException(nameof(displayName));
             }
 
             CheckNotContainsProject(projectId);
@@ -827,7 +827,16 @@ namespace Microsoft.CodeAnalysis
                 return this;
             }
 
-            return this.ForkProject(newProject, CompilationTranslationAction.ProjectParseOptions(newProject));
+            if (this.Workspace.PartialSemanticsEnabled)
+            {
+                // don't fork tracker with queued action since access via partial semantics can become inconsistent (throw).
+                // Since changing options is rare event, it is okay to start compilation building from scratch.
+                return this.ForkProject(newProject, forkTracker: false);
+            }
+            else
+            {
+                return this.ForkProject(newProject, CompilationTranslationAction.ProjectParseOptions(newProject));
+            }
         }
 
         private static async Task<Compilation> ReplaceSyntaxTreesWithTreesFromNewProjectStateAsync(Compilation compilation, ProjectState projectState, CancellationToken cancellationToken)
@@ -1177,7 +1186,7 @@ namespace Microsoft.CodeAnalysis
                 documentId,
                 name: name,
                 folders: folders,
-                sourceCodeKind: project.ParseOptions.Kind,
+                sourceCodeKind: GetSourceCodeKind(project),
                 loader: loader,
                 filePath: filePath,
                 isGenerated: isGenerated);
@@ -1189,6 +1198,11 @@ namespace Microsoft.CodeAnalysis
                 _solutionServices);
 
             return this.AddDocument(doc);
+        }
+
+        private static SourceCodeKind GetSourceCodeKind(ProjectState project)
+        {
+            return project.ParseOptions != null ? project.ParseOptions.Kind : SourceCodeKind.Regular;
         }
 
         /// <summary>
@@ -1230,7 +1244,7 @@ namespace Microsoft.CodeAnalysis
                 documentId,
                 name: name,
                 folders: folders,
-                sourceCodeKind: project.ParseOptions.Kind,
+                sourceCodeKind: GetSourceCodeKind(project),
                 loader: loader);
 
             return this.AddDocument(info);
@@ -1316,7 +1330,7 @@ namespace Microsoft.CodeAnalysis
                 documentId,
                 name: name,
                 folders: folders,
-                sourceCodeKind: project.ParseOptions.Kind,
+                sourceCodeKind: GetSourceCodeKind(project),
                 loader: loader,
                 filePath: filePath);
 
@@ -1737,7 +1751,8 @@ namespace Microsoft.CodeAnalysis
             ProjectState newProjectState,
             CompilationTranslationAction translate = null,
             bool withProjectReferenceChange = false,
-            ImmutableDictionary<string, ImmutableArray<DocumentId>> newLinkedFilesMap = null)
+            ImmutableDictionary<string, ImmutableArray<DocumentId>> newLinkedFilesMap = null,
+            bool forkTracker = true)
         {
             // make sure we are getting only known translate actions
             CompilationTranslationAction.CheckKnownActions(translate);
@@ -1750,10 +1765,15 @@ namespace Microsoft.CodeAnalysis
 
             // If we have a tracker for this project, then fork it as well (along with the
             // translation action and store it in the tracker map.
-            CompilationTracker state;
-            if (newTrackerMap.TryGetValue(projectId, out state))
+            CompilationTracker tracker;
+            if (newTrackerMap.TryGetValue(projectId, out tracker))
             {
-                newTrackerMap = newTrackerMap.Remove(projectId).Add(projectId, state.Fork(newProjectState, translate));
+                newTrackerMap = newTrackerMap.Remove(projectId);
+
+                if (forkTracker)
+                {
+                    newTrackerMap = newTrackerMap.Add(projectId, tracker.Fork(newProjectState, translate));
+                }
             }
 
             var modifiedDocumentOnly = translate is CompilationTranslationAction.TouchDocumentAction;
@@ -1765,6 +1785,32 @@ namespace Microsoft.CodeAnalysis
                 dependencyGraph: newDependencyGraph,
                 linkedFilesMap: newLinkedFilesMap ?? _linkedFilesMap,
                 lazyLatestProjectVersion: newLatestProjectVersion);
+        }
+
+        internal ImmutableArray<DocumentId> GetRelatedDocumentIds(DocumentId documentId)
+        {
+            var projectState = this.GetProjectState(documentId.ProjectId);
+            if (projectState == null)
+            {
+                // this document no longer exist
+                return ImmutableArray<DocumentId>.Empty;
+            }
+
+            var documentState = projectState.GetDocumentState(documentId);
+            if (documentState == null)
+            {
+                // this document no longer exist
+                return ImmutableArray<DocumentId>.Empty;
+            }
+
+            var filePath = documentState.FilePath;
+            if (string.IsNullOrEmpty(filePath))
+            {
+                // this document can't have any related document. only related document is itself.
+                return ImmutableArray.Create<DocumentId>(documentId);
+            }
+
+            return this.GetDocumentIdsWithFilePath(filePath);
         }
 
         /// <summary>
@@ -1953,14 +1999,22 @@ namespace Microsoft.CodeAnalysis
         }
 
         /// <summary>
-        /// Returns the compilation for the specified project ID.  Can return <code>null</code> when the project
+        /// Returns the compilation for the specified <see cref="ProjectId"/>.  Can return <code>null</code> when the project
         /// does not support compilations.
         /// </summary>
         internal Task<Compilation> GetCompilationAsync(ProjectId projectId, CancellationToken cancellationToken)
         {
-            var project = GetProject(projectId);
+            return GetCompilationAsync(GetProject(projectId), cancellationToken);
+        }
+
+        /// <summary>
+        /// Returns the compilation for the specified <see cref="Project"/>.  Can return <code>null</code> when the project
+        /// does not support compilations.
+        /// </summary>
+        internal Task<Compilation> GetCompilationAsync(Project project, CancellationToken cancellationToken)
+        {
             return project.SupportsCompilation
-                ? this.GetCompilationTracker(projectId).GetCompilationAsync(this, cancellationToken)
+                ? this.GetCompilationTracker(project.Id).GetCompilationAsync(this, cancellationToken)
                 : SpecializedTasks.Default<Compilation>();
         }
 
@@ -2114,7 +2168,7 @@ namespace Microsoft.CodeAnalysis
         }
 
         /// <summary>
-        /// Gets an ProjectDependencyGraph that details the dependencies between projects for this solution.
+        /// Gets a <see cref="ProjectDependencyGraph"/> that details the dependencies between projects for this solution.
         /// </summary>
         public ProjectDependencyGraph GetProjectDependencyGraph()
         {

@@ -24,25 +24,28 @@ Namespace Microsoft.CodeAnalysis.VisualBasic
             isBodySynthesized As Boolean) As BoundBlock
 
             Debug.Assert(Not body.HasErrors)
+            Debug.Assert(compilationState.ModuleBuilderOpt IsNot Nothing)
 
             ' performs node-specific lowering.
             Dim sawLambdas As Boolean
             Dim symbolsCapturedWithoutCopyCtor As ISet(Of Symbol) = Nothing
             Dim rewrittenNodes As HashSet(Of BoundNode) = Nothing
             Dim flags = If(allowOmissionOfConditionalCalls, LocalRewriter.RewritingFlags.AllowOmissionOfConditionalCalls, LocalRewriter.RewritingFlags.Default)
+            Dim localDiagnostics = DiagnosticBag.GetInstance()
 
             Dim loweredBody = LocalRewriter.Rewrite(body,
                                                     method,
                                                     compilationState,
                                                     previousSubmissionFields,
-                                                    diagnostics,
+                                                    localDiagnostics,
                                                     rewrittenNodes,
                                                     sawLambdas,
                                                     symbolsCapturedWithoutCopyCtor,
                                                     flags,
                                                     currentMethod:=Nothing)
 
-            If loweredBody.HasErrors Then
+            If loweredBody.HasErrors OrElse localDiagnostics.HasAnyErrors Then
+                diagnostics.AddRangeAndFree(localDiagnostics)
                 Return loweredBody
             End If
 
@@ -55,7 +58,9 @@ Namespace Microsoft.CodeAnalysis.VisualBasic
 #End If
 
             If lazyVariableSlotAllocator Is Nothing Then
-                lazyVariableSlotAllocator = compilationState.ModuleBuilderOpt.TryCreateVariableSlotAllocator(method)
+                ' synthesized lambda methods are handled in LambdaRewriter.RewriteLambdaAsMethod
+                Debug.Assert(TypeOf method IsNot SynthesizedLambdaMethod)
+                lazyVariableSlotAllocator = compilationState.ModuleBuilderOpt.TryCreateVariableSlotAllocator(method, method)
             End If
 
             ' Lowers lambda expressions into expressions that construct delegates.    
@@ -70,14 +75,16 @@ Namespace Microsoft.CodeAnalysis.VisualBasic
                                                             lazyVariableSlotAllocator,
                                                             compilationState,
                                                             If(symbolsCapturedWithoutCopyCtor, SpecializedCollections.EmptySet(Of Symbol)),
-                                                            diagnostics,
+                                                            localDiagnostics,
                                                             rewrittenNodes)
             End If
 
-            If bodyWithoutLambdas.HasErrors Then
+            If bodyWithoutLambdas.HasErrors OrElse localDiagnostics.HasAnyErrors Then
+                diagnostics.AddRangeAndFree(localDiagnostics)
                 Return bodyWithoutLambdas
             End If
 
+            diagnostics.AddRangeAndFree(localDiagnostics)
             Return RewriteIteratorAndAsync(bodyWithoutLambdas, method, methodOrdinal, compilationState, diagnostics, lazyVariableSlotAllocator, stateMachineTypeOpt)
         End Function
 
@@ -88,6 +95,8 @@ Namespace Microsoft.CodeAnalysis.VisualBasic
                                                        diagnostics As DiagnosticBag,
                                                        slotAllocatorOpt As VariableSlotAllocator,
                                                        <Out> ByRef stateMachineTypeOpt As StateMachineTypeSymbol) As BoundBlock
+
+            Debug.Assert(compilationState.ModuleBuilderOpt IsNot Nothing)
 
             Dim iteratorStateMachine As IteratorStateMachine = Nothing
             Dim bodyWithoutIterators = IteratorRewriter.Rewrite(bodyWithoutLambdas,

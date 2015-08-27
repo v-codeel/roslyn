@@ -2,8 +2,7 @@
 <!-- Copyright (c)  Microsoft.  All Rights Reserved.  Licensed under the Apache License, Version 2.0.  See License.txt in the project root for license information. -->
 <Project ToolsVersion="4.0" DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ImportGroup Label="Settings">
-    <Import Project="..\..\..\Tools\Microsoft.CodeAnalysis.Toolset.Open\Targets\VSL.Settings.targets" />
-    <Import Project="..\..\..\..\build\VSL.Settings.Closed.targets" />
+    <Import Project="..\..\..\..\build\Targets\VSL.Settings.targets" />
   </ImportGroup>
   <PropertyGroup>
     <Configuration Condition="'$(Configuration)' == ''">Debug</Configuration>
@@ -17,6 +16,7 @@
     <BoundTreeGeneratorToolPath>$(OutDir)BoundTreeGenerator.exe</BoundTreeGeneratorToolPath>
     <CSharpErrorFactsGeneratorToolPath>$(OutDir)CSharpErrorFactsGenerator.exe</CSharpErrorFactsGeneratorToolPath>
     <SolutionDir Condition="'$(SolutionDir)' == '' OR '$(SolutionDir)' == '*Undefined*'">..\..\..\..\</SolutionDir>
+    <TargetFrameworkVersion>v4.5</TargetFrameworkVersion>
     <TargetFrameworkProfile>Profile7</TargetFrameworkProfile>
     <TargetFrameworkIdentifier>.NETPortable</TargetFrameworkIdentifier>
     <ProjectTypeGuids>{786C830F-07A1-408B-BD7F-6EE04809D6DB};{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}</ProjectTypeGuids>
@@ -223,6 +223,10 @@
     <Compile Include="CodeGen\EmitOperators.cs" />
     <Compile Include="CodeGen\EmitStatement.cs" />
     <Compile Include="CodeGen\Optimizer.cs" />
+    <Compile Include="CommandLine\CommandLineArguments.cs" />
+    <Compile Include="CommandLine\CommandLineDiagnosticFormatter.cs" />
+    <Compile Include="CommandLine\CommandLineParser.cs" />
+    <Compile Include="CommandLine\CSharpCompiler.cs" />
     <Compile Include="Compilation\AttributeSemanticModel.cs" />
     <Compile Include="Compilation\AwaitExpressionInfo.cs" />
     <Compile Include="Compilation\BuiltInOperators.cs" />
@@ -259,6 +263,7 @@
     <Compile Include="Compiler\UnprocessedDocumentationCommentFinder.cs" />
     <Compile Include="CSharpCompilationOptions.cs" />
     <Compile Include="CSharpExtensions.cs" />
+    <Compile Include="CSharpFileSystemExtensions.cs" />
     <Compile Include="CSharpParseOptions.cs" />
     <Compile Include="CSharpResources.Designer.cs">
       <AutoGen>True</AutoGen>
@@ -703,6 +708,7 @@
     <Compile Include="Symbols\Synthesized\SynthesizedStaticConstructor.cs" />
     <Compile Include="Symbols\Synthesized\SynthesizedStringHashFunctionSymbol.cs" />
     <Compile Include="Symbols\Synthesized\SynthesizedSubmissionConstructor.cs" />
+    <Compile Include="Symbols\Synthesized\SynthesizedInteractiveInitializerMethod.cs" />
     <Compile Include="Symbols\Synthesized\SynthesizedSubstitutedTypeParameterSymbol.cs" />
     <Compile Include="Symbols\Synthesized\TypeSubstitutedLocalSymbol.cs" />
     <Compile Include="Symbols\TypedConstantExtensions.cs" />
@@ -714,6 +720,7 @@
     <Compile Include="Symbols\TypeSymbol.SymbolAndDiagnostics.cs" />
     <Compile Include="Symbols\TypeSymbolExtensions.cs" />
     <Compile Include="Symbols\TypeUnification.cs" />
+    <Compile Include="Symbols\TypeWithModifiers.cs" />
     <Compile Include="Symbols\UnboundGenericType.cs" />
     <Compile Include="Symbols\UnsupportedMetadataTypeSymbol.cs" />
     <Compile Include="Symbols\VarianceSafety.cs" />
@@ -737,6 +744,7 @@
     <Compile Include="Syntax\DirectiveTriviaSyntax.cs" />
     <Compile Include="Syntax\ExpressionStatementSyntax.cs" />
     <Compile Include="Syntax\GenericNameSyntax.cs" />
+    <Compile Include="Syntax\PropertyDeclarationSyntax.cs" />
     <Compile Include="Syntax\InternalSyntax\ChildSyntaxList.cs" />
     <Compile Include="Syntax\InternalSyntax\ChildSyntaxList.Enumerator.cs" />
     <Compile Include="Syntax\InternalSyntax\ChildSyntaxList.Reversed.cs" />
@@ -776,6 +784,7 @@
     <Compile Include="Syntax\InternalSyntax\SyntaxVisitor.cs" />
     <Compile Include="Syntax\AnonymousMethodExpressionSyntax.cs" />
     <Compile Include="Syntax\LookupPosition.cs" />
+    <Compile Include="Syntax\IndexerDeclarationSyntax.cs" />
     <Compile Include="Syntax\MethodDeclarationSyntax.cs" />
     <Compile Include="Syntax\NamespaceDeclarationSyntax.cs" />
     <Compile Include="Syntax\NamespaceDeclarationSyntaxReference.cs" />
@@ -790,8 +799,8 @@
     <Compile Include="Syntax\SyntaxEquivalence.cs" />
     <Compile Include="Syntax\SyntaxExtensions.cs" />
     <Compile Include="Syntax\SyntaxFactory.cs" />
-    <Compile Include="Syntax\SyntaxUtilities.cs" />
-    <Compile Include="Syntax\SyntaxFormatter.cs" />
+    <Compile Include="Syntax\LambdaUtilities.cs" />
+    <Compile Include="Syntax\SyntaxNormalizer.cs" />
     <Compile Include="Syntax\SyntaxKind.cs" />
     <Compile Include="Syntax\SyntaxKindEqualityComparer.cs" />
     <Compile Include="Syntax\SyntaxKindFacts.cs" />
@@ -834,7 +843,8 @@
     <None Include="..\CSharpCodeAnalysisRules.ruleset">
       <SubType>Designer</SubType>
     </None>
-    <PublicAPI Include="PublicAPI.txt" />
+    <PublicAPI Include="PublicAPI.Shipped.txt" />
+    <PublicAPI Include="PublicAPI.Unshipped.txt" />
   </ItemGroup>
   <ItemGroup>
     <BoundTreeDefinition Include="BoundTree\BoundNodes.xml">
@@ -855,7 +865,6 @@
     </SyntaxDefinition>
   </ItemGroup>
   <ItemGroup>
-    <InternalsVisibleTo Include="Microsoft.CodeAnalysis.CSharp.Desktop" />
     <InternalsVisibleTo Include="Microsoft.CodeAnalysis.CSharp.ExpressionEvaluator.ExpressionCompiler" />
     <InternalsVisibleTo Include="csc" />
     <InternalsVisibleTo Include="csi" />
@@ -871,26 +880,29 @@
     <InternalsVisibleToTest Include="Roslyn.Compilers.CSharp.Syntax.UnitTests" />
     <InternalsVisibleToTest Include="Roslyn.Compilers.CSharp.Test.Utilities" />
     <InternalsVisibleToTest Include="Roslyn.ExpressionEvaluator.CSharp.ExpressionCompiler.UnitTests" />
+    <InternalsVisibleToTest Include="Roslyn.Test.Utilities.Desktop" />
+    <InternalsVisibleToTest Include="Roslyn.Test.Utilities.FX45" />
     <InternalsVisibleToTest Include="Roslyn.Test.Utilities" />
     <InternalsVisibleToTest Include="Microsoft.CodeAnalysis.Scripting.UnitTests" />
+    <InternalsVisibleToTest Include="Microsoft.CodeAnalysis.Scripting.Destkop.UnitTests" />
     <InternalsVisibleToTest Include="Microsoft.CodeAnalysis.Scripting.CSharp.UnitTests" />
+    <InternalsVisibleToTest Include="Microsoft.CodeAnalysis.Scripting.CSharp.Desktop.UnitTests" />
     <InternalsVisibleToTest Include="Roslyn.Services.Editor.CSharp.UnitTests" />
     <InternalsVisibleToTest Include="Roslyn.Services.Editor.UnitTests2" />
   </ItemGroup>
   <ItemGroup>
-    <Reference Include="System.Collections.Immutable, Version=1.1.33.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a, processorArchitecture=MSIL">
+    <Reference Include="System.Collections.Immutable, Version=$(SystemCollectionsImmutableAssemblyVersion), Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a, processorArchitecture=MSIL">
       <SpecificVersion>False</SpecificVersion>
-      <HintPath>..\..\..\..\packages\System.Collections.Immutable.1.1.33-beta\lib\portable-net45+win8+wp8+wpa81\System.Collections.Immutable.dll</HintPath>
+      <HintPath>..\..\..\..\packages\System.Collections.Immutable.$(SystemCollectionsImmutableVersion)\lib\portable-net45+win8+wp8+wpa81\System.Collections.Immutable.dll</HintPath>
     </Reference>
-    <Reference Include="System.Reflection.Metadata, Version=1.0.18.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a, processorArchitecture=MSIL">
+    <Reference Include="System.Reflection.Metadata, Version=$(SystemReflectionMetadataAssemblyVersion), Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a, processorArchitecture=MSIL">
       <SpecificVersion>False</SpecificVersion>
-      <HintPath>..\..\..\..\packages\System.Reflection.Metadata.1.0.18-beta\lib\portable-net45+win8\System.Reflection.Metadata.dll</HintPath>
+      <HintPath>..\..\..\..\packages\System.Reflection.Metadata.$(SystemReflectionMetadataVersion)\lib\portable-net45+win8\System.Reflection.Metadata.dll</HintPath>
     </Reference>
   </ItemGroup>
   <Import Project="..\CSharpAnalyzerDriver\CSharpAnalyzerDriver.projitems" Label="Shared" />
   <ImportGroup Label="Targets">
-    <Import Project="..\..\..\Tools\Microsoft.CodeAnalysis.Toolset.Open\Targets\VSL.Imports.targets" />
-    <Import Project="..\..\..\..\build\VSL.Imports.Closed.targets" />
+    <Import Project="..\..\..\..\build\Targets\VSL.Imports.targets" />
     <Import Project="$(SolutionDir)\.nuget\NuGet.targets" Condition="Exists('$(SolutionDir)\.nuget\NuGet.targets')" />
   </ImportGroup>
 </Project>

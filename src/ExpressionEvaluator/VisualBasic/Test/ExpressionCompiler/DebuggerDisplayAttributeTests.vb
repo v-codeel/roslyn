@@ -4,6 +4,7 @@ Imports Microsoft.CodeAnalysis.CodeGen
 Imports Microsoft.CodeAnalysis.ExpressionEvaluator
 Imports Microsoft.CodeAnalysis.Test.Utilities
 Imports Microsoft.VisualStudio.Debugger.Evaluation.ClrCompilation
+Imports Roslyn.Test.Utilities
 Imports Xunit
 
 Namespace Microsoft.CodeAnalysis.VisualBasic.UnitTests
@@ -30,13 +31,12 @@ Public Class Derived
     End Function
 End Class
 "
-            Dim comp = CreateCompilationWithMscorlib({source}, compOptions:=TestOptions.DebugDll)
+            Dim comp = CreateCompilationWithMscorlib({source}, options:=TestOptions.DebugDll)
             Dim runtime = CreateRuntimeInstance(comp, includeSymbols:=False)
             Dim context = CreateTypeContext(runtime, "Derived")
-            Dim resultProperties As ResultProperties = Nothing
             Dim errorMessage As String = Nothing
             Dim testData As New CompilationTestData()
-            Dim result = context.CompileExpression("GetDebuggerDisplay()", resultProperties, errorMessage, testData)
+            Dim result = context.CompileExpression("GetDebuggerDisplay()", errorMessage, testData)
             Assert.Null(errorMessage)
             testData.GetMethodData("<>x.<>m0").VerifyIL("
 {

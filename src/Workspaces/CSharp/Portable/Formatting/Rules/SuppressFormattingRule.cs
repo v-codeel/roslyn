@@ -14,13 +14,13 @@ namespace Microsoft.CodeAnalysis.CSharp.Formatting
     {
         internal const string Name = "CSharp Suppress Formatting Rule";
 
-        public override void AddSuppressOperations(List<SuppressOperation> list, SyntaxNode node, OptionSet optionSet, NextAction<SuppressOperation> nextOperation)
+        public override void AddSuppressOperations(List<SuppressOperation> list, SyntaxNode node, SyntaxToken lastToken, OptionSet optionSet, NextAction<SuppressOperation> nextOperation)
         {
             nextOperation.Invoke(list);
 
             AddInitializerSuppressOperations(list, node);
 
-            AddBraceSuppressOperations(list, node);
+            AddBraceSuppressOperations(list, node, lastToken);
 
             AddStatementExceptBlockSuppressOperations(list, node);
 
@@ -54,6 +54,11 @@ namespace Microsoft.CodeAnalysis.CSharp.Formatting
             {
                 var tokens = memberDeclNode.GetFirstAndLastMemberDeclarationTokensAfterAttributes();
                 AddSuppressWrappingIfOnSingleLineOperation(list, tokens.Item1, tokens.Item2);
+                var propertyDeclNode = node as PropertyDeclarationSyntax;
+                if (propertyDeclNode?.Initializer != null && propertyDeclNode?.AccessorList != null)
+                {
+                    AddSuppressWrappingIfOnSingleLineOperation(list, tokens.Item1, propertyDeclNode.AccessorList.GetLastToken());
+                }
                 return;
             }
 
@@ -153,27 +158,6 @@ namespace Microsoft.CodeAnalysis.CSharp.Formatting
             var lastToken = statementNode.GetLastToken(includeZeroWidth: true);
 
             AddSuppressWrappingIfOnSingleLineOperation(list, firstToken, lastToken);
-        }
-
-        private void AddBraceSuppressOperations(List<SuppressOperation> list, SyntaxNode node)
-        {
-            var bracePair = node.GetBracePair();
-            if (!bracePair.IsValidBracePair())
-            {
-                return;
-            }
-
-            var firstTokenOfNode = node.GetFirstToken(includeZeroWidth: true);
-
-            if (node.IsLambdaBodyBlock())
-            {
-                // include lambda itself.
-                firstTokenOfNode = node.Parent.GetFirstToken(includeZeroWidth: true);
-            }
-
-            // suppress wrapping on whole construct that owns braces and also brace pair itself if it is on same line
-            AddSuppressWrappingIfOnSingleLineOperation(list, firstTokenOfNode, bracePair.Item2);
-            AddSuppressWrappingIfOnSingleLineOperation(list, bracePair.Item1, bracePair.Item2);
         }
 
         private void AddInitializerSuppressOperations(List<SuppressOperation> list, SyntaxNode node)

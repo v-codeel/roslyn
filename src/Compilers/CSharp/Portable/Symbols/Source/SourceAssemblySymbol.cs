@@ -84,12 +84,12 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
         ///  (a) Key: Unassigned field symbol.
         ///  (b) Value: True if the unassigned field is effectively internal, false otherwise.
         /// </summary>
-        private ConcurrentDictionary<FieldSymbol, bool> _unassignedFieldsMap = new ConcurrentDictionary<FieldSymbol, bool>();
+        private readonly ConcurrentDictionary<FieldSymbol, bool> _unassignedFieldsMap = new ConcurrentDictionary<FieldSymbol, bool>();
 
         /// <summary>
         /// private fields declared in this assembly but never read
         /// </summary>
-        private ConcurrentSet<FieldSymbol> _unreadFields = new ConcurrentSet<FieldSymbol>();
+        private readonly ConcurrentSet<FieldSymbol> _unreadFields = new ConcurrentSet<FieldSymbol>();
 
         /// <summary>
         /// We imitate the native compiler's policy of not warning about unused fields
@@ -551,10 +551,10 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
             // Consider: should we allow to OSS sign if the key file only contains public key?
 
             if (DeclaringCompilation.Options.OutputKind != OutputKind.NetModule &&
-                DeclaringCompilation.Options.CryptoPublicKey.IsEmpty &&                
-                Identity.HasPublicKey&&
+                DeclaringCompilation.Options.CryptoPublicKey.IsEmpty &&
+                Identity.HasPublicKey &&
                 !IsDelaySigned &&
-                !StrongNameKeys.CanSign&&
+                !StrongNameKeys.CanSign &&
                 StrongNameKeys.DiagnosticOpt == null)
             {
                 // Since the container always contains both keys, the problem is that the key file didn't contain private key.
@@ -735,7 +735,7 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
                     // native compiler emits both of them, synthetic attribute is emitted after the one from source. Incidentally, ALink picks the last attribute
                     // for signing and things seem to work out. However, relying on the order of attributes feels fragile, especially given that Roslyn emits
                     // synthetic attributes before attributes from source. The behavior we settled on for .NET modules is that, if the attribute in source has the
-                    // same value as the one in compilation options, we won't emit the senthetic attribute. If the value doesn't match, we report an error, which 
+                    // same value as the one in compilation options, we won't emit the synthetic attribute. If the value doesn't match, we report an error, which 
                     // is a breaking change. Bottom line, we will never produce a module or an assembly with two attributes, regardless whether values are the same
                     // or not.
                     if (_compilation.Options.OutputKind == OutputKind.NetModule)
@@ -1545,7 +1545,7 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
 
                         if (attribute != null)
                         {
-                            yield return new Cci.SecurityAttribute((Cci.SecurityAction)constantValue, attribute);
+                            yield return new Cci.SecurityAttribute((DeclarativeSecurityAction)(int)constantValue, attribute);
                         }
                     }
                 }
@@ -1773,8 +1773,7 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
                         }
                         break;
                     default:
-                        Debug.Assert(false, "Unexpected member kind: " + member.Kind);
-                        break;
+                        throw ExceptionUtilities.UnexpectedValue(member.Kind);
                 }
             }
             return false;
@@ -1969,7 +1968,8 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
                 return;
             }
 
-            const AssemblyIdentityParts allowedParts = AssemblyIdentityParts.Name | AssemblyIdentityParts.PublicKey;
+            // Allow public key token due to compatibility reasons, but we are not going to use its value.
+            const AssemblyIdentityParts allowedParts = AssemblyIdentityParts.Name | AssemblyIdentityParts.PublicKey | AssemblyIdentityParts.PublicKeyToken;
 
             if ((parts & ~allowedParts) != 0)
             {
@@ -2339,11 +2339,11 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
 
                 foreach (FieldSymbol field in _unassignedFieldsMap.Keys) // Not mutating, so no snapshot required.
                 {
-                    bool isInternalAccessiblity;
-                    bool success = _unassignedFieldsMap.TryGetValue(field, out isInternalAccessiblity);
-                    Debug.Assert(success, "Once CompletionPart.Module is set, no one should be modifying the map.");
+                    bool isInternalAccessibility;
+                    bool success = _unassignedFieldsMap.TryGetValue(field, out isInternalAccessibility);
+                    Debug.Assert(success, "Once CompletionPart.Module is set, no-one should be modifying the map.");
 
-                    if (isInternalAccessiblity && internalsAreVisible)
+                    if (isInternalAccessibility && internalsAreVisible)
                     {
                         continue;
                     }

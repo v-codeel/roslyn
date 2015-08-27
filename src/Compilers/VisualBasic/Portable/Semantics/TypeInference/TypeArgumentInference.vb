@@ -44,7 +44,7 @@ Namespace Microsoft.CodeAnalysis.VisualBasic
                                         useSiteDiagnostics, diagnostic, inferTheseTypeParameters)
         End Function
 
-        ' No one should create instances of this class.
+        ' No-one should create instances of this class.
         Private Sub New()
         End Sub
 
@@ -724,16 +724,16 @@ HandleAsAGeneralExpression:
 
                 ' Build a graph describing the flow of type inference data.
                 ' This creates edges from "regular" arguments to type parameters and from type parameters to lambda arguments. 
-                ' In the rest of this function that graph is then processed (see below for more details).  Essentally, for each
+                ' In the rest of this function that graph is then processed (see below for more details).  Essentially, for each
                 ' "type parameter" node a list of "type hints" (possible candidates for type inference) is collected. The dominant
                 ' type algorithm is then performed over the list of hints associated with each node.
                 ' 
                 ' The process of populating the graph also seeds type hints for type parameters referenced by explicitly typed
                 ' lambda parameters. Also, hints sometimes have restrictions placed on them that limit what conversions the dominant type
-                ' algorithm can consider when it processes them. The restrictions are generally driven by the context in whcih type
+                ' algorithm can consider when it processes them. The restrictions are generally driven by the context in which type
                 ' parameters are used. For example if a type parameter is used as a type parameter of another type (something like IFoo(of T)),
                 ' then the dominant type algorithm is not allowed to consider any conversions. There are similar restrictions for
-                ' Array co-varaince.
+                ' Array co-variance.
 
                 graph.PopulateGraph()
 
@@ -752,7 +752,7 @@ HandleAsAGeneralExpression:
                     ' type hints as appropriate. 
                     '
                     ' When we find a node for an argument (or an ArgumentNode as it's referred to in the code), we infer
-                    ' types for all type parameters referenced by that argument and then propogate those types as hints
+                    ' types for all type parameters referenced by that argument and then propagate those types as hints
                     ' to the referenced type parameters. If there are incoming edges into the argument node, they correspond
                     ' to parameters of lambda arguments that get their value from the delegate type that contains type
                     ' parameters that would have been inferred during a previous iteration of the loop. Those types are
@@ -792,16 +792,14 @@ HandleAsAGeneralExpression:
                                 '               don't want to silently mask the bug. At a minimum we should either assert or generate a compiler error.
                                 '               
                                 '               An argument could be made that it is good to have this because
-                                '               InferTypeandPropagateHints is virtual, and should some new node type be
+                                '               InferTypeAndPropagateHints is virtual, and should some new node type be
                                 '               added it's implementation may return true, and so this would follow that
                                 '               path. That argument does make some tiny amount of sense, and so we
                                 '               should keep this code here to make it easier to make any such
                                 '               modifications in the future. However, we still need an assert to guard
                                 '               against graph traversal bugs, and in the event that such changes are
                                 '               made, leave it to the modifier to remove the assert if necessary.
-                                Debug.Assert(False)
-                                restartAlgorithm = True
-                                Exit For
+                                Throw ExceptionUtilities.Unreachable
                             End If
 
                         Else
@@ -1166,7 +1164,7 @@ HandleAsAGeneralExpression:
 
                     If invoke IsNot Nothing AndAlso invoke.GetUseSiteErrorInfo() Is Nothing AndAlso delegateType.IsGenericType Then
 
-                        Dim delegateParemeters As ImmutableArray(Of ParameterSymbol) = invoke.Parameters
+                        Dim delegateParameters As ImmutableArray(Of ParameterSymbol) = invoke.Parameters
                         Dim lambdaParameters As ImmutableArray(Of ParameterSymbol)
 
                         Select Case argNode.Expression.Kind
@@ -1182,7 +1180,7 @@ HandleAsAGeneralExpression:
 
                         Dim haveSeenTypeParameters = BitVector.Create(_typeParameterNodes.Length)
 
-                        For i As Integer = 0 To Math.Min(delegateParemeters.Length, lambdaParameters.Length) - 1 Step 1
+                        For i As Integer = 0 To Math.Min(delegateParameters.Length, lambdaParameters.Length) - 1 Step 1
                             If lambdaParameters(i).Type IsNot Nothing Then
                                 ' Prepopulate the hint from the lambda's parameter.
                                 ' !!! Unlike Dev10, we are using MatchArgumentToBaseOfGenericParameter because a value of generic 
@@ -1192,13 +1190,13 @@ HandleAsAGeneralExpression:
                                     argNode.Expression.Syntax,
                                     lambdaParameters(i).Type,
                                     argumentTypeByAssumption:=False,
-                                    parameterType:=delegateParemeters(i).Type,
-                                    param:=delegateParemeters(i),
+                                    parameterType:=delegateParameters(i).Type,
+                                    param:=delegateParameters(i),
                                     digThroughToBasesAndImplements:=MatchGenericArgumentToParameter.MatchArgumentToBaseOfGenericParameter,
                                     inferenceRestrictions:=RequiredConversion.Any)
                             End If
 
-                            AddTypeToGraph(delegateParemeters(i).Type, argNode, isOutgoingEdge:=False, haveSeenTypeParameters:=haveSeenTypeParameters)
+                            AddTypeToGraph(delegateParameters(i).Type, argNode, isOutgoingEdge:=False, haveSeenTypeParameters:=haveSeenTypeParameters)
                         Next
 
                         haveSeenTypeParameters.Clear()
@@ -1531,7 +1529,7 @@ HandleAsAGeneralExpression:
             ' and "true" if it succeeded.
             ' Success in pattern-matching may or may not produce type-hints for generic parameters.
             ' If it happened not to produce any type-hints, then maybe other argument/parameter pairs will have produced
-            ' their own type hints that allow inference to succeed, or maybe no one else will have produced type hints,
+            ' their own type hints that allow inference to succeed, or maybe no-one else will have produced type hints,
             ' or maybe other people will have produced conflicting type hints. In those cases, we'd return True from
             ' here (to show success at pattern-matching) and leave the downstream code to produce an error message about
             ' failing to infer T.
@@ -1566,7 +1564,7 @@ HandleAsAGeneralExpression:
                 End If
 
 
-                ' If we didn't find a direct match, we will have to look in base clases for a match.
+                ' If we didn't find a direct match, we will have to look in base classes for a match.
                 ' We'll either fix ParameterType and look amongst the bases of ArgumentType,
                 ' or we'll fix ArgumentType and look amongst the bases of ParameterType,
                 ' depending on the "DigThroughToBasesAndImplements" flag. This flag is affected by
@@ -1924,10 +1922,10 @@ HandleAsAGeneralExpression:
 
                     Select Case argument.Kind
                         Case BoundKind.QueryLambda
-                        ' Do not infer Anonymous Delegate type from query lambda.
+                            ' Do not infer Anonymous Delegate type from query lambda.
 
                         Case BoundKind.GroupTypeInferenceLambda
-                        ' Can't infer from this lambda.
+                            ' Can't infer from this lambda.
 
                         Case BoundKind.UnboundLambda
                             ' Infer Anonymous Delegate type from unbound lambda.
@@ -2019,7 +2017,7 @@ HandleAsAGeneralExpression:
                                 ' if that doesn't happen it will report an error.
 
                                 ' TODO: Why does it make sense to continue here? It looks like we can infer something from
-                                '       lambda's return type based on incomplete information. Also, this 'if' is redundand,
+                                '       lambda's return type based on incomplete information. Also, this 'if' is redundant,
                                 '       there is nothing left to do in this loop anyway, and "continue" doesn't change anything. 
                                 Continue For
                             End If
@@ -2069,10 +2067,7 @@ HandleAsAGeneralExpression:
                                 Dim inferenceSignature As New UnboundLambda.TargetSignature(delegateParams, unboundLambda.Binder.Compilation.GetSpecialType(SpecialType.System_Void))
                                 Dim returnTypeInfo As KeyValuePair(Of TypeSymbol, ImmutableArray(Of Diagnostic)) = unboundLambda.InferReturnType(inferenceSignature)
 
-                                If returnTypeInfo.Key Is LambdaSymbol.ReturnTypeIsUnknown Then
-                                    lambdaReturnType = Nothing
-
-                                ElseIf Not returnTypeInfo.Value.IsDefault AndAlso returnTypeInfo.Value.HasAnyErrors() Then
+                                If Not returnTypeInfo.Value.IsDefault AndAlso returnTypeInfo.Value.HasAnyErrors() Then
                                     lambdaReturnType = Nothing
 
                                     ' Let's keep return type inference errors
@@ -2081,6 +2076,10 @@ HandleAsAGeneralExpression:
                                     End If
 
                                     Me.Diagnostic.AddRange(returnTypeInfo.Value)
+
+                                ElseIf returnTypeInfo.Key Is LambdaSymbol.ReturnTypeIsUnknown Then
+                                    lambdaReturnType = Nothing
+
                                 Else
                                     Dim boundLambda As BoundLambda = unboundLambda.Bind(New UnboundLambda.TargetSignature(inferenceSignature.ParameterTypes,
                                                                                                                           inferenceSignature.IsByRef,
@@ -2100,6 +2099,15 @@ HandleAsAGeneralExpression:
                                         End If
                                     Else
                                         lambdaReturnType = Nothing
+
+                                        ' Let's preserve diagnostics that caused the failure
+                                        If Not boundLambda.Diagnostics.IsDefaultOrEmpty Then
+                                            If Me.Diagnostic Is Nothing Then
+                                                Me.Diagnostic = New DiagnosticBag()
+                                            End If
+
+                                            Me.Diagnostic.AddRange(boundLambda.Diagnostics)
+                                        End If
                                     End If
                                 End If
 
@@ -2188,23 +2196,26 @@ HandleAsAGeneralExpression:
                 ' arguments as they stand right now, with some of them still being uninferred.
 
                 Dim methodSymbol As MethodSymbol = Candidate
-                Dim typeArguments(_typeParameterNodes.Length - 1) As TypeSymbol
+                Dim typeArguments = ArrayBuilder(Of TypeWithModifiers).GetInstance(_typeParameterNodes.Length)
 
                 For i As Integer = 0 To _typeParameterNodes.Length - 1 Step 1
                     Dim typeNode As TypeParameterNode = _typeParameterNodes(i)
+                    Dim newType As TypeSymbol
 
                     If typeNode Is Nothing OrElse typeNode.CandidateInferredType Is Nothing Then
                         'No substitution
-                        typeArguments(i) = methodSymbol.TypeParameters(i)
+                        newType = methodSymbol.TypeParameters(i)
                     Else
-                        typeArguments(i) = typeNode.CandidateInferredType
+                        newType = typeNode.CandidateInferredType
                     End If
+
+                    typeArguments.Add(New TypeWithModifiers(newType))
                 Next
 
-                Dim partialSubstitution = TypeSubstitution.CreateAdditionalMethodTypeParameterSubstitution(methodSymbol.ConstructedFrom, typeArguments.AsImmutableOrNull())
+                Dim partialSubstitution = TypeSubstitution.CreateAdditionalMethodTypeParameterSubstitution(methodSymbol.ConstructedFrom, typeArguments.ToImmutableAndFree())
 
                 ' Now we apply the partial substitution to the delegate type, leaving uninferred type parameters as is
-                Return parameterType.InternalSubstituteTypeParameters(partialSubstitution)
+                Return parameterType.InternalSubstituteTypeParameters(partialSubstitution).Type
             End Function
 
             Public Sub ReportAmbiguousInferenceError(typeInfos As ArrayBuilder(Of DominantTypeDataTypeInference))

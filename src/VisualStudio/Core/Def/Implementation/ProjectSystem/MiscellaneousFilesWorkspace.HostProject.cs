@@ -3,6 +3,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using EnvDTE;
 using Microsoft.CodeAnalysis;
 using Roslyn.Utilities;
 
@@ -12,8 +13,8 @@ namespace Microsoft.VisualStudio.LanguageServices.Implementation.ProjectSystem
     {
         private class HostProject : IVisualStudioHostProject
         {
-            public ProjectId Id { get; private set; }
-            public string Language { get; private set; }
+            public ProjectId Id { get; }
+            public string Language { get; }
 
             internal IVisualStudioHostDocument Document { get; set; }
 
@@ -61,20 +62,15 @@ namespace Microsoft.VisualStudio.LanguageServices.Implementation.ProjectSystem
                     hostObjectType: null);
             }
 
-            public Microsoft.VisualStudio.Shell.Interop.IVsHierarchy Hierarchy
-            {
-                get { return null; }
-            }
+            public Microsoft.VisualStudio.Shell.Interop.IVsHierarchy Hierarchy => null;
 
-            public Workspace Workspace
-            {
-                get { return _workspace; }
-            }
+            public Guid Guid => Guid.Empty;
 
-            public string ProjectSystemName
-            {
-                get { return "MiscellaneousFiles"; }
-            }
+            public string ProjectType => Constants.vsProjectKindMisc;
+
+            public Workspace Workspace => _workspace;
+
+            public string ProjectSystemName => "MiscellaneousFiles";
 
             public IVisualStudioHostDocument GetDocumentOrAdditionalDocument(DocumentId id)
             {

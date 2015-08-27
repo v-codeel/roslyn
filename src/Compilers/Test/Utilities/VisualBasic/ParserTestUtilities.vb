@@ -11,7 +11,7 @@ Imports Microsoft.CodeAnalysis.VisualBasic.SyntaxFacts
 Imports Roslyn.Test.Utilities
 Imports Xunit
 
-Module ParserTestUtilities
+Friend Module ParserTestUtilities
 
     ' TODO (tomat): only checks error codes; we should also check error span and arguments
     Public Function ParseAndVerify(code As XCData, Optional expectedErrors As XElement = Nothing) As SyntaxTree
@@ -31,7 +31,7 @@ Module ParserTestUtilities
             expectedDiagnostics = New DiagnosticDescription(expectedXml.Count - 1) {}
             For i = 0 To expectedDiagnostics.Length - 1
                 Dim e = expectedXml.ElementAt(i)
-                expectedDiagnostics(i) = BasicTestBase.Diagnostic(CType(CInt(e.@id), ERRID))
+                expectedDiagnostics(i) = TestBase.Diagnostic(CType(CInt(e.@id), ERRID))
 
                 Debug.Assert(e.@line Is Nothing, "'line' attribute will be ignored")
                 Debug.Assert(e.@column Is Nothing, "'column' attribute will be ignored")
@@ -320,7 +320,7 @@ Public Module VerificationHelpers
     <Extension()>
     Public Function FindNodeOrTokenByKind(tree As SyntaxTree, kind As SyntaxKind, Optional occurrence As Integer = 1) As SyntaxNodeOrToken
         If Not occurrence > 0 Then
-            Throw New ArgumentException("Specified value must be greater than zero.", "occurrence")
+            Throw New ArgumentException("Specified value must be greater than zero.", NameOf(occurrence))
         End If
         Dim foundNode As SyntaxNodeOrToken = Nothing
         If TryFindNodeOrToken(tree.GetRoot(), kind, occurrence, foundNode) Then
@@ -427,7 +427,7 @@ Public Module VerificationHelpers
     <Extension()>
     Public Function VerifyNoAdjacentTriviaHaveSameKind(tree As SyntaxTree) As SyntaxTree
         For Each child In tree.GetRoot().ChildNodesAndTokens()
-            InternalVerifyNoAdjcentTriviaHaveSameKind(child)
+            InternalVerifyNoAdjacentTriviaHaveSameKind(child)
         Next
         Return tree
     End Function
@@ -790,16 +790,16 @@ Public Module VerificationHelpers
         End If
     End Sub
 
-    Private Sub InternalVerifyNoAdjcentTriviaHaveSameKind(node As SyntaxNodeOrToken)
+    Private Sub InternalVerifyNoAdjacentTriviaHaveSameKind(node As SyntaxNodeOrToken)
         If node.IsNode Then
             For Each child In node.AsNode.ChildNodesAndTokens()
-                InternalVerifyNoAdjcentTriviaHaveSameKind(child)
+                InternalVerifyNoAdjacentTriviaHaveSameKind(child)
             Next
         Else
             Dim prev As SyntaxTrivia? = Nothing
             For Each tr In node.AsToken.LeadingTrivia
                 If tr.HasStructure Then
-                    InternalVerifyNoAdjcentTriviaHaveSameKind(tr.GetStructure)
+                    InternalVerifyNoAdjacentTriviaHaveSameKind(tr.GetStructure)
                 End If
                 If prev IsNot Nothing Then
                     Assert.True(prev.Value.Kind <> tr.Kind,
@@ -811,7 +811,7 @@ Public Module VerificationHelpers
             prev = Nothing
             For Each tr In node.AsToken.LeadingTrivia
                 If tr.HasStructure Then
-                    InternalVerifyNoAdjcentTriviaHaveSameKind(tr.GetStructure)
+                    InternalVerifyNoAdjacentTriviaHaveSameKind(tr.GetStructure)
                 End If
                 If prev IsNot Nothing Then
                     Assert.True(prev.Value.Kind <> tr.Kind,
@@ -999,7 +999,7 @@ Public Module VerificationHelpers
             MyBase.VisitXmlBracketedName(node)
         End Sub
 
-        Sub IncrementTypeCounter(Node As VisualBasicSyntaxNode, NodeKey As String)
+        Public Sub IncrementTypeCounter(Node As VisualBasicSyntaxNode, NodeKey As String)
             _Items.Add(Node)
             If _Dict.ContainsKey(NodeKey) Then
                 _Dict(NodeKey) = _Dict(NodeKey) + 1 'Increment Count

@@ -137,7 +137,7 @@ namespace Microsoft.CodeAnalysis.Editor.UnitTests
 
         public IEnumerable<Lazy<TExport, TMetadata>> GetExports<TExport, TMetadata>()
         {
-            return (IEnumerable<Lazy<TExport, TMetadata>>)Workspace.ExportProvider.GetExports<TExport, TMetadata>();
+            return Workspace.ExportProvider.GetExports<TExport, TMetadata>();
         }
 
         public T GetExportedValue<T>()
@@ -338,6 +338,11 @@ namespace Microsoft.CodeAnalysis.Editor.UnitTests
         public void SendSave(Action<SaveCommandArgs, Action> commandHandler, Action nextHandler)
         {
             commandHandler(new SaveCommandArgs(TextView, SubjectBuffer), nextHandler);
+        }
+
+        public void SendSelectAll(Action<SelectAllCommandArgs, Action> commandHandler, Action nextHandler)
+        {
+            commandHandler(new SelectAllCommandArgs(TextView, SubjectBuffer), nextHandler);
         }
 
         #endregion

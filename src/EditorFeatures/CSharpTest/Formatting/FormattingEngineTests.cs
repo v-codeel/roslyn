@@ -1,9 +1,11 @@
 ﻿// Copyright (c) Microsoft.  All Rights Reserved.  Licensed under the Apache License, Version 2.0.  See License.txt in the project root for license information.
 
+using System.Collections.Generic;
 using System.Linq;
 using Microsoft.CodeAnalysis.Editor.Commands;
 using Microsoft.CodeAnalysis.Editor.Implementation.Formatting;
 using Microsoft.CodeAnalysis.Editor.Options;
+using Microsoft.CodeAnalysis.Editor.Shared.Options;
 using Microsoft.CodeAnalysis.Editor.UnitTests.Utilities;
 using Microsoft.CodeAnalysis.Editor.UnitTests.Workspaces;
 using Microsoft.CodeAnalysis.Formatting;
@@ -815,7 +817,7 @@ class Program
         [WorkItem(449)]
         [WorkItem(1077103)]
         [Fact, Trait(Traits.Feature, Traits.Features.Formatting)]
-        public void NoFormattingInsideCommentsOfPreprocessorDirectves()
+        public void NoFormattingInsideCommentsOfPreprocessorDirectives()
         {
             var code = @"class Program
 {
@@ -1038,7 +1040,7 @@ class C : Attribute
         [WorkItem(464)]
         [WorkItem(908729)]
         [Fact, Trait(Traits.Feature, Traits.Features.Formatting)]
-        public void DoNotFormatColonInTyepPararmeter()
+        public void DoNotFormatColonInTypeParameter()
         {
             var code = @"class Program<T>
 {
@@ -1060,10 +1062,231 @@ class C : Attribute
             AssertFormatAfterTypeChar(code, expected);
         }
 
-        private static void AssertFormatAfterTypeChar(string code, string expected)
+        [WorkItem(2224, "https://github.com/dotnet/roslyn/issues/2224")]
+        [Fact, Trait(Traits.Feature, Traits.Features.Formatting)]
+        public void DontSmartFormatBracesOnSmartIndentNone()
+        {
+            var code = @"class Program<T>
+{
+    class C1<U>
+{$$
+}";
+
+            var expected = @"class Program<T>
+{
+    class C1<U>
+{
+}";
+            var optionSet = new Dictionary<OptionKey, object>
+                            {
+                                { new OptionKey(FormattingOptions.SmartIndent, LanguageNames.CSharp), FormattingOptions.IndentStyle.None }
+                            };
+            AssertFormatAfterTypeChar(code, expected, optionSet);
+        }
+
+        [Fact]
+        [Trait(Traits.Feature, Traits.Features.SmartTokenFormatting)]
+        public void StillAutoIndentCloseBraceWhenFormatOnCloseBraceIsOff()
+        {
+            var code = @"namespace N
+{
+    class C
+    {
+             // improperly indented code
+             int x = 10;
+        }$$
+}
+";
+
+            var expected = @"namespace N
+{
+    class C
+    {
+             // improperly indented code
+             int x = 10;
+    }
+}
+";
+
+            var optionSet = new Dictionary<OptionKey, object>
+            {
+                    { new OptionKey(FeatureOnOffOptions.AutoFormattingOnCloseBrace, LanguageNames.CSharp), false }
+            };
+
+            AssertFormatAfterTypeChar(code, expected, optionSet);
+        }
+
+        [Fact, Trait(Traits.Feature, Traits.Features.Formatting)]
+        public void DoNotFormatIncompleteBlockOnSingleLineIfNotTypingCloseCurly1()
+        {
+            var code = @"namespace ConsoleApplication1
+{
+    class Program
+    {
+        static bool Property
+        {
+            get { return true;$$
+    }
+}";
+            var expected = @"namespace ConsoleApplication1
+{
+    class Program
+    {
+        static bool Property
+        {
+            get { return true;
+    }
+}";
+            AssertFormatAfterTypeChar(code, expected);
+        }
+
+        [Fact, Trait(Traits.Feature, Traits.Features.Formatting)]
+        public void DoNotFormatIncompleteBlockOnSingleLineIfNotTypingCloseCurly2()
+        {
+            var code = @"namespace ConsoleApplication1
+{
+    class Program
+    {
+        static bool Property { get { return true;$$
+    }
+}";
+            var expected = @"namespace ConsoleApplication1
+{
+    class Program
+    {
+        static bool Property { get { return true;
+    }
+}";
+            AssertFormatAfterTypeChar(code, expected);
+        }
+
+        [Fact, Trait(Traits.Feature, Traits.Features.Formatting)]
+        public void DoNotFormatIncompleteBlockOnSingleLineIfNotTypingCloseCurly3()
+        {
+            var code = @"namespace ConsoleApplication1
+{
+    class Program
+    {
+        static bool Property { get;$$
+    }
+}";
+            var expected = @"namespace ConsoleApplication1
+{
+    class Program
+    {
+        static bool Property { get;
+    }
+}";
+            AssertFormatAfterTypeChar(code, expected);
+        }
+
+        [Fact, Trait(Traits.Feature, Traits.Features.Formatting)]
+        public void DoNotFormatCompleteBlockOnSingleLineIfTypingCloseCurly1()
+        {
+            var code = @"namespace ConsoleApplication1
+{
+    class Program
+    {
+        static bool Property
+        {
+            get { return true; }$$
+}";
+            var expected = @"namespace ConsoleApplication1
+{
+    class Program
+    {
+        static bool Property
+        {
+            get { return true; }
+}";
+            AssertFormatAfterTypeChar(code, expected);
+        }
+
+        [Fact, Trait(Traits.Feature, Traits.Features.Formatting)]
+        public void DoNotFormatCompleteBlockOnSingleLineIfTypingCloseCurly2()
+        {
+            var code = @"namespace ConsoleApplication1
+{
+    class Program
+    {
+        static bool Property { get { return true; }$$
+}";
+            var expected = @"namespace ConsoleApplication1
+{
+    class Program
+    {
+        static bool Property { get { return true; }
+}";
+            AssertFormatAfterTypeChar(code, expected);
+        }
+
+        [Fact, Trait(Traits.Feature, Traits.Features.Formatting)]
+        public void FormatIncompleteBlockOnMultipleLinesIfTypingCloseCurly1()
+        {
+            var code = @"namespace ConsoleApplication1
+{
+    class Program
+    {
+        static bool Property
+        {
+            get { return true;
+    }$$
+}";
+            var expected = @"namespace ConsoleApplication1
+{
+    class Program
+    {
+        static bool Property
+        {
+            get
+            {
+                return true;
+            }
+}";
+            AssertFormatAfterTypeChar(code, expected);
+        }
+
+        [Fact, Trait(Traits.Feature, Traits.Features.Formatting)]
+        public void FormatIncompleteBlockOnMultipleLinesIfTypingCloseCurly2()
+        {
+            var code = @"namespace ConsoleApplication1
+{
+    class Program
+    {
+        static bool Property
+        {
+            get { return true;
+    }
+}$$";
+            var expected = @"namespace ConsoleApplication1
+{
+    class Program
+    {
+        static bool Property
+        {
+            get
+            {
+                return true;
+            }
+        }";
+            AssertFormatAfterTypeChar(code, expected);
+        }
+
+        private static void AssertFormatAfterTypeChar(string code, string expected, Dictionary<OptionKey, object> changedOptionSet = null)
         {
             using (var workspace = CSharpWorkspaceFactory.CreateWorkspaceFromFile(code))
             {
+                if (changedOptionSet != null)
+                {
+                    var options = workspace.Options;
+                    foreach (var entry in changedOptionSet)
+                    {
+                        options = options.WithChangedOption(entry.Key, entry.Value);
+                    }
+
+                    workspace.Options = options;
+                }
+
                 var subjectDocument = workspace.Documents.Single();
 
                 var textUndoHistory = new Mock<ITextUndoHistoryRegistry>();

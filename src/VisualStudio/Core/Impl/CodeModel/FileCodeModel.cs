@@ -609,7 +609,7 @@ namespace Microsoft.VisualStudio.LanguageServices.Implementation.CodeModel
                 scope == EnvDTE.vsCMElement.vsCMElementImplementsStmt ||
                 (scope == EnvDTE.vsCMElement.vsCMElementFunction && CodeModelService.IsAccessorNode(node)))
             {
-                // Attributes, imports, parameters, Option, Inherts and Implements
+                // Attributes, imports, parameters, Option, Inherits and Implements
                 // don't have node keys of their own and won't be included in our
                 // collection of elements. Delegate to the service to create these.
                 return CodeModelService.CreateInternalCodeElement(State, this, node);
@@ -674,7 +674,7 @@ namespace Microsoft.VisualStudio.LanguageServices.Implementation.CodeModel
             {
                 if (_editCount == 1)
                 {
-                    List<ValueTuple<AbstractKeyedCodeElement, SyntaxPath>> elementAndPathes = null;
+                    List<ValueTuple<AbstractKeyedCodeElement, SyntaxPath>> elementAndPaths = null;
                     if (_batchElements.Count > 0)
                     {
                         foreach (var element in _batchElements)
@@ -682,8 +682,8 @@ namespace Microsoft.VisualStudio.LanguageServices.Implementation.CodeModel
                             var node = element.LookupNode();
                             if (node != null)
                             {
-                                elementAndPathes = elementAndPathes ?? new List<ValueTuple<AbstractKeyedCodeElement, SyntaxPath>>();
-                                elementAndPathes.Add(ValueTuple.Create(element, new SyntaxPath(node)));
+                                elementAndPaths = elementAndPaths ?? new List<ValueTuple<AbstractKeyedCodeElement, SyntaxPath>>();
+                                elementAndPaths.Add(ValueTuple.Create(element, new SyntaxPath(node)));
                             }
                         }
                     }
@@ -701,15 +701,15 @@ namespace Microsoft.VisualStudio.LanguageServices.Implementation.CodeModel
                     // Ensure the file is prettylisted, even if we didn't make any edits
                     CodeModelService.EnsureBufferFormatted(_invisibleEditor.TextBuffer);
 
-                    if (elementAndPathes != null)
+                    if (elementAndPaths != null)
                     {
-                        foreach (var elementAndPath in elementAndPathes)
+                        foreach (var elementAndPath in elementAndPaths)
                         {
                             // make sure the element is there.
                             var existingElement = _elementTable.TryGetValue(elementAndPath.Item1.NodeKey);
                             if (existingElement != null)
                             {
-                                elementAndPath.Item1.ReaquireNodeKey(elementAndPath.Item2, CancellationToken.None);
+                                elementAndPath.Item1.ReacquireNodeKey(elementAndPath.Item2, CancellationToken.None);
                             }
 
                             // make sure existing element doesn't go away (weak reference) in the middle of
@@ -820,7 +820,7 @@ namespace Microsoft.VisualStudio.LanguageServices.Implementation.CodeModel
             // element didn't exist...
             if (element != null)
             {
-                ComAggregate.GetManagedObject<AbstractKeyedCodeElement>(element).ReaquireNodeKey(globalNodeKey.Path, default(CancellationToken));
+                ComAggregate.GetManagedObject<AbstractKeyedCodeElement>(element).ReacquireNodeKey(globalNodeKey.Path, default(CancellationToken));
             }
         }
     }

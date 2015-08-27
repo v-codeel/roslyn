@@ -2023,7 +2023,7 @@ Imports System
 
 <Assembly: CLSCompliant(True)>
                         ]]>
-                                                                                                                                               </file>
+                    </file>
                 </compilation>
 
             CreateCompilationWithMscorlib(source, options:=TestOptions.ReleaseDll.WithRootNamespace("_A.B.C")).AssertTheseDiagnostics(<errors><![CDATA[
@@ -2095,7 +2095,7 @@ BC40042: Type of optional value for optional parameter 'x07' is not CLS-complian
         End Sub
 
         <Fact>
-        Public Sub WRN_OptionalValueNotCLSCompliant1_ParamterTypeNonCompliant()
+        Public Sub WRN_OptionalValueNotCLSCompliant1_ParameterTypeNonCompliant()
             Dim source =
                 <compilation>
                     <file name="a.vb">
@@ -2713,7 +2713,7 @@ End Namespace
 
             Dim tree1 = VisualBasicSyntaxTree.ParseText(String.Format(sourceTemplate, 1), path:="a.vb")
             Dim tree2 = VisualBasicSyntaxTree.ParseText(String.Format(sourceTemplate, 2), path:="b.vb")
-            Dim comp = CreateCompilationWithMscorlib({tree1, tree2}, TestOptions.ReleaseDll)
+            Dim comp = CreateCompilationWithMscorlib({tree1, tree2}, options:=TestOptions.ReleaseDll)
 
             ' Two copies of each diagnostic - one from each file.
             comp.AssertTheseDiagnostics(<errors><![CDATA[
@@ -3029,7 +3029,7 @@ End Class
         End Sub
 
         <Fact>
-        Public Sub ApplyAttributeWithNonCompliantyArgument()
+        Public Sub ApplyAttributeWithNonCompliantArgument()
 
             Dim source =
                 <compilation>

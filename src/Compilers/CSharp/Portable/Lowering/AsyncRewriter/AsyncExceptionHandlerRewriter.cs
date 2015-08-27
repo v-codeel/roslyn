@@ -22,7 +22,7 @@ namespace Microsoft.CodeAnalysis.CSharp
         private readonly DiagnosticBag _diagnostics;
         private readonly AwaitInFinallyAnalysis _analysis;
 
-        private AwaitCatchFrame _currentAwaitCatchFrame = null;
+        private AwaitCatchFrame _currentAwaitCatchFrame;
         private AwaitFinallyFrame _currentAwaitFinallyFrame = new AwaitFinallyFrame();
 
         private AsyncExceptionHandlerRewriter(
@@ -46,7 +46,7 @@ namespace Microsoft.CodeAnalysis.CSharp
         /// Lower a block of code by performing local rewritings. 
         /// The goal is to not have exception handlers that contain awaits in them.
         /// 
-        /// 1) Await containing finallies:
+        /// 1) Await containing finally blocks:
         ///     The general strategy is to rewrite await containing handlers into synthetic handlers.
         ///     Synthetic handlers are not handlers in IL sense so it is ok to have awaits in them.
         ///     Since synthetic handlers are just blocks, we have to deal with pending exception/branch/return manually
@@ -79,7 +79,7 @@ namespace Microsoft.CodeAnalysis.CSharp
         /// 2) Await containing catches:
         ///     try{
         ///         code;
-        ///     }catch (Exeption ex){
+        ///     }catch (Exception ex){
         ///         handler;
         ///         throw;
         ///     }
@@ -137,7 +137,12 @@ namespace Microsoft.CodeAnalysis.CSharp
         public override BoundNode VisitTryStatement(BoundTryStatement node)
         {
             var tryStatementSyntax = node.Syntax;
-            Debug.Assert(tryStatementSyntax.IsKind(SyntaxKind.TryStatement));
+            // If you add a syntax kind to the assertion below, please also ensure
+            // that the scenario has been tested with Edit-and-Continue.
+            Debug.Assert(
+                tryStatementSyntax.IsKind(SyntaxKind.TryStatement) ||
+                tryStatementSyntax.IsKind(SyntaxKind.UsingStatement) ||
+                tryStatementSyntax.IsKind(SyntaxKind.ForEachStatement));
 
             BoundStatement finalizedRegion;
             BoundBlock rewrittenFinally;
@@ -501,7 +506,12 @@ namespace Microsoft.CodeAnalysis.CSharp
         {
             if (!_analysis.CatchContainsAwait(node))
             {
-                return base.VisitCatchBlock(node);
+                var origCurrentAwaitCatchFrame = _currentAwaitCatchFrame;
+                _currentAwaitCatchFrame = null;
+
+                var result = base.VisitCatchBlock(node);
+                _currentAwaitCatchFrame = origCurrentAwaitCatchFrame;
+                return result;
             }
 
             var currentAwaitCatchFrame = _currentAwaitCatchFrame;
@@ -682,13 +692,13 @@ namespace Microsoft.CodeAnalysis.CSharp
         }
 
         /// <summary>
-        /// Analyses method body for Try blocks with awaits in finallies 
+        /// Analyses method body for try blocks with awaits in finally blocks 
         /// Also collects labels that such blocks contain.
         /// </summary>
         private sealed class AwaitInFinallyAnalysis : LabelCollector
         {
-            // all try blocks with yields in them and complete set of lables inside those trys
-            // NOTE: non-yielding Trys are transparently ignored - i.e. their labels are included
+            // all try blocks with yields in them and complete set of labels inside those try blocks
+            // NOTE: non-yielding try blocks are transparently ignored - i.e. their labels are included
             //       in the label set of the nearest yielding-try parent  
             private Dictionary<BoundTryStatement, HashSet<LabelSymbol>> _labelsInInterestingTry;
 
@@ -838,14 +848,14 @@ namespace Microsoft.CodeAnalysis.CSharp
             // proxy labels for branches leaving the frame. 
             // we build this on demand once we encounter leaving branches.
             // subsequent leaves to an already proxied label redirected to the proxy.
-            // At the proxy lable we will execute finally and forward the control flow 
+            // At the proxy label we will execute finally and forward the control flow 
             // to the actual destination. (which could be proxied again in the parent)
-            public Dictionary<LabelSymbol, LabelSymbol> proxyLabels = null;
+            public Dictionary<LabelSymbol, LabelSymbol> proxyLabels;
 
-            public List<LabelSymbol> proxiedLabels = null;
+            public List<LabelSymbol> proxiedLabels;
 
-            public GeneratedLabelSymbol returnProxyLabel = null;
-            public SynthesizedLocal returnValue = null;
+            public GeneratedLabelSymbol returnProxyLabel;
+            public SynthesizedLocal returnValue;
 
             public AwaitFinallyFrame()
             {

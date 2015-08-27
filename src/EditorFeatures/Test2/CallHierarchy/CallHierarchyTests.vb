@@ -1,5 +1,6 @@
 ' Copyright (c) Microsoft.  All Rights Reserved.  Licensed under the Apache License, Version 2.0.  See License.txt in the project root for license information.
 
+Imports Microsoft.CodeAnalysis.Editor.UnitTests.Utilities
 Imports Microsoft.CodeAnalysis.Navigation
 Imports Microsoft.VisualStudio.Language.CallHierarchy
 
@@ -267,8 +268,8 @@ class D : C
             testState.Navigate(root, EditorFeaturesResources.Overrides, "D.foo()")
 
             Dim mockNavigationService = DirectCast(testState.Workspace.Services.GetService(Of ISymbolNavigationService)(), MockSymbolNavigationServiceProvider.MockSymbolNavigationService)
-            Assert.NotNull(mockNavigationService.Symbol)
-            Assert.NotNull(mockNavigationService.Project)
+            Assert.NotNull(mockNavigationService.TryNavigateToSymbolProvidedSymbol)
+            Assert.NotNull(mockNavigationService.TryNavigateToSymbolProvidedProject)
         End Sub
 
         <WorkItem(1022864)>
@@ -306,9 +307,52 @@ namespace N
             testState.Navigate(root, String.Format(EditorFeaturesResources.CallsTo, "Foo"), "N.G.Main()")
 
             Dim navigationService = DirectCast(testState.Workspace.Services.GetService(Of IDocumentNavigationService)(), MockDocumentNavigationServiceProvider.MockDocumentNavigationService)
-            Assert.NotEqual(navigationService.DocumentId, Nothing)
-            Assert.NotEqual(navigationService.TextSpan, Nothing)
+            Assert.NotEqual(navigationService.ProvidedDocumentId, Nothing)
+            Assert.NotEqual(navigationService.ProvidedTextSpan, Nothing)
         End Sub
+
+        <WorkItem(1098507)>
+        <Fact, Trait(Traits.Feature, Traits.Features.CallHierarchy)>
+        Public Sub DisplayErrorWhenNotOnMemberCS()
+            Dim input =
+    <Workspace>
+        <Project Language="C#" AssemblyName="Assembly1" CommonReferences="true">
+            <Document>
+cla$$ss C
+{
+    void Foo()
+    {
+    }
+}
+        </Document>
+        </Project>
+    </Workspace>
+            Dim testState = New CallHierarchyTestState(input)
+            Dim root = testState.GetRoot()
+            Assert.Null(root)
+            Assert.NotNull(testState.NotificationMessage)
+        End Sub
+
+        <WorkItem(1098507)>
+        <Fact, Trait(Traits.Feature, Traits.Features.CallHierarchy)>
+        Public Sub DisplayErrorWhenNotOnMemberVB()
+            Dim input =
+    <Workspace>
+        <Project Language="Visual Basic" AssemblyName="Assembly1" CommonReferences="true">
+            <Document>
+Class C
+    Public Sub M()
+    End Sub
+End Cla$$ss
+        </Document>
+        </Project>
+    </Workspace>
+            Dim testState = New CallHierarchyTestState(input)
+            Dim root = testState.GetRoot()
+            Assert.Null(root)
+            Assert.NotNull(testState.NotificationMessage)
+        End Sub
+
     End Class
 
 End Namespace

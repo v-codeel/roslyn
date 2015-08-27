@@ -32,14 +32,14 @@ namespace Microsoft.CodeAnalysis
             All = AttributeTargets.All,
 
             // NOTE: VB allows AttributeUsageAttribute with no valid target, i.e. <AttributeUsageAttribute(0)>, and doesn't generate any diagnostics.
-            // We use use PackedAttributeUsage.Initialized field to differentiate between uninitialized AttributeUsageInfo and initialized AttributeUsageInfo with no valid target.
+            // We use PackedAttributeUsage.Initialized field to differentiate between uninitialized AttributeUsageInfo and initialized AttributeUsageInfo with no valid target.
             Initialized = GenericParameter << 1,
 
             AllowMultiple = Initialized << 1,
             Inherited = AllowMultiple << 1
         }
 
-        private PackedAttributeUsage _flags;
+        private readonly PackedAttributeUsage _flags;
 
         /// <summary>
         /// Default attribute usage for attribute types:
@@ -54,7 +54,7 @@ namespace Microsoft.CodeAnalysis
         internal AttributeUsageInfo(AttributeTargets validTargets, bool allowMultiple, bool inherited)
         {
             // NOTE: VB allows AttributeUsageAttribute with no valid target, i.e. <AttributeUsageAttribute(0)>, and doesn't generate any diagnostics.
-            // We use use PackedAttributeUsage.Initialized field to differentiate between uninitialized AttributeUsageInfo and initialized AttributeUsageInfo with no valid targets.
+            // We use PackedAttributeUsage.Initialized field to differentiate between uninitialized AttributeUsageInfo and initialized AttributeUsageInfo with no valid targets.
             _flags = (PackedAttributeUsage)validTargets | PackedAttributeUsage.Initialized;
 
             if (allowMultiple)

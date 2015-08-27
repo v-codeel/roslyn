@@ -92,7 +92,8 @@ End Class"
                 EvalResult("F", "1", "Object {Integer}", "(New C()).s1.F"))
         End Sub
 
-        <Fact(Skip := "Issue #321")>
+        <WorkItem(321, "https://github.com/dotnet/roslyn/issues/321")>
+        <Fact(Skip:="https://github.com/dotnet/roslyn/issues/321")>
         Public Sub Pointers()
             Dim source =
 ".class private auto ansi beforefieldinit C
@@ -286,6 +287,15 @@ End Class
                 EvalResult("c", quotedChar, "Char", "c", editableValue:=quotedChar))
         End Sub
 
+        <Fact>
+        Public Sub UnicodeString()
+            Const quotedString = """" & ChrW(&H1234) & """ & ChrW(7)"
+            Dim value = CreateDkmClrValue(New String({ChrW(&H1234), ChrW(&H0007)}))
+            Dim result = FormatResult("s", value)
+            Verify(result,
+                EvalResult("s", quotedString, "String", "s", editableValue:=quotedString, flags:=DkmEvaluationResultFlags.RawString))
+        End Sub
+
         <Fact, WorkItem(1002381)>
         Public Sub BaseTypeEditableValue()
             Dim source = "
@@ -387,14 +397,14 @@ End Class"
                 EvalResult(rootExpr, "{A}", "A", rootExpr, DkmEvaluationResultFlags.Expandable))
             Dim children = GetChildren(result)
             Verify(children,
-                EvalResult("1<>", "Nothing", "Object", "(New A()).1<>"),
-                EvalResult("@", "Nothing", "Object", "(New A()).@"),
-                EvalResult("CS<>7__8", "Nothing", "Object", "(New A()).CS<>7__8"),
+                EvalResult("1<>", "Nothing", "Object", fullName:=Nothing),
+                EvalResult("@", "Nothing", "Object", fullName:=Nothing),
+                EvalResult("CS<>7__8", "Nothing", "Object", fullName:=Nothing),
                 EvalResult("Shared members", Nothing, "", "A", DkmEvaluationResultFlags.Expandable Or DkmEvaluationResultFlags.ReadOnly, DkmEvaluationResultCategory.Class))
             children = GetChildren(children(children.Length - 1))
             Verify(children,
-                EvalResult("[>]", "Nothing", "Object", "A.[>]"),
-                EvalResult("><", "Nothing", "Object", "A.><"))
+                EvalResult("[>]", "Nothing", "Object", fullName:=Nothing),
+                EvalResult("><", "Nothing", "Object", fullName:=Nothing))
 
             type = assembly.GetType("B")
             rootExpr = "New B()"
@@ -404,14 +414,14 @@ End Class"
                 EvalResult(rootExpr, "{B}", "B", rootExpr, DkmEvaluationResultFlags.Expandable))
             children = GetChildren(result)
             Verify(children,
-                EvalResult("1<>", "Nothing", "Object", "(New B()).1<>", DkmEvaluationResultFlags.ReadOnly),
-                EvalResult("@", "Nothing", "Object", "(New B()).@", DkmEvaluationResultFlags.ReadOnly),
-                EvalResult("VB<>7__8", "Nothing", "Object", "(New B()).VB<>7__8", DkmEvaluationResultFlags.ReadOnly),
+                EvalResult("1<>", "Nothing", "Object", fullName:=Nothing, flags:=DkmEvaluationResultFlags.ReadOnly),
+                EvalResult("@", "Nothing", "Object", fullName:=Nothing, flags:=DkmEvaluationResultFlags.ReadOnly),
+                EvalResult("VB<>7__8", "Nothing", "Object", fullName:=Nothing, flags:=DkmEvaluationResultFlags.ReadOnly),
                 EvalResult("Shared members", Nothing, "", "B", DkmEvaluationResultFlags.Expandable Or DkmEvaluationResultFlags.ReadOnly, DkmEvaluationResultCategory.Class))
             children = GetChildren(children(children.Length - 1))
             Verify(children,
-                EvalResult("[>]", "Nothing", "Object", "B.[>]", DkmEvaluationResultFlags.ReadOnly),
-                EvalResult("><", "Nothing", "Object", "B.><", DkmEvaluationResultFlags.ReadOnly))
+                EvalResult("[>]", "Nothing", "Object", fullName:=Nothing, flags:=DkmEvaluationResultFlags.ReadOnly),
+                EvalResult("><", "Nothing", "Object", fullName:=Nothing, flags:=DkmEvaluationResultFlags.ReadOnly))
         End Sub
 
         <Fact, WorkItem(965892)>
@@ -618,7 +628,7 @@ End Class
                 EvalResult("S", "42", "Integer", "A.S"))
         End Sub
 
-        <Fact(Skip:="1074435"), WorkItem(1074435)>
+        <Fact, WorkItem(1074435, "DevDiv")>
         Public Sub NameConflictsWithInterfaceReimplementation()
             Dim source = "
 Interface I
@@ -663,7 +673,7 @@ End Class
         End Sub
 
         <Fact>
-        Public Sub NameConflictsWithVirualPropertiesAcrossDeclaredType()
+        Public Sub NameConflictsWithVirtualPropertiesAcrossDeclaredType()
             Dim source = "
 Class A 
     Public Overridable Property P As Integer = 1

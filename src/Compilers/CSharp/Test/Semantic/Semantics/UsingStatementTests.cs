@@ -16,14 +16,14 @@ namespace Microsoft.CodeAnalysis.CSharp.UnitTests
     /// </summary>
     public class UsingStatementTests : CompilingTestBase
     {
-        private string _managedClass = @"
+        private readonly string _managedClass = @"
 class MyManagedType : System.IDisposable
 {
     public void Dispose()
     { }
 }";
 
-        private string _managedStruct = @"
+        private readonly string _managedStruct = @"
 struct MyManagedType : System.IDisposable
 {
     public void Dispose()
@@ -362,7 +362,7 @@ class Program
 
         // The object created inside the "using" statement but declared no variable
         [Fact]
-        public void ResourceCreatedInsideUsingWithNoVarDecalred()
+        public void ResourceCreatedInsideUsingWithNoVarDeclared()
         {
             var source = @"
 using System;

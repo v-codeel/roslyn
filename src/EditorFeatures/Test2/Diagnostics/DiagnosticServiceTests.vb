@@ -1,9 +1,11 @@
 ' Copyright (c) Microsoft.  All Rights Reserved.  Licensed under the Apache License, Version 2.0.  See License.txt in the project root for license information.
 
 Imports System.Collections.Immutable
+Imports System.IO
 Imports System.Reflection
 Imports System.Threading
 Imports Microsoft.CodeAnalysis
+Imports Microsoft.CodeAnalysis.CommonDiagnosticAnalyzers
 Imports Microsoft.CodeAnalysis.Diagnostics
 Imports Microsoft.CodeAnalysis.Diagnostics.EngineV1
 Imports Microsoft.CodeAnalysis.Editor.UnitTests.Diagnostics
@@ -11,12 +13,19 @@ Imports Microsoft.CodeAnalysis.Editor.UnitTests.Workspaces
 Imports Microsoft.CodeAnalysis.Options
 Imports Microsoft.CodeAnalysis.Test.Utilities
 Imports Microsoft.CodeAnalysis.Text
+Imports Microsoft.CodeAnalysis.UnitTests.Diagnostics
 Imports Roslyn.Utilities
 Imports Xunit.Sdk
 
 Namespace Microsoft.CodeAnalysis.Editor.Implementation.Diagnostics.UnitTests
 
     Public Class DiagnosticServiceTests
+
+        Private _assemblyLoader As IAnalyzerAssemblyLoader = New InMemoryAssemblyLoader()
+
+        Public Function CreateAnalyzerFileReference(ByVal fullPath As String) As AnalyzerFileReference
+            Return New AnalyzerFileReference(fullPath, _assemblyLoader)
+        End Function
 
         <Fact, Trait(Traits.Feature, Traits.Features.Diagnostics)>
         Public Sub TestProjectAnalyzers()
@@ -35,7 +44,7 @@ Namespace Microsoft.CodeAnalysis.Editor.Implementation.Diagnostics.UnitTests
                 Dim projectDiagnosticAnalyzer1 = New ProjectDiagnosticAnalyzer(1)
                 Dim projectDiagnosticAnalyzer2 = New ProjectDiagnosticAnalyzer2(2)
 
-                Dim diagnosticService = New DiagnosticAnalyzerService(LanguageNames.CSharp, workspaceDiagnosticAnalyzer)
+                Dim diagnosticService = New TestDiagnosticAnalyzerService(LanguageNames.CSharp, workspaceDiagnosticAnalyzer)
 
                 ' Verify available diagnostic descriptors/analyzers
                 Dim descriptorsMap = diagnosticService.GetDiagnosticDescriptors(project)
@@ -115,7 +124,7 @@ Namespace Microsoft.CodeAnalysis.Editor.Implementation.Diagnostics.UnitTests
                 Dim duplicateProjectAnalyzersReference = New AnalyzerImageReference(duplicateProjectAnalyzers)
                 project = project.WithAnalyzerReferences({duplicateProjectAnalyzersReference})
 
-                ' Verify duplicate descriptors or diagnsotics.
+                ' Verify duplicate descriptors or diagnostics.
                 ' We don't do de-duplication of analyzer that belong to different layer (host and project)
                 descriptorsMap = diagnosticService.GetDiagnosticDescriptors(project)
                 Assert.Equal(2, descriptorsMap.Count)
@@ -144,7 +153,7 @@ Namespace Microsoft.CodeAnalysis.Editor.Implementation.Diagnostics.UnitTests
                 Dim project = workspace.CurrentSolution.Projects(0)
                 Dim workspaceDiagnosticAnalyzer = New WorkspaceDiagnosticAnalyzer()
 
-                Dim diagnosticService = New DiagnosticAnalyzerService(LanguageNames.CSharp, workspaceDiagnosticAnalyzer)
+                Dim diagnosticService = New TestDiagnosticAnalyzerService(LanguageNames.CSharp, workspaceDiagnosticAnalyzer)
 
                 ' Add project analyzer reference with no analyzers.
                 Dim projectAnalyzersEmpty = ImmutableArray(Of DiagnosticAnalyzer).Empty
@@ -163,6 +172,44 @@ Namespace Microsoft.CodeAnalysis.Editor.Implementation.Diagnostics.UnitTests
             End Using
         End Sub
 
+        <Fact>
+        Public Sub TestNameCollisionOnDisplayNames()
+            Dim test = <Workspace>
+                           <Project Language="C#" CommonReferences="true">
+                               <Document FilePath="Test.cs">
+                                        class Foo { }
+                                    </Document>
+                           </Project>
+                       </Workspace>
+
+            Using workspace = TestWorkspaceFactory.CreateWorkspace(test)
+                Dim project = workspace.CurrentSolution.Projects(0)
+
+                Dim referenceName = "Test"
+
+                Dim hostAnalyzerReference = New AnalyzerImageReference(
+                    ImmutableArray.Create(Of DiagnosticAnalyzer)(New ProjectDiagnosticAnalyzer(0)), display:=referenceName)
+
+                Dim projectAnalyzerReference = New AnalyzerImageReference(
+                    ImmutableArray.Create(Of DiagnosticAnalyzer)(New ProjectDiagnosticAnalyzer(1)), display:=referenceName)
+
+                Dim diagnosticService = New TestDiagnosticAnalyzerService(
+                    ImmutableArray.Create(Of AnalyzerReference)(hostAnalyzerReference))
+
+                project = project.WithAnalyzerReferences(ImmutableArray.Create(Of AnalyzerReference)(projectAnalyzerReference))
+
+                Dim descriptorsMap = diagnosticService.GetDiagnosticDescriptors(project)
+
+                ' two references in the map
+                Assert.Equal(1, descriptorsMap.Count)
+
+                Dim names = New HashSet(Of String)
+                names.UnionWith(descriptorsMap.Keys)
+
+                Assert.Equal(1, names.Where(Function(n) n = referenceName).Count())
+            End Using
+        End Sub
+
         <Fact, Trait(Traits.Feature, Traits.Features.Diagnostics)>
         Public Sub TestRulesetBasedDiagnosticFiltering()
             Dim test = <Workspace>
@@ -177,7 +224,7 @@ Namespace Microsoft.CodeAnalysis.Editor.Implementation.Diagnostics.UnitTests
                 Dim project = workspace.CurrentSolution.Projects(0)
                 Dim workspaceDiagnosticAnalyzer = New WorkspaceDiagnosticAnalyzer()
 
-                Dim diagnosticService = New DiagnosticAnalyzerService(LanguageNames.CSharp, workspaceDiagnosticAnalyzer)
+                Dim diagnosticService = New TestDiagnosticAnalyzerService(LanguageNames.CSharp, workspaceDiagnosticAnalyzer)
 
                 ' Verify available diagnostic descriptors/analyzers
                 Dim descriptorsMap = diagnosticService.GetDiagnosticDescriptors(project)
@@ -246,7 +293,7 @@ Namespace Microsoft.CodeAnalysis.Editor.Implementation.Diagnostics.UnitTests
                 bravo = bravo.WithAnalyzerReferences(SpecializedCollections.SingletonCollection(New AnalyzerImageReference(ImmutableArray(Of DiagnosticAnalyzer).Empty.Add(projectDiagnosticAnalyzer2))))
                 solution = bravo.Solution
 
-                Dim diagnosticService = New DiagnosticAnalyzerService()
+                Dim diagnosticService = New TestDiagnosticAnalyzerService()
                 Dim analyzer = diagnosticService.CreateIncrementalAnalyzer(workspace)
 
                 Dim workspaceDescriptors = diagnosticService.GetDiagnosticDescriptors(projectOpt:=Nothing)
@@ -281,7 +328,7 @@ Namespace Microsoft.CodeAnalysis.Editor.Implementation.Diagnostics.UnitTests
                 Dim analyzersMap = New Dictionary(Of String, ImmutableArray(Of DiagnosticAnalyzer))
                 analyzersMap.Add(LanguageNames.CSharp, ImmutableArray.Create(Of DiagnosticAnalyzer)(analyzer1))
                 analyzersMap.Add(LanguageNames.VisualBasic, ImmutableArray.Create(Of DiagnosticAnalyzer)(analyzer2))
-                Dim diagnosticService2 = New DiagnosticAnalyzerService(analyzersMap.ToImmutableDictionary())
+                Dim diagnosticService2 = New TestDiagnosticAnalyzerService(analyzersMap.ToImmutableDictionary())
 
                 Dim descriptors = diagnosticService2.GetDiagnosticDescriptors(projectOpt:=Nothing)
                 Assert.Equal(1, descriptors.Count)
@@ -301,8 +348,8 @@ Namespace Microsoft.CodeAnalysis.Editor.Implementation.Diagnostics.UnitTests
 
             Using workspace = TestWorkspaceFactory.CreateWorkspace(test)
                 Dim project = workspace.CurrentSolution.Projects.Single()
-                Dim analyzerReference1 = New AnalyzerFileReference("x:\temp.dll")
-                Dim analyzerReference2 = New AnalyzerFileReference("x:\temp.dll")
+                Dim analyzerReference1 = CreateAnalyzerFileReference("x:\temp.dll")
+                Dim analyzerReference2 = CreateAnalyzerFileReference("x:\temp.dll")
                 project = project.AddAnalyzerReference(analyzerReference1)
 #If DEBUG Then
                 Assert.Throws(Of TraceAssertException)(Function() project.AddAnalyzerReference(analyzerReference2))
@@ -323,11 +370,11 @@ Namespace Microsoft.CodeAnalysis.Editor.Implementation.Diagnostics.UnitTests
             Using workspace = TestWorkspaceFactory.CreateWorkspace(test)
                 ' Add duplicate analyzer references: one as VSIX analyzer reference and other one as project analyzer reference.
                 Dim project = workspace.CurrentSolution.Projects.Single()
-                Dim analyzerReference1 = New AnalyzerFileReference(Assembly.GetExecutingAssembly().Location)
+                Dim analyzerReference1 = CreateAnalyzerFileReference(Assembly.GetExecutingAssembly().Location)
                 project = project.AddAnalyzerReference(analyzerReference1)
 
-                Dim analyzerReference2 = New AnalyzerFileReference(Assembly.GetExecutingAssembly().Location)
-                Dim diagnosticService = New DiagnosticAnalyzerService(ImmutableArray.Create(Of AnalyzerReference)(analyzerReference2))
+                Dim analyzerReference2 = CreateAnalyzerFileReference(Assembly.GetExecutingAssembly().Location)
+                Dim diagnosticService = New TestDiagnosticAnalyzerService(ImmutableArray.Create(Of AnalyzerReference)(analyzerReference2))
 
                 Dim analyzer = diagnosticService.CreateIncrementalAnalyzer(workspace)
                 Dim descriptorsMap = diagnosticService.GetDiagnosticDescriptors(project)
@@ -384,7 +431,7 @@ Namespace Microsoft.CodeAnalysis.Editor.Implementation.Diagnostics.UnitTests
                 Dim analyzerReference = New AnalyzerImageReference(ImmutableArray.Create(Of DiagnosticAnalyzer)(analyzer))
                 project = project.AddAnalyzerReference(analyzerReference)
 
-                Dim diagnosticService = New DiagnosticAnalyzerService()
+                Dim diagnosticService = New TestDiagnosticAnalyzerService()
 
                 Dim descriptorsMap = diagnosticService.GetDiagnosticDescriptors(project)
                 Assert.Equal(1, descriptorsMap.Count)
@@ -419,7 +466,7 @@ Namespace Microsoft.CodeAnalysis.Editor.Implementation.Diagnostics.UnitTests
                 project = project.AddAnalyzerReference(analyzerReference)
 
                 Dim exceptionDiagnosticsSource = New TestHostDiagnosticUpdateSource(workspace)
-                Dim diagnosticService = New DiagnosticAnalyzerService(hostDiagnosticUpdateSource:=exceptionDiagnosticsSource)
+                Dim diagnosticService = New TestDiagnosticAnalyzerService(hostDiagnosticUpdateSource:=exceptionDiagnosticsSource)
 
                 Dim descriptorsMap = diagnosticService.GetDiagnosticDescriptors(project)
                 Assert.Equal(1, descriptorsMap.Count)
@@ -435,8 +482,37 @@ Namespace Microsoft.CodeAnalysis.Editor.Implementation.Diagnostics.UnitTests
                 diagnostics = exceptionDiagnosticsSource.TestOnly_GetReportedDiagnostics(analyzer)
                 Assert.Equal(1, diagnostics.Count())
                 Dim diagnostic = diagnostics.First()
-                Assert.True(AnalyzerExecutor.IsAnalyzerExceptionDiagnostic(diagnostic.ToDiagnostic(document.GetSyntaxTreeAsync().Result)))
+                Assert.True(diagnostic.Id = "AD0001")
                 Assert.Contains("CodeBlockStartedAnalyzer", diagnostic.Message, StringComparison.Ordinal)
+            End Using
+        End Sub
+
+        <Fact, WorkItem(1167439), Trait(Traits.Feature, Traits.Features.Diagnostics)>
+        Public Sub TestDiagnosticAnalyzerExceptionHandledNoCrash()
+            Dim test = <Workspace>
+                           <Project Language="C#" CommonReferences="true">
+                               <Document FilePath="Test.cs"/>
+                           </Project>
+                       </Workspace>
+
+            Using workspace = TestWorkspaceFactory.CreateWorkspace(test)
+                Dim project = workspace.CurrentSolution.Projects.Single()
+                Dim analyzer = New CodeBlockStartedAnalyzer(Of Microsoft.CodeAnalysis.CSharp.SyntaxKind)
+
+                Dim expected = Diagnostic.Create("test", "test", "test", DiagnosticSeverity.Error, DiagnosticSeverity.Error, True, 0)
+                Dim exceptionDiagnosticsSource = New TestHostDiagnosticUpdateSource(workspace)
+
+                ' check reporting diagnostic to a project that doesnt exist
+                exceptionDiagnosticsSource.ReportAnalyzerDiagnostic(analyzer, expected, workspace, New ProjectId(Guid.NewGuid(), "dummy"))
+                Dim diagnostics = exceptionDiagnosticsSource.TestOnly_GetReportedDiagnostics(analyzer)
+                Assert.Equal(0, diagnostics.Count())
+
+                ' check workspace diagnostic reporting
+                exceptionDiagnosticsSource.ReportAnalyzerDiagnostic(analyzer, expected, workspace, Nothing)
+                diagnostics = exceptionDiagnosticsSource.TestOnly_GetReportedDiagnostics(analyzer)
+
+                Assert.Equal(1, diagnostics.Count())
+                Assert.Equal(expected.Id, diagnostics.First().Id)
             End Using
         End Sub
 
@@ -456,7 +532,7 @@ Namespace Microsoft.CodeAnalysis.Editor.Implementation.Diagnostics.UnitTests
                 Dim analyzerReference = New AnalyzerImageReference(ImmutableArray.Create(Of DiagnosticAnalyzer)(analyzer))
                 project = project.AddAnalyzerReference(analyzerReference)
 
-                Dim diagnosticService = New DiagnosticAnalyzerService()
+                Dim diagnosticService = New TestDiagnosticAnalyzerService()
 
                 Dim descriptorsMap = diagnosticService.GetDiagnosticDescriptors(project)
                 Assert.Equal(1, descriptorsMap.Count)
@@ -489,7 +565,7 @@ Namespace Microsoft.CodeAnalysis.Editor.Implementation.Diagnostics.UnitTests
                 Dim analyzerReference = New AnalyzerImageReference(ImmutableArray.Create(Of DiagnosticAnalyzer)(analyzer))
                 project = project.AddAnalyzerReference(analyzerReference)
 
-                Dim diagnosticService = New DiagnosticAnalyzerService()
+                Dim diagnosticService = New TestDiagnosticAnalyzerService()
 
                 ' Ensure no duplicate diagnostics.
                 Dim descriptorsMap = diagnosticService.GetDiagnosticDescriptors(project)
@@ -565,7 +641,7 @@ class AnonymousFunctions
                 Dim analyzerReference = New AnalyzerImageReference(ImmutableArray.Create(Of DiagnosticAnalyzer)(analyzer))
                 project = project.AddAnalyzerReference(analyzerReference)
 
-                Dim diagnosticService = New DiagnosticAnalyzerService()
+                Dim diagnosticService = New TestDiagnosticAnalyzerService()
 
                 ' Ensure no duplicate diagnostics.
                 Dim descriptorsMap = diagnosticService.GetDiagnosticDescriptors(project)
@@ -604,7 +680,7 @@ class AnonymousFunctions
                 Dim analyzerReference = New AnalyzerImageReference(ImmutableArray.Create(Of DiagnosticAnalyzer)(analyzer))
                 project = project.AddAnalyzerReference(analyzerReference)
 
-                Dim diagnosticService = New DiagnosticAnalyzerService()
+                Dim diagnosticService = New TestDiagnosticAnalyzerService()
                 Dim incrementalAnalyzer = diagnosticService.CreateIncrementalAnalyzer(workspace)
 
                 Dim descriptorsMap = diagnosticService.GetDiagnosticDescriptors(project)
@@ -640,7 +716,7 @@ class AnonymousFunctions
                 Assert.NotNull(withDocumentLocationDiagnostic.DocumentId)
                 Dim diagnosticDocument = project.GetDocument(withDocumentLocationDiagnostic.DocumentId)
                 Dim tree = diagnosticDocument.GetSyntaxTreeAsync().Result
-                Dim actualLocation = withDocumentLocationDiagnostic.ToDiagnostic(tree).Location
+                Dim actualLocation = withDocumentLocationDiagnostic.ToDiagnosticAsync(project, CancellationToken.None).Result.Location
                 Dim expectedLocation = document.GetSyntaxRootAsync().Result.GetLocation
                 Assert.Equal(expectedLocation, actualLocation)
             End Using
@@ -662,17 +738,39 @@ class AnonymousFunctions
                 Dim analyzerReference = New AnalyzerImageReference(ImmutableArray.Create(Of DiagnosticAnalyzer)(analyzer))
                 project = project.AddAnalyzerReference(analyzerReference)
 
-                Dim diagnosticService = New DiagnosticAnalyzerService()
+                Dim projectDiagnostics = DiagnosticProviderTestUtilities.GetProjectDiagnostics(workspaceAnalyzerOpt:=Nothing, project:=project)
+                Assert.Equal(1, projectDiagnostics.Count())
+                Dim diagnostic = projectDiagnostics.Single()
+                Assert.Equal(StatefulCompilationAnalyzer.Descriptor.Id, diagnostic.Id)
+                Dim expectedMessage = String.Format(StatefulCompilationAnalyzer.Descriptor.MessageFormat.ToString(), 1)
+                Assert.Equal(expectedMessage, diagnostic.GetMessage)
+            End Using
+        End Sub
 
-                Dim descriptorsMap = diagnosticService.GetDiagnosticDescriptors(project)
-                Assert.Equal(1, descriptorsMap.Count)
+        <Fact, WorkItem(248, "https://github.com/dotnet/roslyn/issues/248"), Trait(Traits.Feature, Traits.Features.Diagnostics)>
+        Public Sub TestStatefulCompilationAnalyzer_2()
+            Dim test = <Workspace>
+                           <Project Language="C#" CommonReferences="true">
+                               <Document FilePath="Test.cs">
+                                   class Foo { void M() {} }
+                               </Document>
+                           </Project>
+                       </Workspace>
 
-                Dim incrementalAnalyzer = DirectCast(DirectCast(diagnosticService.CreateIncrementalAnalyzer(workspace), DiagnosticAnalyzerService.IncrementalAnalyzerDelegatee).Analyzer, DiagnosticIncrementalAnalyzer)
+            Using workspace = TestWorkspaceFactory.CreateWorkspace(test)
+                Dim project = workspace.CurrentSolution.Projects.Single()
+                Dim analyzer = New StatefulCompilationAnalyzer
+                Dim analyzerReference = New AnalyzerImageReference(ImmutableArray.Create(Of DiagnosticAnalyzer)(analyzer))
+                project = project.AddAnalyzerReference(analyzerReference)
 
-                ' Verify that for an analyzer which has a registered compilation start action such that the start action registered an end action,
-                ' we go and force complete all document diagnostics for entire project and then invoke and report end action diagnostics.
-                Dim driver = New DiagnosticAnalyzerDriver(project, project.LanguageServices.GetService(Of ISyntaxNodeAnalyzerService)(), Nothing)
-                Dim projectDiagnostics = driver.GetProjectDiagnosticsAsync(analyzer, AddressOf incrementalAnalyzer.ForceAnalyzeAllDocuments).WaitAndGetResult(CancellationToken.None)
+                ' Make couple of dummy invocations to GetDocumentDiagnostics.
+                Dim document = project.Documents.Single()
+                Dim fullSpan = document.GetSyntaxRootAsync().WaitAndGetResult(CancellationToken.None).FullSpan
+                Dim documentDiagnostics = DiagnosticProviderTestUtilities.GetDocumentDiagnostics(workspaceAnalyzerOpt:=Nothing, document:=document, span:=fullSpan)
+                documentDiagnostics = DiagnosticProviderTestUtilities.GetDocumentDiagnostics(workspaceAnalyzerOpt:=Nothing, document:=document, span:=fullSpan)
+
+                ' Verify that the eventual compilation end diagnostics (and hence the analyzer state) is not affected by prior document analysis.
+                Dim projectDiagnostics = DiagnosticProviderTestUtilities.GetProjectDiagnostics(workspaceAnalyzerOpt:=Nothing, project:=project)
                 Assert.Equal(1, projectDiagnostics.Count())
                 Dim diagnostic = projectDiagnostics.Single()
                 Assert.Equal(StatefulCompilationAnalyzer.Descriptor.Id, diagnostic.Id)
@@ -696,11 +794,13 @@ class AnonymousFunctions
 
             Using workspace = TestWorkspaceFactory.CreateWorkspace(test)
                 Dim project = workspace.CurrentSolution.Projects.Single()
+
+                ' Test partial type diagnostic reported on user file.
                 Dim analyzer = New PartialTypeDiagnosticAnalyzer(indexOfDeclToReportDiagnostic:=1)
                 Dim analyzerReference = New AnalyzerImageReference(ImmutableArray.Create(Of DiagnosticAnalyzer)(analyzer))
                 project = project.AddAnalyzerReference(analyzerReference)
 
-                Dim diagnosticService = New DiagnosticAnalyzerService()
+                Dim diagnosticService = New TestDiagnosticAnalyzerService()
 
                 Dim descriptorsMap = diagnosticService.GetDiagnosticDescriptors(project)
                 Assert.Equal(1, descriptorsMap.Count)
@@ -712,6 +812,52 @@ class AnonymousFunctions
                 Dim diagnostics = diagnosticService.GetDiagnosticsForSpanAsync(document, fullSpan, CancellationToken.None).WaitAndGetResult(CancellationToken.None)
                 Assert.Equal(1, diagnostics.Count())
                 Assert.Equal(PartialTypeDiagnosticAnalyzer.DiagDescriptor.Id, diagnostics.Single().Id)
+            End Using
+        End Sub
+
+        <Fact, WorkItem(1042914), Trait(Traits.Feature, Traits.Features.Diagnostics)>
+        Public Sub TestDiagnosticsReportedOnAllPartialDefinitions()
+            Dim test = <Workspace>
+                           <Project Language="C#" CommonReferences="true">
+                               <Document FilePath="Test1.cs">
+                                   public partial class Foo { }
+                               </Document>
+                               <Document FilePath="Test2.cs">
+                                   public partial class Foo { }
+                               </Document>
+                           </Project>
+                       </Workspace>
+
+            Using workspace = TestWorkspaceFactory.CreateWorkspace(test)
+                Dim project = workspace.CurrentSolution.Projects.Single()
+
+                ' Test partial type diagnostic reported on all source files.
+                Dim analyzer = New PartialTypeDiagnosticAnalyzer(indexOfDeclToReportDiagnostic:=Nothing)
+                Dim analyzerReference = New AnalyzerImageReference(ImmutableArray.Create(Of DiagnosticAnalyzer)(analyzer))
+                project = project.AddAnalyzerReference(analyzerReference)
+
+                Dim diagnosticService = New TestDiagnosticAnalyzerService()
+
+                Dim descriptorsMap = diagnosticService.GetDiagnosticDescriptors(project)
+                Assert.Equal(1, descriptorsMap.Count)
+
+                ' Verify project diagnostics contains diagnostics reported on both partial definitions.
+                Dim incrementalAnalyzer = diagnosticService.CreateIncrementalAnalyzer(workspace)
+                Dim diagnostics = diagnosticService.GetDiagnosticsAsync(project.Solution, project.Id).WaitAndGetResult(CancellationToken.None)
+                Assert.Equal(2, diagnostics.Count())
+                Dim file1HasDiag = False, file2HasDiag = False
+                For Each diagnostic In diagnostics
+                    Assert.Equal(PartialTypeDiagnosticAnalyzer.DiagDescriptor.Id, diagnostic.Id)
+                    Dim document = project.GetDocument(diagnostic.DocumentId)
+                    If document.Name = "Test1.cs" Then
+                        file1HasDiag = True
+                    ElseIf document.Name = "Test2.cs"
+                        file2HasDiag = True
+                    End If
+                Next
+
+                Assert.True(file1HasDiag)
+                Assert.True(file2HasDiag)
             End Using
         End Sub
 
@@ -738,7 +884,7 @@ public class B
                 Dim analyzerReference = New AnalyzerImageReference(ImmutableArray.Create(analyzer))
                 project = project.AddAnalyzerReference(analyzerReference)
 
-                Dim diagnosticService = New DiagnosticAnalyzerService()
+                Dim diagnosticService = New TestDiagnosticAnalyzerService()
 
                 Dim descriptorsMap = diagnosticService.GetDiagnosticDescriptors(project)
                 Assert.Equal(1, descriptorsMap.Count)
@@ -749,10 +895,10 @@ public class B
                 Dim incrementalAnalyzer = diagnosticService.CreateIncrementalAnalyzer(workspace)
                 Dim diagnostics = diagnosticService.GetDiagnosticsForSpanAsync(document, fullSpan, CancellationToken.None).WaitAndGetResult(CancellationToken.None)
                 Assert.Equal(6, diagnostics.Count())
-                Assert.Equal(3, diagnostics.Where(Function(d) d.Id = CodeBlockOrSyntaxNodeAnalyzer.Desciptor1.Id).Count)
-                Assert.Equal(1, diagnostics.Where(Function(d) d.Id = CodeBlockOrSyntaxNodeAnalyzer.Desciptor4.Id).Count)
-                Assert.Equal(1, diagnostics.Where(Function(d) d.Id = CodeBlockOrSyntaxNodeAnalyzer.Desciptor5.Id).Count)
-                Assert.Equal(1, diagnostics.Where(Function(d) d.Id = CodeBlockOrSyntaxNodeAnalyzer.Desciptor6.Id).Count)
+                Assert.Equal(3, diagnostics.Where(Function(d) d.Id = CodeBlockOrSyntaxNodeAnalyzer.Descriptor1.Id).Count)
+                Assert.Equal(1, diagnostics.Where(Function(d) d.Id = CodeBlockOrSyntaxNodeAnalyzer.Descriptor4.Id).Count)
+                Assert.Equal(1, diagnostics.Where(Function(d) d.Id = CodeBlockOrSyntaxNodeAnalyzer.Descriptor5.Id).Count)
+                Assert.Equal(1, diagnostics.Where(Function(d) d.Id = CodeBlockOrSyntaxNodeAnalyzer.Descriptor6.Id).Count)
             End Using
         End Sub
 
@@ -779,7 +925,7 @@ public class B
                 Dim analyzerReference = New AnalyzerImageReference(ImmutableArray.Create(analyzer))
                 project = project.AddAnalyzerReference(analyzerReference)
 
-                Dim diagnosticService = New DiagnosticAnalyzerService()
+                Dim diagnosticService = New TestDiagnosticAnalyzerService()
 
                 Dim descriptorsMap = diagnosticService.GetDiagnosticDescriptors(project)
                 Assert.Equal(1, descriptorsMap.Count)
@@ -791,9 +937,9 @@ public class B
                 Dim diagnostics = diagnosticService.GetDiagnosticsForSpanAsync(document, fullSpan, CancellationToken.None).WaitAndGetResult(CancellationToken.None)
 
                 Assert.Equal(3, diagnostics.Count())
-                Assert.Equal(1, diagnostics.Where(Function(d) d.Id = CodeBlockOrSyntaxNodeAnalyzer.Desciptor4.Id).Count)
-                Assert.Equal(1, diagnostics.Where(Function(d) d.Id = CodeBlockOrSyntaxNodeAnalyzer.Desciptor5.Id).Count)
-                Assert.Equal(1, diagnostics.Where(Function(d) d.Id = CodeBlockOrSyntaxNodeAnalyzer.Desciptor6.Id).Count)
+                Assert.Equal(1, diagnostics.Where(Function(d) d.Id = CodeBlockOrSyntaxNodeAnalyzer.Descriptor4.Id).Count)
+                Assert.Equal(1, diagnostics.Where(Function(d) d.Id = CodeBlockOrSyntaxNodeAnalyzer.Descriptor5.Id).Count)
+                Assert.Equal(1, diagnostics.Where(Function(d) d.Id = CodeBlockOrSyntaxNodeAnalyzer.Descriptor6.Id).Count)
             End Using
         End Sub
 
@@ -820,7 +966,7 @@ public class B
                 Dim analyzerReference = New AnalyzerImageReference(ImmutableArray.Create(analyzer))
                 project = project.AddAnalyzerReference(analyzerReference)
 
-                Dim diagnosticService = New DiagnosticAnalyzerService()
+                Dim diagnosticService = New TestDiagnosticAnalyzerService()
 
                 Dim descriptorsMap = diagnosticService.GetDiagnosticDescriptors(project)
                 Assert.Equal(1, descriptorsMap.Count)
@@ -843,7 +989,7 @@ public class B
         End Sub
 
         <Fact, WorkItem(1109105)>
-        Sub TestMethodSymbolAnalyzer_MustOverrideMethod()
+        Public Sub TestMethodSymbolAnalyzer_MustOverrideMethod()
             Dim test = <Workspace>
                            <Project Language="Visual Basic" CommonReferences="true">
                                <Document>
@@ -870,7 +1016,7 @@ End Class
                 Dim analyzerReference = New AnalyzerImageReference(ImmutableArray.Create(Of DiagnosticAnalyzer)(analyzer))
                 project = project.AddAnalyzerReference(analyzerReference)
 
-                Dim diagnosticService = New DiagnosticAnalyzerService()
+                Dim diagnosticService = New TestDiagnosticAnalyzerService()
 
                 Dim descriptorsMap = diagnosticService.GetDiagnosticDescriptors(project)
                 Assert.Equal(1, descriptorsMap.Count)
@@ -881,18 +1027,18 @@ End Class
                 Dim incrementalAnalyzer = diagnosticService.CreateIncrementalAnalyzer(workspace)
                 Dim diagnostics = diagnosticService.GetDiagnosticsForSpanAsync(document, fullSpan, CancellationToken.None).WaitAndGetResult(CancellationToken.None)
                 Assert.Equal(1, diagnostics.Count())
-                Assert.Equal(1, diagnostics.Where(Function(d) d.Id = MustOverrideMethodAnalyzer.Desriptor1.Id).Count)
+                Assert.Equal(1, diagnostics.Where(Function(d) d.Id = MustOverrideMethodAnalyzer.Descriptor1.Id).Count)
             End Using
         End Sub
 
-        Class MustOverrideMethodAnalyzer
+        Public Class MustOverrideMethodAnalyzer
             Inherits DiagnosticAnalyzer
 
-            Public Shared Desriptor1 As New DiagnosticDescriptor("MustOverrideMethodDiagnostic", "DummyDescription", "DummyMessage", "DummyCategory", DiagnosticSeverity.Warning, isEnabledByDefault:=True)
+            Public Shared Descriptor1 As New DiagnosticDescriptor("MustOverrideMethodDiagnostic", "DummyDescription", "DummyMessage", "DummyCategory", DiagnosticSeverity.Warning, isEnabledByDefault:=True)
 
             Public Overrides ReadOnly Property SupportedDiagnostics As ImmutableArray(Of DiagnosticDescriptor)
                 Get
-                    Return ImmutableArray.Create(Desriptor1)
+                    Return ImmutableArray.Create(Descriptor1)
                 End Get
             End Property
 
@@ -904,13 +1050,13 @@ End Class
                 Dim method = DirectCast(context.Symbol, IMethodSymbol)
                 If method.IsAbstract Then
                     Dim sourceLoc = context.Symbol.Locations.First(Function(l) l.IsInSource)
-                    context.ReportDiagnostic(CodeAnalysis.Diagnostic.Create(Desriptor1, sourceLoc))
+                    context.ReportDiagnostic(CodeAnalysis.Diagnostic.Create(Descriptor1, sourceLoc))
                 End If
             End Sub
         End Class
 
         <Fact, WorkItem(565)>
-        Sub TestFieldDeclarationAnalyzer()
+        Public Sub TestFieldDeclarationAnalyzer()
             Dim test = <Workspace>
                            <Project Language="C#" CommonReferences="true">
                                <Document>
@@ -931,7 +1077,7 @@ public class B
                 Dim analyzerReference = New AnalyzerImageReference(ImmutableArray.Create(Of DiagnosticAnalyzer)(analyzer))
                 project = project.AddAnalyzerReference(analyzerReference)
 
-                Dim diagnosticService = New DiagnosticAnalyzerService()
+                Dim diagnosticService = New TestDiagnosticAnalyzerService()
 
                 Dim descriptorsMap = diagnosticService.GetDiagnosticDescriptors(project)
                 Assert.Equal(1, descriptorsMap.Count)
@@ -945,7 +1091,7 @@ public class B
                     OrderBy(Function(d) d.TextSpan.Start).
                     ToArray()
                 Assert.Equal(4, diagnostics.Length)
-                Assert.Equal(4, diagnostics.Where(Function(d) d.Id = FieldDeclarationAnalyzer.Desriptor1.Id).Count)
+                Assert.Equal(4, diagnostics.Where(Function(d) d.Id = FieldDeclarationAnalyzer.Descriptor1.Id).Count)
 
                 Assert.Equal("public string field0;", diagnostics(0).Message)
                 Assert.Equal("public string field1, field2;", diagnostics(1).Message)
@@ -954,14 +1100,14 @@ public class B
             End Using
         End Sub
 
-        Class FieldDeclarationAnalyzer
+        Public Class FieldDeclarationAnalyzer
             Inherits DiagnosticAnalyzer
 
-            Public Shared Desriptor1 As New DiagnosticDescriptor("FieldDeclarationDiagnostic", "DummyDescription", "{0}", "DummyCategory", DiagnosticSeverity.Warning, isEnabledByDefault:=True)
+            Public Shared Descriptor1 As New DiagnosticDescriptor("FieldDeclarationDiagnostic", "DummyDescription", "{0}", "DummyCategory", DiagnosticSeverity.Warning, isEnabledByDefault:=True)
 
             Public Overrides ReadOnly Property SupportedDiagnostics As ImmutableArray(Of DiagnosticDescriptor)
                 Get
-                    Return ImmutableArray.Create(Desriptor1)
+                    Return ImmutableArray.Create(Descriptor1)
                 End Get
             End Property
 
@@ -971,12 +1117,12 @@ public class B
 
             Public Sub AnalyzeNode(context As SyntaxNodeAnalysisContext)
                 Dim fieldDecl = DirectCast(context.Node, CodeAnalysis.CSharp.Syntax.FieldDeclarationSyntax)
-                context.ReportDiagnostic(Diagnostic.Create(Desriptor1, fieldDecl.GetLocation, fieldDecl.ToString()))
+                context.ReportDiagnostic(Diagnostic.Create(Descriptor1, fieldDecl.GetLocation, fieldDecl.ToString()))
             End Sub
         End Class
 
         <Fact, WorkItem(530)>
-        Sub TestCompilationAnalyzerWithAnalyzerOptions()
+        Public Sub TestCompilationAnalyzerWithAnalyzerOptions()
             Dim test = <Workspace>
                            <Project Language="C#" CommonReferences="true">
                                <Document>
@@ -1000,7 +1146,7 @@ public class B
                 Dim additionalDoc = project.AddAdditionalDocument("AdditionalDoc", additionalDocText)
                 project = additionalDoc.Project
 
-                Dim diagnosticService = New DiagnosticAnalyzerService()
+                Dim diagnosticService = New TestDiagnosticAnalyzerService()
                 Dim incrementalAnalyzer = diagnosticService.CreateIncrementalAnalyzer(workspace)
 
                 TestCompilationAnalyzerWithAnalyzerOptionsCore(project, additionalDocText, diagnosticService)
@@ -1087,11 +1233,11 @@ public class B
         Private Class ProjectDiagnosticAnalyzer
             Inherits AbstractDiagnosticAnalyzer
 
-            Private ReadOnly index As Integer
+            Private ReadOnly _index As Integer
             Public ReadOnly Descriptor As DiagnosticDescriptor
 
             Public Sub New(index As Integer)
-                Me.index = index
+                Me._index = index
                 Me.Descriptor = New DiagnosticDescriptor("XX000" + index.ToString,
                                                      "ProjectDiagnosticDescription",
                                                      "ProjectDiagnosticMessage",
@@ -1130,9 +1276,9 @@ public class B
         Private Class PartialTypeDiagnosticAnalyzer
             Inherits DiagnosticAnalyzer
 
-            Private ReadOnly indexOfDeclToReportDiagnostic As Integer
-            Public Sub New(indexOfDeclToReportDiagnostic As Integer)
-                Me.indexOfDeclToReportDiagnostic = indexOfDeclToReportDiagnostic
+            Private ReadOnly _indexOfDeclToReportDiagnostic As Integer?
+            Public Sub New(indexOfDeclToReportDiagnostic As Integer?)
+                Me._indexOfDeclToReportDiagnostic = indexOfDeclToReportDiagnostic
             End Sub
 
             Public Shared ReadOnly DiagDescriptor As DiagnosticDescriptor = DescriptorFactory.CreateSimpleDescriptor("DummyDiagnostic")
@@ -1148,7 +1294,15 @@ public class B
             End Sub
 
             Private Sub AnalyzeSymbol(context As SymbolAnalysisContext)
-                context.ReportDiagnostic(Diagnostic.Create(DiagDescriptor, context.Symbol.Locations.ElementAt(Me.indexOfDeclToReportDiagnostic)))
+                Dim index = 0
+                For Each location In context.Symbol.Locations
+                    If Not Me._indexOfDeclToReportDiagnostic.HasValue OrElse Me._indexOfDeclToReportDiagnostic.Value = index Then
+                        context.ReportDiagnostic(Diagnostic.Create(DiagDescriptor, location))
+                    End If
+
+                    index += 1
+                Next
+
             End Sub
         End Class
 
@@ -1306,14 +1460,14 @@ public class B
             End Sub
 
             Private Class CompilationAnalyzer
-                Private ReadOnly symbolNames As New ConcurrentSet(Of String)
+                Private ReadOnly _symbolNames As New List(Of String)
 
                 Public Sub AnalyzeSymbol(context As SymbolAnalysisContext)
-                    symbolNames.Add(context.Symbol.Name)
+                    _symbolNames.Add(context.Symbol.Name)
                 End Sub
 
                 Public Sub AnalyzeCompilation(context As CompilationAnalysisContext)
-                    context.ReportDiagnostic(Diagnostic.Create(Descriptor, Location.None, symbolNames.Count))
+                    context.ReportDiagnostic(Diagnostic.Create(Descriptor, Location.None, _symbolNames.Count))
                 End Sub
             End Class
         End Class
@@ -1323,12 +1477,12 @@ public class B
 
             Private ReadOnly _isCodeBlockAnalyzer As Boolean
 
-            Public Shared Desciptor1 As DiagnosticDescriptor = DescriptorFactory.CreateSimpleDescriptor("CodeBlockDiagnostic")
-            Public Shared Desciptor2 As DiagnosticDescriptor = DescriptorFactory.CreateSimpleDescriptor("EqualsValueDiagnostic")
-            Public Shared Desciptor3 As DiagnosticDescriptor = DescriptorFactory.CreateSimpleDescriptor("ConstructorInitializerDiagnostic")
-            Public Shared Desciptor4 As DiagnosticDescriptor = DescriptorFactory.CreateSimpleDescriptor("PropertyExpressionBodyDiagnostic")
-            Public Shared Desciptor5 As DiagnosticDescriptor = DescriptorFactory.CreateSimpleDescriptor("IndexerExpressionBodyDiagnostic")
-            Public Shared Desciptor6 As DiagnosticDescriptor = DescriptorFactory.CreateSimpleDescriptor("MethodExpressionBodyDiagnostic")
+            Public Shared Descriptor1 As DiagnosticDescriptor = DescriptorFactory.CreateSimpleDescriptor("CodeBlockDiagnostic")
+            Public Shared Descriptor2 As DiagnosticDescriptor = DescriptorFactory.CreateSimpleDescriptor("EqualsValueDiagnostic")
+            Public Shared Descriptor3 As DiagnosticDescriptor = DescriptorFactory.CreateSimpleDescriptor("ConstructorInitializerDiagnostic")
+            Public Shared Descriptor4 As DiagnosticDescriptor = DescriptorFactory.CreateSimpleDescriptor("PropertyExpressionBodyDiagnostic")
+            Public Shared Descriptor5 As DiagnosticDescriptor = DescriptorFactory.CreateSimpleDescriptor("IndexerExpressionBodyDiagnostic")
+            Public Shared Descriptor6 As DiagnosticDescriptor = DescriptorFactory.CreateSimpleDescriptor("MethodExpressionBodyDiagnostic")
 
             Public Sub New(isCodeBlockAnalyzer As Boolean)
                 _isCodeBlockAnalyzer = isCodeBlockAnalyzer
@@ -1336,7 +1490,7 @@ public class B
 
             Public Overrides ReadOnly Property SupportedDiagnostics() As ImmutableArray(Of DiagnosticDescriptor)
                 Get
-                    Return ImmutableArray.Create(Desciptor1, Desciptor2, Desciptor3, Desciptor4, Desciptor5, Desciptor6)
+                    Return ImmutableArray.Create(Descriptor1, Descriptor2, Descriptor3, Descriptor4, Descriptor5, Descriptor6)
                 End Get
             End Property
 
@@ -1351,7 +1505,7 @@ public class B
             End Sub
 
             Public Shared Sub OnCodeBlockEnded(context As CodeBlockAnalysisContext)
-                context.ReportDiagnostic(CodeAnalysis.Diagnostic.Create(Desciptor1, context.CodeBlock.GetLocation()))
+                context.ReportDiagnostic(CodeAnalysis.Diagnostic.Create(Descriptor1, context.CodeBlock.GetLocation()))
             End Sub
 
             Public Shared Sub OnCodeBlockStarted(context As CodeBlockStartAnalysisContext(Of CodeAnalysis.CSharp.SyntaxKind))
@@ -1362,26 +1516,26 @@ public class B
             Protected Class NodeAnalyzer
                 Public Sub Initialize(registerSyntaxNodeAction As Action(Of Action(Of SyntaxNodeAnalysisContext), ImmutableArray(Of CodeAnalysis.CSharp.SyntaxKind)))
                     registerSyntaxNodeAction(Sub(context)
-                                                 context.ReportDiagnostic(CodeAnalysis.Diagnostic.Create(Desciptor2, context.Node.GetLocation()))
+                                                 context.ReportDiagnostic(CodeAnalysis.Diagnostic.Create(Descriptor2, context.Node.GetLocation()))
                                              End Sub, ImmutableArray.Create(CodeAnalysis.CSharp.SyntaxKind.EqualsValueClause))
 
                     registerSyntaxNodeAction(Sub(context)
-                                                 context.ReportDiagnostic(CodeAnalysis.Diagnostic.Create(Desciptor3, context.Node.GetLocation()))
+                                                 context.ReportDiagnostic(CodeAnalysis.Diagnostic.Create(Descriptor3, context.Node.GetLocation()))
                                              End Sub, ImmutableArray.Create(CodeAnalysis.CSharp.SyntaxKind.BaseConstructorInitializer))
 
                     registerSyntaxNodeAction(Sub(context)
                                                  Dim descriptor As DiagnosticDescriptor
                                                  Select Case CodeAnalysis.CSharp.CSharpExtensions.Kind(context.Node.Parent)
                                                      Case CodeAnalysis.CSharp.SyntaxKind.PropertyDeclaration
-                                                         descriptor = Desciptor4
+                                                         descriptor = Descriptor4
                                                          Exit Select
 
                                                      Case CodeAnalysis.CSharp.SyntaxKind.IndexerDeclaration
-                                                         descriptor = Desciptor5
+                                                         descriptor = Descriptor5
                                                          Exit Select
                                                      Case Else
 
-                                                         descriptor = Desciptor6
+                                                         descriptor = Descriptor6
                                                          Exit Select
                                                  End Select
 
@@ -1415,5 +1569,256 @@ public class B
                                              End Sub, SymbolKind.Method)
             End Sub
         End Class
+
+        <Fact, WorkItem(1709, "https://github.com/dotnet/roslyn/issues/1709")>
+        Public Sub TestCodeBlockAction()
+            Dim test = <Workspace>
+                           <Project Language="C#" CommonReferences="true">
+                               <Document>
+class C
+{
+    public void M() {}
+}
+                               </Document>
+                           </Project>
+                       </Workspace>
+
+            TestCodeBlockActionCore(test)
+
+            test = <Workspace>
+                       <Project Language="Visual Basic" CommonReferences="true">
+                           <Document>
+Class C 
+    Public Sub M()
+    End Sub
+End Class
+                            </Document>
+                       </Project>
+                   </Workspace>
+
+            TestCodeBlockActionCore(test)
+        End Sub
+
+        <Fact, WorkItem(1709, "https://github.com/dotnet/roslyn/issues/1709")>
+        Public Sub TestCodeBlockAction_OnlyStatelessAction()
+            Dim test = <Workspace>
+                           <Project Language="C#" CommonReferences="true">
+                               <Document>
+class C
+{
+    public void M() {}
+}
+                               </Document>
+                           </Project>
+                       </Workspace>
+
+            TestCodeBlockActionCore(test, onlyStatelessAction:=True)
+
+            test = <Workspace>
+                       <Project Language="Visual Basic" CommonReferences="true">
+                           <Document>
+Class C 
+    Public Sub M()
+    End Sub
+End Class
+                            </Document>
+                       </Project>
+                   </Workspace>
+
+            TestCodeBlockActionCore(test, onlyStatelessAction:=True)
+        End Sub
+
+        Private Sub TestCodeBlockActionCore(test As XElement, Optional onlyStatelessAction As Boolean = False)
+            Using workspace = TestWorkspaceFactory.CreateWorkspace(test)
+                Dim project = workspace.CurrentSolution.Projects.Single()
+
+                ' Add analyzer
+                Dim analyzer = New CodeBlockActionAnalyzer(onlyStatelessAction)
+                Dim analyzerReference = New AnalyzerImageReference(ImmutableArray.Create(Of DiagnosticAnalyzer)(analyzer))
+                project = project.AddAnalyzerReference(analyzerReference)
+
+                Dim diagnosticService = New TestDiagnosticAnalyzerService()
+
+                Dim descriptorsMap = diagnosticService.GetDiagnosticDescriptors(project)
+                Assert.Equal(1, descriptorsMap.Count)
+
+                Dim document = project.Documents.Single()
+
+                Dim incrementalAnalyzer = diagnosticService.CreateIncrementalAnalyzer(workspace)
+                Dim diagnostics = diagnosticService.GetDiagnosticsForSpanAsync(document,
+                                                                        document.GetSyntaxRootAsync().WaitAndGetResult(CancellationToken.None).FullSpan,
+                                                                        CancellationToken.None).WaitAndGetResult(CancellationToken.None)
+                Dim expectedCount = If(onlyStatelessAction, 1, 2)
+                Assert.Equal(expectedCount, diagnostics.Count())
+
+                Dim diagnostic = diagnostics.Single(Function(d) d.Id = CodeBlockActionAnalyzer.CodeBlockTopLevelRule.Id)
+                Assert.Equal("CodeBlock : M", diagnostic.Message)
+
+                Dim stateFullDiagnostics = diagnostics.Where(Function(d) d.Id = CodeBlockActionAnalyzer.CodeBlockPerCompilationRule.Id)
+                Assert.Equal(expectedCount - 1, stateFullDiagnostics.Count)
+                If Not onlyStatelessAction Then
+                    Assert.Equal("CodeBlock : M", stateFullDiagnostics.Single().Message)
+                End If
+            End Using
+        End Sub
+
+        <Fact, WorkItem(2614, "https://github.com/dotnet/roslyn/issues/2614")>
+        Public Sub TestGenericName()
+            Dim test = <Workspace>
+                           <Project Language="C#" CommonReferences="true">
+                               <Document><![CDATA[
+using System;
+using System.Text;
+
+namespace ConsoleApplication1
+{
+    class MyClass
+    {   
+        private Nullable<int> myVar = 5;
+        void Method()
+        {
+
+        }
+    }
+}]]>
+                               </Document>
+                           </Project>
+                       </Workspace>
+
+            TestGenericNameCore(test, CSharpGenericNameAnalyzer.Message, CSharpGenericNameAnalyzer.DiagnosticId, New CSharpGenericNameAnalyzer)
+        End Sub
+
+        Private Sub TestGenericNameCore(test As XElement, expectedMessage As String, expectedId As String, ParamArray analyzers As DiagnosticAnalyzer())
+            Using workspace = TestWorkspaceFactory.CreateWorkspace(test)
+                Dim project = workspace.CurrentSolution.Projects.Single()
+
+                ' Add analyzer
+                Dim analyzerReference = New AnalyzerImageReference(analyzers.ToImmutableArray())
+                project = project.AddAnalyzerReference(analyzerReference)
+
+                Dim diagnosticService = New TestDiagnosticAnalyzerService()
+
+                Dim descriptorsMap = diagnosticService.GetDiagnosticDescriptors(project)
+                Assert.Equal(1, descriptorsMap.Count)
+
+                Dim document = project.Documents.Single()
+
+                Dim incrementalAnalyzer = diagnosticService.CreateIncrementalAnalyzer(workspace)
+                Dim diagnostics = diagnosticService.GetDiagnosticsForSpanAsync(document,
+                                                                        document.GetSyntaxRootAsync().WaitAndGetResult(CancellationToken.None).FullSpan,
+                                                                        CancellationToken.None).WaitAndGetResult(CancellationToken.None)
+                Assert.Equal(1, diagnostics.Count())
+
+                Dim diagnostic = diagnostics.Single(Function(d) d.Id = expectedId)
+                Assert.Equal(expectedMessage, diagnostic.Message)
+            End Using
+        End Sub
+
+        <Fact, WorkItem(2980, "https://github.com/dotnet/roslyn/issues/2980")>
+        Public Sub TestAnalyzerWithNoActions()
+            Dim test = <Workspace>
+                           <Project Language="C#" CommonReferences="true">
+                               <Document><![CDATA[
+using System;
+using System.Text;
+
+namespace ConsoleApplication1
+{
+    class MyClass
+    {   
+        private Nullable<int> myVar = 5;
+        void Method()
+        {
+
+        }
+    }
+}]]>
+                               </Document>
+                           </Project>
+                       </Workspace>
+
+            ' Ensure that adding a dummy analyzer with no actions doesn't bring down entire analysis.
+            ' See https//github.com/dotnet/roslyn/issues/2980 for details.
+            TestGenericNameCore(test, CSharpGenericNameAnalyzer.Message, CSharpGenericNameAnalyzer.DiagnosticId, New AnalyzerWithNoActions, New CSharpGenericNameAnalyzer)
+        End Sub
+
+        <Fact, WorkItem(4055, "https://github.com/dotnet/roslyn/issues/4055")>
+        Public Sub TestAnalyzerWithNoSupportedDiagnostics()
+            Dim test = <Workspace>
+                           <Project Language="C#" CommonReferences="true">
+                               <Document><![CDATA[
+class MyClass
+{
+}]]>
+                               </Document>
+                           </Project>
+                       </Workspace>
+
+            ' Ensure that adding a dummy analyzer with no supported diagnostics doesn't bring down entire analysis.
+            Using workspace = TestWorkspaceFactory.CreateWorkspace(test)
+                Dim project = workspace.CurrentSolution.Projects.Single()
+
+                ' Add analyzer
+                Dim analyzer = New AnalyzerWithNoSupportedDiagnostics()
+                Dim analyzerReference = New AnalyzerImageReference(ImmutableArray.Create(Of DiagnosticAnalyzer)(analyzer))
+                project = project.AddAnalyzerReference(analyzerReference)
+
+                Dim diagnosticService = New TestDiagnosticAnalyzerService()
+                Dim incrementalAnalyzer = diagnosticService.CreateIncrementalAnalyzer(workspace)
+
+                ' Verify available diagnostic descriptors/analyzers
+                Dim descriptorsMap = diagnosticService.GetDiagnosticDescriptors(project)
+                Assert.Equal(1, descriptorsMap.Count)
+                Assert.Equal(0, descriptorsMap.First().Value.Length)
+
+                Dim document = project.Documents.Single()
+                Dim diagnostics = diagnosticService.GetDiagnosticsForSpanAsync(document,
+                    document.GetSyntaxRootAsync().WaitAndGetResult(CancellationToken.None).FullSpan,
+                    CancellationToken.None).WaitAndGetResult(CancellationToken.None)
+
+                Assert.Equal(0, diagnostics.Count())
+            End Using
+        End Sub
+
+        <Fact, WorkItem(4068, "https://github.com/dotnet/roslyn/issues/4068")>
+        Public Sub TestAnalyzerWithCompilationActionReportingHiddenDiagnostics()
+            Dim test = <Workspace>
+                           <Project Language="C#" CommonReferences="true">
+                               <Document><![CDATA[
+class MyClass
+{
+}]]>
+                               </Document>
+                           </Project>
+                       </Workspace>
+
+            Using workspace = TestWorkspaceFactory.CreateWorkspace(test)
+                Dim project = workspace.CurrentSolution.Projects.Single()
+
+                ' Add analyzer
+                Dim analyzer = New HiddenDiagnosticsCompilationAnalyzer()
+                Dim analyzerReference = New AnalyzerImageReference(ImmutableArray.Create(Of DiagnosticAnalyzer)(analyzer))
+                project = project.AddAnalyzerReference(analyzerReference)
+
+                Dim diagnosticService = New TestDiagnosticAnalyzerService()
+                Dim incrementalAnalyzer = diagnosticService.CreateIncrementalAnalyzer(workspace)
+
+                ' Verify available diagnostic descriptors
+                Dim descriptorsMap = diagnosticService.GetDiagnosticDescriptors(project)
+                Assert.Equal(1, descriptorsMap.Count)
+                Dim descriptors = descriptorsMap.First().Value
+                Assert.Equal(1, descriptors.Length)
+                Assert.Equal(HiddenDiagnosticsCompilationAnalyzer.Descriptor.Id, descriptors.Single().Id)
+
+                ' Force project analysis
+                incrementalAnalyzer.AnalyzeProjectAsync(project, semanticsChanged:=True, cancellationToken:=CancellationToken.None).Wait()
+
+                ' Get cached project diagnostics.
+                Dim diagnostics = diagnosticService.GetCachedDiagnosticsAsync(workspace, project.Id).WaitAndGetResult(CancellationToken.None)
+
+                Assert.Equal(1, diagnostics.Count())
+                Assert.Equal(HiddenDiagnosticsCompilationAnalyzer.Descriptor.Id, diagnostics.Single().Id)
+            End Using
+        End Sub
     End Class
 End Namespace

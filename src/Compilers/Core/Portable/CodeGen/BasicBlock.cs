@@ -73,17 +73,17 @@ namespace Microsoft.CodeAnalysis.CodeGen
             //parent builder
             internal ILBuilder builder;
 
-            private Microsoft.Cci.MemoryStream _lazyRegularInstructions;
-            public Microsoft.Cci.BinaryWriter Writer
+            private Cci.PooledBlobBuilder _lazyRegularInstructions;
+            public Cci.PooledBlobBuilder Writer
             {
                 get
                 {
                     if (_lazyRegularInstructions == null)
                     {
-                        _lazyRegularInstructions = Microsoft.Cci.MemoryStream.GetInstance();
+                        _lazyRegularInstructions = Cci.PooledBlobBuilder.GetInstance();
                     }
 
-                    return new Microsoft.Cci.BinaryWriter(_lazyRegularInstructions);
+                    return _lazyRegularInstructions;
                 }
             }
 
@@ -248,15 +248,14 @@ namespace Microsoft.CodeAnalysis.CodeGen
             /// <summary>
             /// Instructions that are not branches.
             /// </summary>
-            public Microsoft.Cci.MemoryStream RegularInstructions => _lazyRegularInstructions;
+            public Cci.BlobBuilder RegularInstructions => _lazyRegularInstructions;
 
             /// <summary>
             /// The block contains only the final branch or nothing at all
             /// </summary>
             public bool HasNoRegularInstructions => _lazyRegularInstructions == null;
 
-            public uint RegularInstructionsLength
-                => _lazyRegularInstructions?.Length ?? 0;
+            public int RegularInstructionsLength => _lazyRegularInstructions?.Count ?? 0;
 
             /// <summary>
             /// Updates position of the current block to account for shorter sizes of previous blocks.
@@ -278,7 +277,7 @@ namespace Microsoft.CodeAnalysis.CodeGen
                 if (this.EnclosingHandler == null)
                 {
                     // Cannot branch into a handler.
-                    Debug.Assert((BranchBlock == null) || (BranchBlock.EnclosingHandler == null));
+                    Debug.Assert(BranchBlock?.EnclosingHandler == null);
                 }
 
                 var branchBlock = BranchBlock;
@@ -531,36 +530,19 @@ namespace Microsoft.CodeAnalysis.CodeGen
             /// 2) lead to unconditional control transfer (no fall through)
             /// 3) branch with the same instruction to the same label
             /// </summary>
-            private bool AreIdentical(BasicBlock one, BasicBlock another)
+            private static bool AreIdentical(BasicBlock one, BasicBlock another)
             {
                 if (one._branchCode == another._branchCode &&
-                     !one._branchCode.CanFallThrough() &&
-                     one._branchLabel == another._branchLabel)
+                    !one._branchCode.CanFallThrough() &&
+                    one._branchLabel == another._branchLabel)
                 {
                     var instr1 = one.RegularInstructions;
                     var instr2 = another.RegularInstructions;
-
-                    if (instr1 == instr2)
-                    {
-                        return true;
-                    }
-
-                    if (instr1 != null && instr2 != null && instr1.Length == instr2.Length)
-                    {
-                        for (int i = 0, l = (int)instr1.Length; i < l; i++)
-                        {
-                            if (instr1.Buffer[i] != instr2.Buffer[i])
-                            {
-                                return false;
-                            }
-                        }
-                        return true;
-                    }
+                    return instr1 == instr2 || instr1?.ContentEquals(instr2) == true;
                 }
 
                 return false;
             }
-
 
             /// <summary>
             /// Returns reversed branch operation for the current block.
@@ -722,7 +704,7 @@ namespace Microsoft.CodeAnalysis.CodeGen
                 get
                 {
                     Debug.Assert(BranchLabels != null);
-                    return (uint)BranchLabels.Count();
+                    return (uint)BranchLabels.Length;
                 }
             }
 

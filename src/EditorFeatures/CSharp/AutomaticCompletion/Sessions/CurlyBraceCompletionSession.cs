@@ -21,6 +21,7 @@ using Microsoft.VisualStudio.Text.BraceCompletion;
 using Microsoft.VisualStudio.Text.Editor;
 using Microsoft.VisualStudio.Text.Operations;
 using Roslyn.Utilities;
+using static Microsoft.CodeAnalysis.Formatting.FormattingOptions;
 
 namespace Microsoft.CodeAnalysis.Editor.CSharp.AutomaticCompletion.Sessions
 {
@@ -38,7 +39,7 @@ namespace Microsoft.CodeAnalysis.Editor.CSharp.AutomaticCompletion.Sessions
 
         public override void AfterStart(IBraceCompletionSession session, CancellationToken cancellationToken)
         {
-            FormatTrackingSpan(session);
+            FormatTrackingSpan(session, shouldHonorAutoFormattingOnCloseBraceOption: true);
 
             session.TextView.TryMoveCaretToAndEnsureVisible(session.ClosingPoint.GetPoint(session.SubjectBuffer.CurrentSnapshot).Subtract(1));
         }
@@ -51,7 +52,7 @@ namespace Microsoft.CodeAnalysis.Editor.CSharp.AutomaticCompletion.Sessions
         public override void AfterReturn(IBraceCompletionSession session, CancellationToken cancellationToken)
         {
             // check whether shape of the braces are what we support
-            // shape must be eiter "{|}" or "{ }". | is where caret is. otherwise, we don't do any special behavior
+            // shape must be either "{|}" or "{ }". | is where caret is. otherwise, we don't do any special behavior
             if (!ContainsOnlyWhitespace(session))
             {
                 return;
@@ -64,12 +65,8 @@ namespace Microsoft.CodeAnalysis.Editor.CSharp.AutomaticCompletion.Sessions
                 var document = session.SubjectBuffer.CurrentSnapshot.GetOpenDocumentInCurrentContextWithChanges();
                 if (document != null)
                 {
-                    // first add one line in between, and format braces 
-                    if (session.SubjectBuffer.GetOption(FeatureOnOffOptions.AutoFormattingOnCloseBrace))
-                    {
-                        document.InsertText(session.ClosingPoint.GetPosition(session.SubjectBuffer.CurrentSnapshot) - 1, Environment.NewLine, cancellationToken);
-                        FormatTrackingSpan(session, GetFormattingRules(document));
-                    }
+                    document.InsertText(session.ClosingPoint.GetPosition(session.SubjectBuffer.CurrentSnapshot) - 1, Environment.NewLine, cancellationToken);
+                    FormatTrackingSpan(session, shouldHonorAutoFormattingOnCloseBraceOption: false, rules: GetFormattingRules(document));
 
                     // put caret at right indentation
                     PutCaretOnLine(session, session.OpeningPoint.GetPoint(session.SubjectBuffer.CurrentSnapshot).GetContainingLineNumber() + 1);
@@ -113,9 +110,9 @@ namespace Microsoft.CodeAnalysis.Editor.CSharp.AutomaticCompletion.Sessions
             return SpecializedCollections.SingletonEnumerable(BraceCompletionFormattingRule.Instance).Concat(Formatter.GetDefaultFormattingRules(document));
         }
 
-        private void FormatTrackingSpan(IBraceCompletionSession session, IEnumerable<IFormattingRule> rules = null)
+        private void FormatTrackingSpan(IBraceCompletionSession session, bool shouldHonorAutoFormattingOnCloseBraceOption, IEnumerable<IFormattingRule> rules = null)
         {
-            if (!session.SubjectBuffer.GetOption(FeatureOnOffOptions.AutoFormattingOnCloseBrace))
+            if (!session.SubjectBuffer.GetOption(FeatureOnOffOptions.AutoFormattingOnCloseBrace) && shouldHonorAutoFormattingOnCloseBraceOption)
             {
                 return;
             }
@@ -146,17 +143,20 @@ namespace Microsoft.CodeAnalysis.Editor.CSharp.AutomaticCompletion.Sessions
                 }
             }
 
-            // skip whitespace
-            while (startPosition >= 0 && char.IsWhiteSpace(snapshot[startPosition]))
+            if (session.SubjectBuffer.GetOption(SmartIndent) == IndentStyle.Smart)
             {
-                startPosition--;
-            }
+                // skip whitespace
+                while (startPosition >= 0 && char.IsWhiteSpace(snapshot[startPosition]))
+                {
+                    startPosition--;
+                }
 
-            // skip token
-            startPosition--;
-            while (startPosition >= 0 && !char.IsWhiteSpace(snapshot[startPosition]))
-            {
+                // skip token
                 startPosition--;
+                while (startPosition >= 0 && !char.IsWhiteSpace(snapshot[startPosition]))
+                {
+                    startPosition--;
+                }
             }
 
             session.SubjectBuffer.Format(TextSpan.FromBounds(Math.Max(startPosition, 0), endPosition), rules);
@@ -220,9 +220,22 @@ namespace Microsoft.CodeAnalysis.Editor.CSharp.AutomaticCompletion.Sessions
                 return base.GetAdjustNewLinesOperation(previousToken, currentToken, optionSet, nextOperation);
             }
 
-            public override void AddSuppressOperations(List<SuppressOperation> list, SyntaxNode node, OptionSet optionSet, NextAction<SuppressOperation> nextOperation)
+            public override void AddAlignTokensOperations(List<AlignTokensOperation> list, SyntaxNode node, OptionSet optionSet, NextAction<AlignTokensOperation> nextOperation)
             {
-                base.AddSuppressOperations(list, node, optionSet, nextOperation);
+                base.AddAlignTokensOperations(list, node, optionSet, nextOperation);
+                if (optionSet.GetOption(SmartIndent, node.Language) == IndentStyle.Block)
+                {
+                    var bracePair = node.GetBracePair();
+                    if (bracePair.IsValidBracePair())
+                    {
+                        AddAlignIndentationOfTokensToBaseTokenOperation(list, node, bracePair.Item1, SpecializedCollections.SingletonEnumerable(bracePair.Item2), AlignTokensOption.AlignIndentationOfTokensToFirstTokenOfBaseTokenLine);
+                    }
+                }
+            }
+
+            public override void AddSuppressOperations(List<SuppressOperation> list, SyntaxNode node, SyntaxToken lastToken, OptionSet optionSet, NextAction<SuppressOperation> nextOperation)
+            {
+                base.AddSuppressOperations(list, node, lastToken, optionSet, nextOperation);
 
                 // remove suppression rules for array and collection initializer
                 if (node.IsInitializerForArrayOrCollectionCreationExpression())

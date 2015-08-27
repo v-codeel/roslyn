@@ -61,7 +61,7 @@ namespace Microsoft.CodeAnalysis.CSharp.Syntax.InternalSyntax
             }
 
             // PreLex is not cancellable. 
-            //      If we may cancell why would we aggressively lex ahead?
+            //      If we may cancel why would we aggressively lex ahead?
             //      Cancellations in a constructor make disposing complicated
             //
             // So, if we have a real cancellation token, do not do prelexing.
@@ -76,9 +76,16 @@ namespace Microsoft.CodeAnalysis.CSharp.Syntax.InternalSyntax
             var blendedTokens = _blendedTokens;
             if (blendedTokens != null)
             {
-                Array.Clear(_blendedTokens, 0, _blendedTokens.Length);
-                s_blendedNodesPool.Free(_blendedTokens);
                 _blendedTokens = null;
+                if (blendedTokens.Length < 4096)
+                {
+                    Array.Clear(blendedTokens, 0, blendedTokens.Length);
+                    s_blendedNodesPool.Free(blendedTokens);
+                }
+                else
+                {
+                    s_blendedNodesPool.ForgetTrackedObject(blendedTokens);
+                }
             }
         }
 
@@ -450,6 +457,11 @@ namespace Microsoft.CodeAnalysis.CSharp.Syntax.InternalSyntax
             _tokenOffset++;
         }
 
+        protected void ForceEndOfFile()
+        {
+            _currentToken = SyntaxFactory.Token(SyntaxKind.EndOfFileToken);
+        }
+
         //this method is called very frequently
         //we should keep it simple so that it can be inlined.
         protected SyntaxToken EatToken(SyntaxKind kind)
@@ -655,13 +667,11 @@ namespace Microsoft.CodeAnalysis.CSharp.Syntax.InternalSyntax
         protected virtual TNode WithAdditionalDiagnostics<TNode>(TNode node, params DiagnosticInfo[] diagnostics) where TNode : CSharpSyntaxNode
         {
             DiagnosticInfo[] existingDiags = node.GetDiagnostics();
-
-            //EDMAURER avoid the creation of a bunch of temporary objects that aggravate the memory situation
-            //when the parser gets profoundly confused and produces many missing token diagnostics.
-
             int existingLength = existingDiags.Length;
             if (existingLength == 0)
+            {
                 return node.WithDiagnosticsGreen(diagnostics);
+            }
             else
             {
                 DiagnosticInfo[] result = new DiagnosticInfo[existingDiags.Length + diagnostics.Length];
@@ -833,7 +843,7 @@ namespace Microsoft.CodeAnalysis.CSharp.Syntax.InternalSyntax
             // the error in we'll attach to the node
             SyntaxDiagnosticInfo diagnostic = null;
 
-            // the position of the error within the skipedSyntax node full tree
+            // the position of the error within the skippedSyntax node full tree
             int diagnosticOffset = 0;
 
             int currentOffset = 0;
@@ -1038,20 +1048,31 @@ namespace Microsoft.CodeAnalysis.CSharp.Syntax.InternalSyntax
             var featureName = feature.Localize();
             var requiredVersion = feature.RequiredVersion();
 
-            if (forceWarning)
+            if (feature.RequiredFeature() != null)
             {
-                SyntaxDiagnosticInfo rawInfo = new SyntaxDiagnosticInfo(availableVersion.GetErrorCode(), featureName, requiredVersion.Localize());
-                return this.AddError(node, ErrorCode.WRN_ErrorOverride, rawInfo, rawInfo.Code);
-            }
+                if (forceWarning)
+                {
+                    SyntaxDiagnosticInfo rawInfo = new SyntaxDiagnosticInfo(ErrorCode.ERR_FeatureIsExperimental, featureName);
+                    return this.AddError(node, ErrorCode.WRN_ErrorOverride, rawInfo, rawInfo.Code);
+                }
 
-            return this.AddError(node, availableVersion.GetErrorCode(), featureName, requiredVersion.Localize());
+                return this.AddError(node, ErrorCode.ERR_FeatureIsExperimental, featureName);
+            }
+            else
+            {
+                if (forceWarning)
+                {
+                    SyntaxDiagnosticInfo rawInfo = new SyntaxDiagnosticInfo(availableVersion.GetErrorCode(), featureName, requiredVersion.Localize());
+                    return this.AddError(node, ErrorCode.WRN_ErrorOverride, rawInfo, rawInfo.Code);
+                }
+
+                return this.AddError(node, availableVersion.GetErrorCode(), featureName, requiredVersion.Localize());
+            }
         }
 
         protected bool IsFeatureEnabled(MessageID feature)
         {
-            LanguageVersion availableVersion = this.Options.LanguageVersion;
-            LanguageVersion requiredVersion = feature.RequiredVersion();
-            return availableVersion >= requiredVersion;
+            return this.Options.IsFeatureEnabled(feature);
         }
     }
 }

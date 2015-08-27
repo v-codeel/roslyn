@@ -262,7 +262,7 @@ namespace Microsoft.CodeAnalysis.CSharp
                         break;
 
                     default:
-                        throw ExceptionUtilities.Unreachable;
+                        throw ExceptionUtilities.UnexpectedValue(directive.Kind());
                 }
             }
 
@@ -290,7 +290,7 @@ namespace Microsoft.CodeAnalysis.CSharp
         {
             if (root == null)
             {
-                throw new ArgumentNullException("root");
+                throw new ArgumentNullException(nameof(root));
             }
 
             var directives = root.Kind() == SyntaxKind.CompilationUnit ?
@@ -371,12 +371,12 @@ namespace Microsoft.CodeAnalysis.CSharp
         {
             if (text == null)
             {
-                throw new ArgumentNullException("text");
+                throw new ArgumentNullException(nameof(text));
             }
 
             if (path == null)
             {
-                throw new ArgumentNullException("path");
+                throw new ArgumentNullException(nameof(path));
             }
 
             options = options ?? CSharpParseOptions.Default;
@@ -429,7 +429,7 @@ namespace Microsoft.CodeAnalysis.CSharp
         {
             if (changes == null)
             {
-                throw new ArgumentNullException("changes");
+                throw new ArgumentNullException(nameof(changes));
             }
 
             var oldTree = this;
@@ -462,7 +462,7 @@ namespace Microsoft.CodeAnalysis.CSharp
         {
             if (oldTree == null)
             {
-                throw new ArgumentNullException("oldTree");
+                throw new ArgumentNullException(nameof(oldTree));
             }
 
             return SyntaxDiffer.GetPossiblyDifferentTextSpans(oldTree, this);
@@ -477,7 +477,7 @@ namespace Microsoft.CodeAnalysis.CSharp
         {
             if (oldTree == null)
             {
-                throw new ArgumentNullException("oldTree");
+                throw new ArgumentNullException(nameof(oldTree));
             }
 
             return SyntaxDiffer.GetTextChanges(oldTree, this);
@@ -513,7 +513,7 @@ namespace Microsoft.CodeAnalysis.CSharp
         /// otherwise it's <see cref="SyntaxTree.FilePath"/>.
         /// </para>
         /// <para>
-        /// A location path is considered mapped if the first <c>#line</c> directive that preceeds it and that
+        /// A location path is considered mapped if the first <c>#line</c> directive that precedes it and that
         /// either specifies an explicit file path or is <c>#line default</c> exists and specifies an explicit path.
         /// </para>
         /// </returns>
@@ -620,7 +620,7 @@ namespace Microsoft.CodeAnalysis.CSharp
         {
             if (node == null)
             {
-                throw new ArgumentNullException("node");
+                throw new ArgumentNullException(nameof(node));
             }
 
             return GetDiagnostics(node.Green, node.Position);

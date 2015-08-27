@@ -85,7 +85,7 @@ Namespace Microsoft.CodeAnalysis.VisualBasic.Symbols
 
             ' Check attributes quickly.
             _quickAttributes = binder.QuickAttributeChecker.CheckAttributes(syntax.AttributeLists)
-            If containingType.TypeKind <> TypeKind.Module Then
+            If Not containingType.AllowsExtensionMethods() Then
                 ' Extension methods in source can only be inside modules.
                 _quickAttributes = _quickAttributes And Not QuickAttributes.Extension
             End If
@@ -183,6 +183,13 @@ Namespace Microsoft.CodeAnalysis.VisualBasic.Symbols
 
             If Me.IsAsync OrElse Me.IsIterator Then
                 AddSynthesizedAttribute(attributes, Me.DeclaringCompilation.SynthesizeStateMachineAttribute(Me, compilationState))
+
+                If Me.IsAsync Then
+                    ' Async kick-off method calls MoveNext, which contains user code. 
+                    ' This means we need to emit DebuggerStepThroughAttribute in order
+                    ' to have correct stepping behavior during debugging.
+                    AddSynthesizedAttribute(attributes, Me.DeclaringCompilation.SynthesizeOptionalDebuggerStepThroughAttribute())
+                End If
             End If
         End Sub
 
@@ -600,7 +607,7 @@ Namespace Microsoft.CodeAnalysis.VisualBasic.Symbols
             Dim eventContainingType As TypeSymbol = Nothing
             Dim withEventsSourceProperty As PropertySymbol = Nothing
 
-            ' This is the WithEvents property that looks as avent container to the user. (it could be in a base class)
+            ' This is the WithEvents property that looks as event container to the user. (it could be in a base class)
             Dim witheventsProperty As PropertySymbol = Nothing
 
             ' This is the WithEvents property that will actually used to hookup handlers. (it could be a proxy override)
@@ -735,6 +742,18 @@ Namespace Microsoft.CodeAnalysis.VisualBasic.Symbols
                     singleHandleClause.EventMember,
                     diagBag)
             End If
+
+            Select Case ContainingType.TypeKind
+                Case TypeKind.Interface, TypeKind.Structure, TypeKind.Enum, TypeKind.Delegate
+                    ' Handles clause is invalid in this context. 
+                    Return Nothing
+
+                Case TypeKind.Class, TypeKind.Module
+                    ' Valid context
+
+                Case Else
+                    Throw ExceptionUtilities.UnexpectedValue(ContainingType.TypeKind)
+            End Select
 
             Dim receiverOpt As BoundExpression = Nothing
 

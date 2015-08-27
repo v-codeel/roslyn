@@ -6,7 +6,7 @@ Namespace Microsoft.CodeAnalysis.Editor.UnitTests.FindReferences
 
         <WorkItem(541155)>
         <Fact, Trait(Traits.Feature, Traits.Features.FindReferences)>
-        Public Sub TestInnaccessibleVar1()
+        Public Sub TestInaccessibleVar1()
             Dim input =
 <Workspace>
     <Project Language="C#" CommonReferences="true">
@@ -33,7 +33,7 @@ class B : A
 
         <WorkItem(541155)>
         <Fact, Trait(Traits.Feature, Traits.Features.FindReferences)>
-        Public Sub TestInnaccessibleVar2()
+        Public Sub TestInaccessibleVar2()
             Dim input =
 <Workspace>
     <Project Language="C#" CommonReferences="true">
@@ -1724,7 +1724,7 @@ End Class
 
 #Region "FAR on array initializers"
         <Fact, Trait(Traits.Feature, Traits.Features.FindReferences)>
-        Public Sub TestNamedType_CSharpArrayInitializerContansALongExpression()
+        Public Sub TestNamedType_CSharpArrayInitializerContainsALongExpression()
             Dim input =
 <Workspace>
     <Project Language="C#" CommonReferences="true">
@@ -1748,7 +1748,7 @@ End Class
         End Sub
 
         <Fact, Trait(Traits.Feature, Traits.Features.FindReferences)>
-        Public Sub TestNamedType_VBArrayInitializerContansALongExpression()
+        Public Sub TestNamedType_VBArrayInitializerContainsALongExpression()
             Dim input =
 <Workspace>
     <Project Language="Visual Basic" CommonReferences="true">
@@ -1793,7 +1793,7 @@ End Class
         End Sub
 
         <Fact, Trait(Traits.Feature, Traits.Features.FindReferences)>
-        Public Sub TestNamedType_VBArrayInitializerContansANestedArrayInitializer()
+        Public Sub TestNamedType_VBArrayInitializerContainsANestedArrayInitializer()
             Dim input =
 <Workspace>
     <Project Language="Visual Basic" CommonReferences="true">
@@ -1896,7 +1896,7 @@ End Class
 
 #Region "FAR on query expressions"
         <Fact, Trait(Traits.Feature, Traits.Features.FindReferences)>
-        Public Sub TestNamedType_CSharpQueryExpressionInitializedViaColInitialzer()
+        Public Sub TestNamedType_CSharpQueryExpressionInitializedViaColInitializer()
             Dim input =
 <Workspace>
     <Project Language="C#" CommonReferences="true">
@@ -1916,7 +1916,7 @@ End Class
         End Sub
 
         <Fact, Trait(Traits.Feature, Traits.Features.FindReferences)>
-        Public Sub TestNamedType_VBQueryExpressionInitializedViaColInitialzer()
+        Public Sub TestNamedType_VBQueryExpressionInitializedViaColInitializer()
             Dim input =
 <Workspace>
     <Project Language="Visual Basic" CommonReferences="true">
@@ -2156,5 +2156,34 @@ public class D { }
 
             Test(input)
         End Sub
+
+        <Fact, Trait(Traits.Feature, Traits.Features.FindReferences)>
+        <WorkItem(1174256)>
+        Public Sub TestFarWithInternalsVisibleToNull()
+            Dim input =
+<Workspace>
+    <Project Language="C#" AssemblyName="ClassLibrary1" CommonReferences="true">
+        <Document><![CDATA[
+        [assembly: System.Runtime.CompilerServices.InternalsVisibleTo(null)]
+        internal class {|Definition:$$A|}
+        {
+        }]]>
+        </Document>
+    </Project>
+
+    <Project Language="C#" AssemblyName="ClassLibrary2" CommonReferences="true">
+        <ProjectReference>ClassLibrary1</ProjectReference>
+        <Document><![CDATA[
+        public class B : A
+        {
+        }]]>
+        </Document>
+    </Project>
+</Workspace>
+
+            Test(input)
+
+        End Sub
+
     End Class
 End Namespace

@@ -12,7 +12,7 @@ using Xunit;
 
 namespace Microsoft.CodeAnalysis.CSharp.UnitTests
 {
-    public class XmlDocCommentTests
+    public class XmlDocCommentTests : CSharpTestBase
     {
         private CSharpParseOptions GetOptions(string[] defines)
         {
@@ -29,7 +29,7 @@ namespace Microsoft.CodeAnalysis.CSharp.UnitTests
             return SyntaxFactory.ParseSyntaxTree(itext, options);
         }
 
-        [Fact]
+        [ClrOnlyFact]
         public void TestEmptyElementNoAttributes()
         {
             var text = "/// <foo />";
@@ -95,7 +95,7 @@ namespace Microsoft.CodeAnalysis.CSharp.UnitTests
             Assert.Equal(text, leading[0].ToFullString());
         }
 
-        [Fact]
+        [ClrOnlyFact]
         public void TestEmptyElementNoAttributesPrecedingClass()
         {
             var text =
@@ -265,7 +265,7 @@ class C { }";
             Assert.Equal("x\"y\"z", attr.TextTokens[0].ToString());
         }
 
-        [Fact]
+        [ClrOnlyFact]
         public void TestEmptyElementNoAttributesMultipleLines()
         {
             var text =
@@ -288,7 +288,7 @@ class C { }";
             Assert.Equal("<foo \r\n/// />", doc.Content[1].ToFullString());
         }
 
-        [Fact]
+        [ClrOnlyFact]
         public void TestEmptyElementNoAttributesMultipleLinesPrecedingClass()
         {
             var text =
@@ -313,7 +313,7 @@ class C { }";
             Assert.Equal(SyntaxKind.XmlText, doc.Content[2].Kind());
         }
 
-        [Fact]
+        [ClrOnlyFact]
         public void TestEmptyElementNoAttributesMultipleLinesDelimited()
         {
             var text =
@@ -338,7 +338,7 @@ class C { }";
             Assert.Equal(SyntaxKind.XmlText, doc.Content[2].Kind());
         }
 
-        [Fact]
+        [ClrOnlyFact]
         public void TestEmptyElementNoAttributesMultipleLinesDelimitedPrecedingClass()
         {
             var text =
@@ -701,7 +701,7 @@ class C { }";
             Assert.NotEqual(0, doc.ErrorsAndWarnings().Length);
         }
 
-        [Fact]
+        [ClrOnlyFact]
         public void TestNonEmptyElementNoAttributes()
         {
             var text =
@@ -734,7 +734,7 @@ class C { }";
             Assert.Equal(" ", textsyntax.ChildNodesAndTokens()[3].ToString());
         }
 
-        [Fact]
+        [ClrOnlyFact]
         public void TestNonEmptyElementNoAttributesDelimited()
         {
             var text =
@@ -768,7 +768,7 @@ class C { }";
             Assert.Equal(" ", textsyntax.ChildNodesAndTokens()[3].ToString());
         }
 
-        [Fact]
+        [ClrOnlyFact]
         public void TestCDataSection()
         {
             var text =
@@ -798,7 +798,7 @@ class C { }";
             Assert.Equal(" \"']]<>/></text", cdata.TextTokens[4].ToString());
         }
 
-        [Fact]
+        [ClrOnlyFact]
         public void TestCDataSectionDelimited()
         {
             var text =
@@ -854,7 +854,7 @@ class C { }";
             Assert.Equal(" incomplete", cdata.TextTokens[0].ToString());
         }
 
-        [Fact]
+        [ClrOnlyFact]
         public void TestIncompleteEOLCDataSection()
         {
             var text = @"/// <![CDATA[ incomplete
@@ -930,7 +930,7 @@ class C { }"; // end of line/comment
             Assert.Equal(" incomplete", cdata.TextTokens[0].ToString());
         }
 
-        [Fact]
+        [ClrOnlyFact]
         public void TestComment()
         {
             var text =
@@ -960,7 +960,7 @@ class C { }"; // end of line/comment
             Assert.Equal(" \"']]<>/></text", comment.TextTokens[4].ToString());
         }
 
-        [Fact]
+        [ClrOnlyFact]
         public void TestCommentDelimited()
         {
             var text =
@@ -1016,7 +1016,7 @@ class C { }"; // end of line/comment
             Assert.Equal(" incomplete", comment.TextTokens[0].ToString());
         }
 
-        [Fact]
+        [ClrOnlyFact]
         public void TestIncompleteEOLComment()
         {
             var text = @"/// <!-- incomplete
@@ -1066,7 +1066,7 @@ class C { }"; // end of line/comment
             Assert.Equal(" incomplete", comment.TextTokens[0].ToString());
         }
 
-        [Fact]
+        [ClrOnlyFact]
         public void TestProcessingInstruction()
         {
             var text =
@@ -1098,7 +1098,7 @@ class C { }"; // end of line/comment
             Assert.Equal(" \"']]>/>?</text", ProcessingInstruction.TextTokens[4].ToString());
         }
 
-        [Fact]
+        [ClrOnlyFact]
         public void TestProcessingInstructionDelimited()
         {
             var text =
@@ -1589,7 +1589,7 @@ class C { }";
         }
 
         [WorkItem(899559, "DevDiv/Personal")]
-        [Fact]
+        [ClrOnlyFact]
         public void TestNoZeroWidthTrivia()
         {
             var text =
@@ -1767,7 +1767,7 @@ x
             firstComment.GetDiagnostics().Verify(
                 // (3,1): warning CS1570: XML comment has badly formed XML -- 'Expected an end tag for element 'bar'.'
                 // */
-                CSharpTestBase.Diagnostic(ErrorCode.WRN_XMLParseError, "").WithArguments("bar"));
+                Diagnostic(ErrorCode.WRN_XMLParseError, "").WithArguments("bar"));
 
             // verify that the xml elements contain the right info
             VerifyXmlElement(secondComment.Content[1] as XmlElementSyntax, "foo", " ");
@@ -2329,7 +2329,7 @@ class C{}";
         }
 
         [WorkItem(906704, "DevDiv/Personal")]
-        [Fact]
+        [ClrOnlyFact]
         public void TestSingleLineXmlCommentWithMissingStartTag()
         {
             var text = @"///</Foo>
@@ -2407,7 +2407,7 @@ class C{}";
             doc.GetDiagnostics().Verify(
                 // (2,1): warning CS1570: XML comment has badly formed XML -- 'Expected an end tag for element 'Foo'.'
                 // class C{}
-                CSharpTestBase.Diagnostic(ErrorCode.WRN_XMLParseError, "").WithArguments("Foo"));
+                Diagnostic(ErrorCode.WRN_XMLParseError, "").WithArguments("Foo"));
         }
 
         [WorkItem(906752, "DevDiv/Personal")]
@@ -2433,7 +2433,7 @@ class C{}";
             doc.GetDiagnostics().Verify(
                 // (1,9): warning CS1570: XML comment has badly formed XML -- 'Expected an end tag for element 'Foo'.'
                 // /**<Foo>*/
-                CSharpTestBase.Diagnostic(ErrorCode.WRN_XMLParseError, "").WithArguments("Foo"));
+                Diagnostic(ErrorCode.WRN_XMLParseError, "").WithArguments("Foo"));
         }
 
         [Fact]
@@ -2507,10 +2507,10 @@ class C{}";
             doc.GetDiagnostics().Verify(
                 // (2,8): warning CS1570: XML comment has badly formed XML -- 'End tag 'foo' does not match the start tag 'bar'.'
                 // <bar></foo>
-                CSharpTestBase.Diagnostic(ErrorCode.WRN_XMLParseError, "foo").WithArguments("foo", "bar"),
+                Diagnostic(ErrorCode.WRN_XMLParseError, "foo").WithArguments("foo", "bar"),
                 // (3,1): warning CS1570: XML comment has badly formed XML -- 'Expected an end tag for element 'foo'.'
                 // */
-                CSharpTestBase.Diagnostic(ErrorCode.WRN_XMLParseError, "").WithArguments("foo"));
+                Diagnostic(ErrorCode.WRN_XMLParseError, "").WithArguments("foo"));
         }
 
         [Fact]
@@ -2533,10 +2533,10 @@ class C{}";
             doc.GetDiagnostics().Verify(
                 // (2,11): warning CS1570: XML comment has badly formed XML -- 'End tag 'foo' does not match the start tag 'bar'.'
                 // ///<bar></foo>
-                CSharpTestBase.Diagnostic(ErrorCode.WRN_XMLParseError, "foo").WithArguments("foo", "bar"),
+                Diagnostic(ErrorCode.WRN_XMLParseError, "foo").WithArguments("foo", "bar"),
                 // (3,1): warning CS1570: XML comment has badly formed XML -- 'Expected an end tag for element 'foo'.'
                 // class C{}
-                CSharpTestBase.Diagnostic(ErrorCode.WRN_XMLParseError, "").WithArguments("foo"));
+                Diagnostic(ErrorCode.WRN_XMLParseError, "").WithArguments("foo"));
         }
 
         [Fact]
@@ -2753,30 +2753,30 @@ class A
             tree.GetDiagnostics().Verify(
                 // (4,19): warning CS1570: XML comment has badly formed XML -- 'Non-ASCII quotations marks may not be used around string literals.'
                 //     /// <see cref=”A()”/>
-                CSharpTestBase.Diagnostic(ErrorCode.WRN_XMLParseError, ""),
+                Diagnostic(ErrorCode.WRN_XMLParseError, ""),
                 // (4,23): warning CS1570: XML comment has badly formed XML -- 'Non-ASCII quotations marks may not be used around string literals.'
                 //     /// <see cref=”A()”/>
-                CSharpTestBase.Diagnostic(ErrorCode.WRN_XMLParseError, ""),
+                Diagnostic(ErrorCode.WRN_XMLParseError, ""),
 
                 // (5,21): warning CS1570: XML comment has badly formed XML -- 'Non-ASCII quotations marks may not be used around string literals.'
                 //     /// <param name=”x”/>
-                CSharpTestBase.Diagnostic(ErrorCode.WRN_XMLParseError, ""),
+                Diagnostic(ErrorCode.WRN_XMLParseError, ""),
                 // (5,23): warning CS1570: XML comment has badly formed XML -- 'Non-ASCII quotations marks may not be used around string literals.'
                 //     /// <param name=”x”/>
-                CSharpTestBase.Diagnostic(ErrorCode.WRN_XMLParseError, ""),
+                Diagnostic(ErrorCode.WRN_XMLParseError, ""),
 
                 // What's happening with the text attribute is that "”/>" is correctly (if unintuitively) being consumed as part of the
                 // attribute value.  It then complains about the missing closing quotation mark and '/>'.
 
                 // (6,21): warning CS1570: XML comment has badly formed XML -- 'Non-ASCII quotations marks may not be used around string literals.'
                 //     /// <other attr=”value”/>
-                CSharpTestBase.Diagnostic(ErrorCode.WRN_XMLParseError, ""),
+                Diagnostic(ErrorCode.WRN_XMLParseError, ""),
                 // (7,1): warning CS1570: XML comment has badly formed XML -- 'Missing closing quotation mark for string literal.'
                 //     void M(int x) { }
-                CSharpTestBase.Diagnostic(ErrorCode.WRN_XMLParseError, ""),
+                Diagnostic(ErrorCode.WRN_XMLParseError, ""),
                 // (7,1): warning CS1570: XML comment has badly formed XML -- 'Expected '>' or '/>' to close tag 'other'.'
                 //     void M(int x) { }
-                CSharpTestBase.Diagnostic(ErrorCode.WRN_XMLParseError, "").WithArguments("other"));
+                Diagnostic(ErrorCode.WRN_XMLParseError, "").WithArguments("other"));
         }
 
         [WorkItem(546989, "DevDiv")]
@@ -2805,31 +2805,31 @@ public class Program
             tree.GetDiagnostics().Verify(
                 // (8,44): warning CS1570: XML comment has badly formed XML -- 'Missing equals sign between attribute and attribute value.'
                 //     /// path is of the format <project name>\<nodename>\<nodename>
-                CSharpTestBase.Diagnostic(ErrorCode.WRN_XMLParseError, ""),
+                Diagnostic(ErrorCode.WRN_XMLParseError, ""),
                 // (9,11): warning CS1570: XML comment has badly formed XML -- 'End tag 'summary' does not match the start tag 'nodename'.'
                 //     /// </summary>
-                CSharpTestBase.Diagnostic(ErrorCode.WRN_XMLParseError, "summary").WithArguments("summary", "nodename"),
+                Diagnostic(ErrorCode.WRN_XMLParseError, "summary").WithArguments("summary", "nodename"),
                 // (10,21): warning CS1570: XML comment has badly formed XML -- 'Non-ASCII quotations marks may not be used around string literals.'
                 //     /// <param name=”metadata”></param>
-                CSharpTestBase.Diagnostic(ErrorCode.WRN_XMLParseError, ""),
+                Diagnostic(ErrorCode.WRN_XMLParseError, ""),
                 // (10,30): warning CS1570: XML comment has badly formed XML -- 'Non-ASCII quotations marks may not be used around string literals.'
                 //     /// <param name=”metadata”></param>
-                CSharpTestBase.Diagnostic(ErrorCode.WRN_XMLParseError, ""),
+                Diagnostic(ErrorCode.WRN_XMLParseError, ""),
                 // (11,21): warning CS1570: XML comment has badly formed XML -- 'Non-ASCII quotations marks may not be used around string literals.'
                 //     /// <param name=”provider”></param>
-                CSharpTestBase.Diagnostic(ErrorCode.WRN_XMLParseError, ""),
+                Diagnostic(ErrorCode.WRN_XMLParseError, ""),
                 // (11,30): warning CS1570: XML comment has badly formed XML -- 'Non-ASCII quotations marks may not be used around string literals.'
                 //     /// <param name=”provider”></param>
-                CSharpTestBase.Diagnostic(ErrorCode.WRN_XMLParseError, ""),
+                Diagnostic(ErrorCode.WRN_XMLParseError, ""),
                 // (12,1): warning CS1570: XML comment has badly formed XML -- 'Expected an end tag for element 'nodename'.'
                 //     protected void GetEntityConnectionString(
-                CSharpTestBase.Diagnostic(ErrorCode.WRN_XMLParseError, "").WithArguments("nodename"),
+                Diagnostic(ErrorCode.WRN_XMLParseError, "").WithArguments("nodename"),
                 // (12,1): warning CS1570: XML comment has badly formed XML -- 'Expected an end tag for element 'project'.'
                 //     protected void GetEntityConnectionString(
-                CSharpTestBase.Diagnostic(ErrorCode.WRN_XMLParseError, "").WithArguments("project"),
+                Diagnostic(ErrorCode.WRN_XMLParseError, "").WithArguments("project"),
                 // (12,1): warning CS1570: XML comment has badly formed XML -- 'Expected an end tag for element 'summary'.'
                 //     protected void GetEntityConnectionString(
-                CSharpTestBase.Diagnostic(ErrorCode.WRN_XMLParseError, "").WithArguments("summary"));
+                Diagnostic(ErrorCode.WRN_XMLParseError, "").WithArguments("summary"));
         }
 
         [WorkItem(547188, "DevDiv")]
@@ -2849,16 +2849,16 @@ public class Program
             tree.GetDiagnostics().Verify(
                 // (3,8): warning CS1570: XML comment has badly formed XML -- 'Whitespace is not allowed at this location.'
                 // /// <A: B/>
-                CSharpTestBase.Diagnostic(ErrorCode.WRN_XMLParseError, " "),
+                Diagnostic(ErrorCode.WRN_XMLParseError, " "),
                 // (4,7): warning CS1570: XML comment has badly formed XML -- 'Whitespace is not allowed at this location.'
                 // /// <A :B/>
-                CSharpTestBase.Diagnostic(ErrorCode.WRN_XMLParseError, " "),
+                Diagnostic(ErrorCode.WRN_XMLParseError, " "),
                 // (5,7): warning CS1570: XML comment has badly formed XML -- 'Whitespace is not allowed at this location.'
                 // /// <A : B/>
-                CSharpTestBase.Diagnostic(ErrorCode.WRN_XMLParseError, " "),
+                Diagnostic(ErrorCode.WRN_XMLParseError, " "),
                 // (5,9): warning CS1570: XML comment has badly formed XML -- 'Whitespace is not allowed at this location.'
                 // /// <A : B/>
-                CSharpTestBase.Diagnostic(ErrorCode.WRN_XMLParseError, " "));
+                Diagnostic(ErrorCode.WRN_XMLParseError, " "));
         }
 
         #region Xml Test helpers
@@ -2988,8 +2988,8 @@ public class Program
         /// </summary>
         private class TestError
         {
-            public bool IsWarning { get; set; }
-            public int ErrorCode { get; set; }
+            public bool IsWarning { get; }
+            public int ErrorCode { get; }
 
             public TestError(int code, bool warning)
             {

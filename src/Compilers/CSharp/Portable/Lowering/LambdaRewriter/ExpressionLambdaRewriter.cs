@@ -4,11 +4,7 @@ using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Diagnostics;
-using System.Linq;
-using System.Text;
 using Microsoft.CodeAnalysis.CSharp.Symbols;
-using Microsoft.CodeAnalysis.CSharp.Syntax;
-using Microsoft.CodeAnalysis.Text;
 using Roslyn.Utilities;
 
 namespace Microsoft.CodeAnalysis.CSharp
@@ -18,6 +14,7 @@ namespace Microsoft.CodeAnalysis.CSharp
         private readonly SyntheticBoundNodeFactory _bound;
         private readonly TypeMap _typeMap;
         private readonly Dictionary<ParameterSymbol, BoundExpression> _parameterMap = new Dictionary<ParameterSymbol, BoundExpression>();
+        private readonly bool _ignoreAccessibility;
 
         private NamedTypeSymbol _ExpressionType;
         private NamedTypeSymbol ExpressionType
@@ -98,6 +95,7 @@ namespace Microsoft.CodeAnalysis.CSharp
         private ExpressionLambdaRewriter(TypeCompilationState compilationState, TypeMap typeMap, CSharpSyntaxNode node, DiagnosticBag diagnostics)
         {
             _bound = new SyntheticBoundNodeFactory(null, compilationState.Type, node, compilationState, diagnostics);
+            _ignoreAccessibility = compilationState.ModuleBuilderOpt.IgnoreAccessibility;
             _int32Type = _bound.SpecialType(SpecialType.System_Int32);
             _objectType = _bound.SpecialType(SpecialType.System_Object);
             _nullableType = _bound.SpecialType(SpecialType.System_Nullable_T);
@@ -393,14 +391,28 @@ namespace Microsoft.CodeAnalysis.CSharp
                             promotedType = _nullableType.Construct(promotedType);
                         }
 
-                        loweredLeft = Convert(loweredLeft, left.Type, promotedType, isChecked, false);
-                        loweredRight = Convert(loweredRight, right.Type, promotedType, isChecked, false);
+                        loweredLeft = PromoteEnumOperand(left, loweredLeft, promotedType, isChecked);
+                        loweredRight = PromoteEnumOperand(right, loweredRight, promotedType, isChecked);
 
                         var result = MakeBinary(methodOpt, type, isLifted, requiresLifted, opName, loweredLeft, loweredRight);
                         return Demote(result, type, isChecked);
                     }
                 default:
                     return MakeBinary(methodOpt, type, isLifted, requiresLifted, opName, loweredLeft, loweredRight);
+            }
+        }
+
+        private BoundExpression PromoteEnumOperand(BoundExpression operand, BoundExpression loweredOperand, TypeSymbol promotedType, bool isChecked)
+        {
+            var literal = operand as BoundLiteral;
+            if (literal != null)
+            {
+                // for compat reasons enum literals are directly promoted into underlying values
+                return Constant(literal.Update(literal.ConstantValue, promotedType));
+            }
+            else
+            {
+                return Convert(loweredOperand, operand.Type, promotedType, isChecked, false);
             }
         }
 
@@ -666,7 +678,7 @@ namespace Microsoft.CodeAnalysis.CSharp
                 parameters.Add(parameterReference);
                 var parameter = ExprFactory(
                     "Parameter",
-                    _bound.Typeof(_typeMap.SubstituteType(p.Type)), _bound.Literal(p.Name));
+                    _bound.Typeof(_typeMap.SubstituteType(p.Type).Type), _bound.Literal(p.Name));
                 initializers.Add(_bound.AssignmentExpression(parameterReference, parameter));
                 _parameterMap[p] = parameterReference;
             }
@@ -974,7 +986,7 @@ namespace Microsoft.CodeAnalysis.CSharp
 
         private BoundExpression ExprFactory(string name, ImmutableArray<TypeSymbol> typeArgs, params BoundExpression[] arguments)
         {
-            return _bound.StaticCall(ExpressionType, name, typeArgs, arguments);
+            return _bound.StaticCall(_ignoreAccessibility ? BinderFlags.IgnoreAccessibility : BinderFlags.None, ExpressionType, name, typeArgs, arguments);
         }
 
         private BoundExpression ExprFactory(WellKnownMember method, ImmutableArray<TypeSymbol> typeArgs, params BoundExpression[] arguments)

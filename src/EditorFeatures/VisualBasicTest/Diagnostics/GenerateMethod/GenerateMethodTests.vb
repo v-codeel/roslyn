@@ -91,7 +91,7 @@ NewLines("Imports System \n Class C \n Sub M(i As Integer) \n Foo(NextMethod) \n
         End Sub
 
         <Fact(Skip:="528229"), Trait(Traits.Feature, Traits.Features.CodeActionsGenerateMethod)>
-        Public Sub TestAddresOf1()
+        Public Sub TestAddressOf1()
             Test(
 NewLines("Class C \n Sub M(i As Integer) \n [|Foo|](AddressOf NextMethod) \n End Sub \n Function NextMethod(i As Integer) As String \n End Function \n End Class"),
 NewLines("Imports System \n Class C \n Sub M(i As Integer) \n Foo(AddressOf NextMethod) \n End Sub \n Private Sub Foo(nextMethod As Global.System.Func(Of Integer, String)) \n Throw New NotImplementedException() \n End Sub \n Function NextMethod(i As Integer) As String \n End Function \n End Class"))
@@ -812,7 +812,7 @@ NewLines("Imports System \n Class C \n Friend Shared Sub Bar() \n Throw New NotI
 
         <WorkItem(546037)>
         <Fact, Trait(Traits.Feature, Traits.Features.CodeActionsGenerateMethod)>
-        Public Sub TestOmmittedArguments1()
+        Public Sub TestOmittedArguments1()
             Test(
 NewLines("Module Program \n Sub Main(args As String()) \n [|foo|](,,) \n End Sub \n End Module"),
 NewLines("Imports System \n Module Program \n Sub Main(args As String()) \n foo(,,) \n End Sub \n Private Sub foo(Optional p1 As Object = Nothing, Optional p2 As Object = Nothing, Optional p3 As Object = Nothing) \n Throw New NotImplementedException() \n End Sub \n End Module"))
@@ -820,7 +820,7 @@ NewLines("Imports System \n Module Program \n Sub Main(args As String()) \n foo(
 
         <WorkItem(546037)>
         <Fact, Trait(Traits.Feature, Traits.Features.CodeActionsGenerateMethod)>
-        Public Sub TestOmmittedArguments2()
+        Public Sub TestOmittedArguments2()
             Test(
 NewLines("Module Program \n Sub Main(args As String()) \n [|foo|](1,,) \n End Sub \n End Module"),
 NewLines("Imports System \n Module Program \n Sub Main(args As String()) \n foo(1,,) \n End Sub \n Private Sub foo(v As Integer, Optional p1 As Object = Nothing, Optional p2 As Object = Nothing) \n Throw New NotImplementedException() \n End Sub \n End Module"))
@@ -828,7 +828,7 @@ NewLines("Imports System \n Module Program \n Sub Main(args As String()) \n foo(
 
         <WorkItem(546037)>
         <Fact, Trait(Traits.Feature, Traits.Features.CodeActionsGenerateMethod)>
-        Public Sub TestOmmittedArguments3()
+        Public Sub TestOmittedArguments3()
             Test(
 NewLines("Module Program \n Sub Main(args As String()) \n [|foo|](,1,) \n End Sub \n End Module"),
 NewLines("Imports System \n Module Program \n Sub Main(args As String()) \n foo(,1,) \n End Sub \n Private Sub foo(Optional p1 As Object = Nothing, Optional v As Integer = Nothing, Optional p2 As Object = Nothing) \n Throw New NotImplementedException() \n End Sub \n End Module"))
@@ -836,7 +836,7 @@ NewLines("Imports System \n Module Program \n Sub Main(args As String()) \n foo(
 
         <WorkItem(546037)>
         <Fact, Trait(Traits.Feature, Traits.Features.CodeActionsGenerateMethod)>
-        Public Sub TestOmmittedArguments4()
+        Public Sub TestOmittedArguments4()
             Test(
 NewLines("Module Program \n Sub Main(args As String()) \n [|foo|](,,1) \n End Sub \n End Module"),
 NewLines("Imports System \n Module Program \n Sub Main(args As String()) \n foo(,,1) \n End Sub \n Private Sub foo(Optional p1 As Object = Nothing, Optional p2 As Object = Nothing, Optional v As Integer = Nothing) \n Throw New NotImplementedException() \n End Sub \n End Module"))
@@ -844,7 +844,7 @@ NewLines("Imports System \n Module Program \n Sub Main(args As String()) \n foo(
 
         <WorkItem(546037)>
         <Fact, Trait(Traits.Feature, Traits.Features.CodeActionsGenerateMethod)>
-        Public Sub TestOmmittedArguments5()
+        Public Sub TestOmittedArguments5()
             Test(
 NewLines("Module Program \n Sub Main(args As String()) \n [|foo|](1,, 1) \n End Sub \n End Module"),
 NewLines("Imports System \n Module Program \n Sub Main(args As String()) \n foo(1,, 1) \n End Sub \n Private Sub foo(v1 As Integer, Optional p As Object = Nothing, Optional v2 As Integer = Nothing) \n Throw New NotImplementedException() \n End Sub \n End Module"))
@@ -852,7 +852,7 @@ NewLines("Imports System \n Module Program \n Sub Main(args As String()) \n foo(
 
         <WorkItem(546037)>
         <Fact, Trait(Traits.Feature, Traits.Features.CodeActionsGenerateMethod)>
-        Public Sub TestOmmittedArguments6()
+        Public Sub TestOmittedArguments6()
             Test(
 NewLines("Module Program \n Sub Main(args As String()) \n [|foo|](1, 1, ) \n End Sub \n End Module"),
 NewLines("Imports System \n Module Program \n Sub Main(args As String()) \n foo(1, 1, ) \n End Sub \n Private Sub foo(v1 As Integer, v2 As Integer, Optional p As Object = Nothing) \n Throw New NotImplementedException() \n End Sub \n End Module"))
@@ -1305,40 +1305,6 @@ Module M1
     End Sub
 
     Private Function FreeFile(v As Integer) As Integer
-        Throw New NotImplementedException()
-    End Function
-End Module
-</text>.Value.Replace(vbLf, vbCrLf), compareTokens:=False)
-        End Sub
-
-        <WorkItem(939941)>
-        <Fact, Trait(Traits.Feature, Traits.Features.CodeActionsGenerateMethod)>
-        Public Sub TestGenerateMethodFunctionStrictDisallowsLateBinding()
-            Test(
-<text>Option Strict On
-Module Module1
-    Dim bol As Boolean
-    Class C1
-    End Class
-    Sub foo()
-        Dim Obj As Object = New C1()
-        bol = [|Obj(1)|]
-    End Sub
-End Module
-</text>.Value.Replace(vbLf, vbCrLf),
-<text>Option Strict On
-Imports System
-
-Module Module1
-    Dim bol As Boolean
-    Class C1
-    End Class
-    Sub foo()
-        Dim Obj As Object = New C1()
-        bol = Obj(1)
-    End Sub
-
-    Private Function Obj(v As Integer) As Boolean
         Throw New NotImplementedException()
     End Function
 End Module
@@ -2173,6 +2139,64 @@ NewLines("Imports System \n Module C \n Sub Test() \n If TypeOf B Is String Then
             Test(
 NewLines("Module C \n Sub Test() \n If TypeOf [|B|]() Is String Then \n End If \n End Sub \n End Module"),
 NewLines("Imports System \n Module C \n Sub Test() \n If TypeOf B() Is String Then \n End If \n End Sub \n Private Function B() As String \n Throw New NotImplementedException() \n End Function \n End Module"))
+        End Sub
+
+        <WorkItem(643, "https://github.com/dotnet/roslyn/issues/643")>
+        <Fact(), Trait(Traits.Feature, Traits.Features.CodeActionsGenerateMethod)>
+        Public Sub TestGenerateMethodConfigureAwaitFalse()
+            Test(
+NewLines("Imports System \n Imports System.Collections.Generic \n Imports System.Linq \n Module Program \n Async Sub Main(args As String()) \n Dim x As Boolean = Await [|Foo|]().ConfigureAwait(False) \n End Sub \n End Module"),
+NewLines("Imports System\nImports System.Collections.Generic\nImports System.Linq\nImports System.Threading.Tasks\n\nModule Program\n    Async Sub Main(args As String())\n        Dim x As Boolean = Await Foo().ConfigureAwait(False)\n    End Sub\n\n    Private Function Foo() As Task(Of Boolean)\n        Throw New NotImplementedException()\n    End Function\nEnd Module"))
+        End Sub
+
+        <WorkItem(643, "https://github.com/dotnet/roslyn/issues/643")>
+        <Fact(), Trait(Traits.Feature, Traits.Features.CodeActionsGenerateVariable)>
+        Public Sub TestGeneratePropertyConfigureAwaitFalse()
+            Test(
+NewLines("Imports System \n Imports System.Collections.Generic \n Imports System.Linq \n Module Program \n Async Sub Main(args As String()) \n Dim x As Boolean = Await [|Foo|]().ConfigureAwait(False) \n End Sub \n End Module"),
+NewLines("Imports System\nImports System.Collections.Generic\nImports System.Linq\nImports System.Threading.Tasks\n\nModule Program\n    Async Sub Main(args As String())\n        Dim x As Boolean = Await Foo().ConfigureAwait(False)\n    End Sub\n\n    Private ReadOnly Property Foo As Task(Of Boolean)\n        Get\n            Throw New NotImplementedException()\n        End Get\n    End Property\nEnd Module"),
+index:=1)
+        End Sub
+
+        <WorkItem(643, "https://github.com/dotnet/roslyn/issues/643")>
+        <Fact(), Trait(Traits.Feature, Traits.Features.CodeActionsGenerateMethod)>
+        Public Sub TestGenerateMethodWithMethodChaining()
+            Test(
+NewLines("Imports System \n Imports System.Linq \n Module M \n Async Sub T() \n Dim x As Boolean = Await [|F|]().ContinueWith(Function(a) True).ContinueWith(Function(a) False) \n End Sub \n End Module"),
+NewLines("Imports System\nImports System.Linq\nImports System.Threading.Tasks\n\nModule M\n    Async Sub T()\n        Dim x As Boolean = Await F().ContinueWith(Function(a) True).ContinueWith(Function(a) False)\n    End Sub\n\n    Private Function F() As Task(Of Boolean)\n        Throw New NotImplementedException()\n    End Function\nEnd Module"))
+        End Sub
+
+        <WorkItem(643, "https://github.com/dotnet/roslyn/issues/643")>
+        <Fact(), Trait(Traits.Feature, Traits.Features.CodeActionsGenerateMethod)>
+        Public Sub TestGenerateMethodWithMethodChaining2()
+            Test(
+NewLines("Imports System \n Imports System.Linq \n Module M \n Async Sub T() \n Dim x As Boolean = Await [|F|]().ContinueWith(Function(a) True).ContinueWith(Function(a) False) \n End Sub \n End Module"),
+NewLines("Imports System\nImports System.Linq\nImports System.Threading.Tasks\n\nModule M\n    Async Sub T()\n        Dim x As Boolean = Await F().ContinueWith(Function(a) True).ContinueWith(Function(a) False)\n    End Sub\n\n    Private ReadOnly Property F As Task(Of Boolean)\n        Get\n            Throw New NotImplementedException()\n        End Get\n    End Property\nEnd Module"),
+index:=1)
+        End Sub
+
+        <WorkItem(1130960)>
+        <Fact(), Trait(Traits.Feature, Traits.Features.CodeActionsGenerateMethod)>
+        Public Sub TestGenerateMethodInTypeOfIsNot()
+            Test(
+NewLines("Imports System \n Imports System.Collections.Generic \n Imports System.Linq \n Module Program \n Sub M() \n If TypeOf [|Prop|] IsNot TypeOfIsNotDerived Then \n End If \n End Sub \n End Module"),
+NewLines("Imports System \n Imports System.Collections.Generic \n Imports System.Linq \n Module Program \n Sub M() \n If TypeOf Prop IsNot TypeOfIsNotDerived Then \n End If \n End Sub \n Private Function Prop() As TypeOfIsNotDerived \n Throw New NotImplementedException() \n End Function \n End Module"))
+        End Sub
+
+        <WorkItem(529480)>
+        <Fact(), Trait(Traits.Feature, Traits.Features.CodeActionsGenerateMethod)>
+        Public Sub TestInCollectionInitializers1()
+            Test(
+NewLines("Imports System \n Imports System.Collections.Generic \n Module Program \n Sub M() \n Dim x = New List ( Of Integer ) From { [|T|]() } \n End Sub \n End Module"),
+NewLines("Imports System \n Imports System.Collections.Generic \n Module Program \n Sub M() \n Dim x = New List ( Of Integer ) From { T() } \n End Sub \n Private Function T() As Integer \n Throw New NotImplementedException() \n End Function \n End Module"))
+        End Sub
+
+        <WorkItem(529480)>
+        <Fact(), Trait(Traits.Feature, Traits.Features.CodeActionsGenerateMethod)>
+        Public Sub TestInCollectionInitializers2()
+            Test(
+NewLines("Imports System \n Imports System.Collections.Generic \n Module Program \n Sub M() \n Dim x = New Dictionary ( Of Integer , Boolean ) From { { 1, [|T|]() } } \n End Sub \n End Module"),
+NewLines("Imports System \n Imports System.Collections.Generic \n Module Program \n Sub M() \n Dim x = New Dictionary ( Of Integer , Boolean ) From { { 1, T() } } \n End Sub \n Private Function T() As Boolean \n Throw New NotImplementedException() \n End Function \n End Module"))
         End Sub
 
         Public Class GenerateConversionTests

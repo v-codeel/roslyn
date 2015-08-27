@@ -6,14 +6,14 @@ using Microsoft.CodeAnalysis.Options;
 
 namespace Microsoft.CodeAnalysis.CSharp.Formatting
 {
-    internal partial class CSharpTriviaFormatter : AbstractTriviaFormatter<SyntaxTrivia>
+    internal partial class CSharpTriviaFormatter
     {
         private class DocumentationCommentExteriorCommentRewriter : CSharpSyntaxRewriter
         {
-            private bool _forceIndentation;
-            private int _indentation;
-            private int _indentationDelta;
-            private OptionSet _optionSet;
+            private readonly bool _forceIndentation;
+            private readonly int _indentation;
+            private readonly int _indentationDelta;
+            private readonly OptionSet _optionSet;
 
             public DocumentationCommentExteriorCommentRewriter(
                 bool forceIndentation,

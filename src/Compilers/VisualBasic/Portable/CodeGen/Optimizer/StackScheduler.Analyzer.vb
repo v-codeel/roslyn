@@ -37,7 +37,7 @@ Namespace Microsoft.CodeAnalysis.VisualBasic.CodeGen
                 Box
             End Enum
 
-            Private _container As Symbol
+            Private ReadOnly _container As Symbol
 
             Private _counter As Integer = 0
             Private _evalStack As Integer = 0
@@ -72,10 +72,10 @@ Namespace Microsoft.CodeAnalysis.VisualBasic.CodeGen
             End Sub
 
             Public Shared Function Analyze(container As Symbol, node As BoundNode, <Out> ByRef locals As Dictionary(Of LocalSymbol, LocalDefUseInfo)) As BoundNode
-                Dim analyser = New Analyzer(container)
+                Dim analyzer = New Analyzer(container)
 
-                Dim rewritten As BoundNode = analyser.Visit(node)
-                locals = analyser._locals
+                Dim rewritten As BoundNode = analyzer.Visit(node)
+                locals = analyzer._locals
 
                 Return rewritten
             End Function
@@ -119,7 +119,7 @@ Namespace Microsoft.CodeAnalysis.VisualBasic.CodeGen
                     Return prevAsLocal.LocalSymbol Is curAsLocal.LocalSymbol
                 End If
 
-                ' prameters
+                ' parameters
                 Dim prevAsParam = TryCast(prevNode, BoundParameter)
                 Dim curAsParam = TryCast(curNode, BoundParameter)
                 If prevAsParam IsNot Nothing AndAlso curAsParam IsNot Nothing Then
@@ -333,10 +333,10 @@ Namespace Microsoft.CodeAnalysis.VisualBasic.CodeGen
                 '      postfix: Seq{var temp, ref operand; operand initializers; *operand = Seq{temp = operand;        ;  (T)(temp + 1);} result: temp}
                 '
                 '  1) temp is used as the result of the sequence (and that is the only reason why it is declared in the outer sequence).
-                '  2) all sideeffects except the last one do not use the temp.
-                '  3) last sideeffect is an indirect assignment of a sequence (and target does not involve the temp).
+                '  2) all side-effects except the last one do not use the temp.
+                '  3) last side-effect is an indirect assignment of a sequence (and target does not involve the temp).
                 '            
-                '  Note that in a case of Sideeffects context, the result value will be ignored and therefore
+                '  Note that in a case of side-effects context, the result value will be ignored and therefore
                 '  all usages of the nested temp will be confined to the nested sequence that is executed at +1 stack.
                 '
                 '  We will detect such case and indicate +1 as the desired stack depth at local accesses.
@@ -420,14 +420,14 @@ Namespace Microsoft.CodeAnalysis.VisualBasic.CodeGen
 
             '        if (lastSideeffect != null)
             '        {
-            '            // last sideeffect must be an indirect assignment of a sequence.
+            '            // last side-effect must be an indirect assignment of a sequence.
             '            if (lastSideeffect.Kind == BoundKind.AssignmentOperator)
             '            {
             '                var assignment = (BoundAssignmentOperator)lastSideeffect;
             '                if (IsIndirectAssignment(assignment) &&
             '                    assignment.Right.Kind == BoundKind.Sequence)
             '                {
-            '                    // and no other sideeffects should use the variable
+            '                    // and no other side-effects should use the variable
             '                    var localUsedWalker = new LocalUsedWalker(local);
             '                    for (int i = 0; i < sideeffects.Count - 1; i++)
             '                    {
@@ -523,7 +523,7 @@ Namespace Microsoft.CodeAnalysis.VisualBasic.CodeGen
                             Me._lastExpressionCnt += 1
 
                         Case ExprContext.Sideeffects
-                        ' do nothing
+                            ' do nothing
 
                         Case ExprContext.Value,
                             ExprContext.Box
@@ -560,10 +560,10 @@ Namespace Microsoft.CodeAnalysis.VisualBasic.CodeGen
             End Function
 
             Public Overrides Function VisitAssignmentOperator(node As BoundAssignmentOperator) As BoundNode
-                Dim isIndirectAssignement As Boolean = IsIndirectAssignment(node)
+                Dim isIndirect As Boolean = IsIndirectAssignment(node)
 
                 Dim left As BoundExpression = VisitExpression(node.Left,
-                                                              If(isIndirectAssignement,
+                                                              If(isIndirect,
                                                                  ExprContext.Address,
                                                                  ExprContext.AssignmentTarget))
 
@@ -623,7 +623,7 @@ Namespace Microsoft.CodeAnalysis.VisualBasic.CodeGen
                     Debug.Assert(node.Left.Type.IsSameTypeIgnoringCustomModifiers(node.Right.Type),
                                  "cannot use stack when assignment involves implicit coercion of the value")
 
-                    Debug.Assert(Not isIndirectAssignement, "indirect assignment is a read, not a write")
+                    Debug.Assert(Not isIndirect, "indirect assignment is a read, not a write")
 
                     RecordVarWrite(storedAssignmentLocal.LocalSymbol)
                 End If
@@ -880,6 +880,28 @@ Namespace Microsoft.CodeAnalysis.VisualBasic.CodeGen
 
             Public Overrides Function VisitConditionalAccessReceiverPlaceholder(node As BoundConditionalAccessReceiverPlaceholder) As BoundNode
                 Return MyBase.VisitConditionalAccessReceiverPlaceholder(node)
+            End Function
+
+            Public Overrides Function VisitComplexConditionalAccessReceiver(node As BoundComplexConditionalAccessReceiver) As BoundNode
+                EnsureOnlyEvalStack()
+
+                Dim origStack As Integer = Me._evalStack
+
+                Me._evalStack += 1
+
+                Dim cookie As Object = GetStackStateCookie() ' implicit goto here
+
+                Me._evalStack = origStack ' consequence is evaluated with original stack
+                Dim valueTypeReceiver = DirectCast(Me.Visit(node.ValueTypeReceiver), BoundExpression)
+
+                EnsureStackState(cookie) ' implicit label here
+
+                Me._evalStack = origStack ' alternative is evaluated with original stack
+                Dim referenceTypeReceiver = DirectCast(Me.Visit(node.ReferenceTypeReceiver), BoundExpression)
+
+                EnsureStackState(cookie) ' implicit label here
+
+                Return node.Update(valueTypeReceiver, referenceTypeReceiver, node.Type)
             End Function
 
             Public Overrides Function VisitBinaryOperator(node As BoundBinaryOperator) As BoundNode

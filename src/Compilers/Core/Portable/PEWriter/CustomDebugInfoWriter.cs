@@ -2,11 +2,9 @@
 
 using System;
 using System.Collections.Generic;
-using System.Collections.Immutable;
 using System.Diagnostics;
 using System.Linq;
 using Microsoft.CodeAnalysis;
-using Microsoft.CodeAnalysis.CodeGen;
 using Microsoft.CodeAnalysis.Emit;
 using Roslyn.Utilities;
 using CDI = Microsoft.Cci.CustomDebugInfoConstants;
@@ -15,10 +13,10 @@ namespace Microsoft.Cci
 {
     internal sealed class CustomDebugInfoWriter
     {
-        private uint _methodTokenWithModuleInfo;
+        private int _methodTokenWithModuleInfo;
         private IMethodBody _methodBodyWithModuleInfo;
 
-        private uint _previousMethodTokenWithUsingInfo;
+        private int _previousMethodTokenWithUsingInfo;
         private IMethodBody _previousMethodBodyWithUsingInfo;
 
         private readonly PdbWriter _pdbWriter;
@@ -34,9 +32,9 @@ namespace Microsoft.Cci
         /// Returns non-null <paramref name="forwardToMethod"/> if the forwarding should be done directly via UsingNamespace,
         /// null if the forwarding is done via custom debug info.
         /// </summary>
-        public bool ShouldForwardNamespaceScopes(EmitContext context, IMethodBody methodBody, uint methodToken, out IMethodDefinition forwardToMethod)
+        public bool ShouldForwardNamespaceScopes(EmitContext context, IMethodBody methodBody, int methodToken, out IMethodDefinition forwardToMethod)
         {
-            if (ShouldForwardToPreviousMethodWithUsingInfo(context, methodBody) || methodBody.ImportScope == null)
+            if (ShouldForwardToPreviousMethodWithUsingInfo(context, methodBody))
             {
                 // SerializeNamespaceScopeMetadata will do the actual forwarding in case this is a CSharp method.
                 // VB on the other hand adds a "@methodtoken" to the scopes instead.
@@ -58,7 +56,7 @@ namespace Microsoft.Cci
             return false;
         }
 
-        public byte[] SerializeMethodDebugInfo(EmitContext context, IMethodBody methodBody, uint methodToken, bool isEncDelta, bool suppressNewCustomDebugInfo, out bool emitExternNamespaces)
+        public byte[] SerializeMethodDebugInfo(EmitContext context, IMethodBody methodBody, int methodToken, bool isEncDelta, bool suppressNewCustomDebugInfo, out bool emitExternNamespaces)
         {
             emitExternNamespaces = false;
 
@@ -80,7 +78,7 @@ namespace Microsoft.Cci
                 }
             }
 
-            var customDebugInfo = ArrayBuilder<MemoryStream>.GetInstance();
+            var customDebugInfo = ArrayBuilder<BlobBuilder>.GetInstance();
 
             SerializeIteratorClassMetadata(methodBody, customDebugInfo);
 
@@ -115,7 +113,8 @@ namespace Microsoft.Cci
             return result;
         }
 
-        private static void SerializeCustomDebugInformation(EditAndContinueMethodDebugInformation debugInfo, ArrayBuilder<MemoryStream> customDebugInfo)
+        // internal for testing
+        internal static void SerializeCustomDebugInformation(EditAndContinueMethodDebugInformation debugInfo, ArrayBuilder<BlobBuilder> customDebugInfo)
         {
             if (!debugInfo.LocalSlots.IsDefaultOrEmpty)
             {
@@ -128,50 +127,53 @@ namespace Microsoft.Cci
             }
         }
 
-        private static MemoryStream SerializeRecord(byte kind, Action<BinaryWriter> data)
+        private static BlobBuilder SerializeRecord(byte kind, Action<BlobBuilder> data)
         {
-            MemoryStream customMetadata = new MemoryStream();
-            BinaryWriter cmw = new BinaryWriter(customMetadata);
+            var cmw = new BlobBuilder();
             cmw.WriteByte(CDI.CdiVersion);
             cmw.WriteByte(kind);
-            cmw.Align(4);
+            cmw.WriteByte(0);
 
-            // length (will be patched)
-            uint lengthPosition = cmw.BaseStream.Position;
-            cmw.WriteUint(0);
+            // alignment size and length (will be patched)
+            var alignmentSizeAndLengthWriter = cmw.ReserveBytes(sizeof(byte) + sizeof(uint));
 
             data(cmw);
 
-            uint length = customMetadata.Position;
-            cmw.BaseStream.Position = lengthPosition;
-            cmw.WriteUint(length);
-            cmw.BaseStream.Position = length;
-            return customMetadata;
+            int length = cmw.Position;
+            int alignedLength = 4 * ((length + 3) / 4);
+            byte alignmentSize = (byte)(alignedLength - length);
+            cmw.WriteBytes(0, alignmentSize);
+
+            // fill in alignment size and length:
+            alignmentSizeAndLengthWriter.WriteByte(alignmentSize);
+            alignmentSizeAndLengthWriter.WriteUInt32((uint)alignedLength);
+
+            return cmw;
         }
 
-        private static void SerializeIteratorClassMetadata(IMethodBody methodBody, ArrayBuilder<MemoryStream> customDebugInfo)
+        private static void SerializeIteratorClassMetadata(IMethodBody methodBody, ArrayBuilder<BlobBuilder> customDebugInfo)
         {
             SerializeReferenceToIteratorClass(methodBody.StateMachineTypeName, customDebugInfo);
         }
 
-        private static void SerializeReferenceToIteratorClass(string iteratorClassName, ArrayBuilder<MemoryStream> customDebugInfo)
+        private static void SerializeReferenceToIteratorClass(string iteratorClassName, ArrayBuilder<BlobBuilder> customDebugInfo)
         {
             if (iteratorClassName == null) return;
-            MemoryStream customMetadata = new MemoryStream();
-            BinaryWriter cmw = new BinaryWriter(customMetadata, true);
+            var cmw = new BlobBuilder();
             cmw.WriteByte(CDI.CdiVersion);
             cmw.WriteByte(CDI.CdiKindForwardIterator);
             cmw.Align(4);
             uint length = 10 + (uint)iteratorClassName.Length * 2;
             if ((length & 3) != 0) length += 4 - (length & 3);
-            cmw.WriteUint(length);
-            cmw.WriteString(iteratorClassName, true);
+            cmw.WriteUInt32(length);
+            cmw.WriteUTF16(iteratorClassName);
+            cmw.WriteInt16(0);
             cmw.Align(4);
-            Debug.Assert(customMetadata.Position == length);
-            customDebugInfo.Add(customMetadata);
+            Debug.Assert(cmw.Position == length);
+            customDebugInfo.Add(cmw);
         }
 
-        private static void SerializeStateMachineLocalScopes(IMethodBody methodBody, ArrayBuilder<MemoryStream> customDebugInfo)
+        private static void SerializeStateMachineLocalScopes(IMethodBody methodBody, ArrayBuilder<BlobBuilder> customDebugInfo)
         {
             var scopes = methodBody.StateMachineHoistedLocalScopes;
             if (scopes.IsDefaultOrEmpty)
@@ -180,32 +182,31 @@ namespace Microsoft.Cci
             }
 
             uint numberOfScopes = (uint)scopes.Length;
-            MemoryStream customMetadata = new MemoryStream();
-            BinaryWriter cmw = new BinaryWriter(customMetadata);
+            var cmw = new BlobBuilder();
             cmw.WriteByte(CDI.CdiVersion);
             cmw.WriteByte(CDI.CdiKindStateMachineHoistedLocalScopes);
             cmw.Align(4);
-            cmw.WriteUint(12 + numberOfScopes * 8);
-            cmw.WriteUint(numberOfScopes);
+            cmw.WriteUInt32(12 + numberOfScopes * 8);
+            cmw.WriteUInt32(numberOfScopes);
             foreach (var scope in scopes)
             {
                 if (scope.IsDefault)
                 {
-                    cmw.WriteUint(0);
-                    cmw.WriteUint(0);
+                    cmw.WriteUInt32(0);
+                    cmw.WriteUInt32(0);
                 }
                 else
                 {
                     // Dev12 C# emits end-inclusive range
-                    cmw.WriteUint((uint)scope.StartOffset);
-                    cmw.WriteUint((uint)scope.EndOffset - 1);
+                    cmw.WriteUInt32((uint)scope.StartOffset);
+                    cmw.WriteUInt32((uint)scope.EndOffset - 1);
                 }
             }
 
-            customDebugInfo.Add(customMetadata);
+            customDebugInfo.Add(cmw);
         }
 
-        private static void SerializeDynamicLocalInfo(IMethodBody methodBody, ArrayBuilder<MemoryStream> customDebugInfo)
+        private static void SerializeDynamicLocalInfo(IMethodBody methodBody, ArrayBuilder<BlobBuilder> customDebugInfo)
         {
             if (!methodBody.HasDynamicLocalVariables)
             {
@@ -235,17 +236,16 @@ namespace Microsoft.Cci
                 }
             }
 
-            Debug.Assert(dynamicLocals.Any()); // There must be atleast one dynamic local if this point is reached
+            Debug.Assert(dynamicLocals.Any()); // There must be at least one dynamic local if this point is reached
 
             const int blobSize = 200;//DynamicAttribute - 64, DynamicAttributeLength - 4, SlotIndex -4, IdentifierName - 128
-            MemoryStream customMetadata = new MemoryStream();
-            BinaryWriter cmw = new BinaryWriter(customMetadata, true);
+            var cmw = new BlobBuilder();
             cmw.WriteByte(CDI.CdiVersion);
             cmw.WriteByte(CDI.CdiKindDynamicLocals);
             cmw.Align(4);
             // size = Version,Kind + size + cBuckets + (dynamicCount * sizeOf(Local Blob))
-            cmw.WriteUint(4 + 4 + 4 + (uint)dynamicLocals.Count * blobSize);//Size of the Dynamic Block
-            cmw.WriteUint((uint)dynamicLocals.Count);
+            cmw.WriteUInt32(4 + 4 + 4 + (uint)dynamicLocals.Count * blobSize);//Size of the Dynamic Block
+            cmw.WriteUInt32((uint)dynamicLocals.Count);
 
             int localIndex = 0;
             foreach (ILocalDefinition local in dynamicLocals)
@@ -264,11 +264,11 @@ namespace Microsoft.Cci
                     {
                         if ((bool)dynamicTransformFlags[k].Value)
                         {
-                            flag[k] = (byte)1;
+                            flag[k] = 1;
                         }
                     }
                     cmw.WriteBytes(flag); //Written Flag
-                    cmw.WriteUint((uint)dynamicTransformFlags.Length); //Written Length
+                    cmw.WriteUInt32((uint)dynamicTransformFlags.Length); //Written Length
                 }
                 else
                 {
@@ -278,48 +278,53 @@ namespace Microsoft.Cci
                 if (localIndex < dynamicVariableCount)
                 {
                     // Dynamic variable
-                    cmw.WriteUint((uint)local.SlotIndex);
+                    cmw.WriteUInt32((uint)local.SlotIndex);
                 }
                 else
                 {
                     // Dynamic constant
-                    cmw.WriteUint(0);
+                    cmw.WriteUInt32(0);
                 }
 
                 char[] localName = new char[64];
                 local.Name.CopyTo(0, localName, 0, local.Name.Length);
-                cmw.WriteChars(localName);
+                cmw.WriteUTF16(localName);
 
                 localIndex++;
             }
 
             dynamicLocals.Free();
-            customDebugInfo.Add(customMetadata);
+            customDebugInfo.Add(cmw);
         }
 
-        private static byte[] SerializeCustomDebugMetadata(ArrayBuilder<MemoryStream> customDebugInfo)
+        // internal for testing
+        internal static byte[] SerializeCustomDebugMetadata(ArrayBuilder<BlobBuilder> recordWriters)
         {
-            if (customDebugInfo.Count == 0)
+            if (recordWriters.Count == 0)
             {
                 return null;
             }
 
-            MemoryStream customMetadata = MemoryStream.GetInstance();
-            BinaryWriter cmw = new BinaryWriter(customMetadata);
+            var result = new byte[
+                sizeof(byte) +                  // version
+                sizeof(byte) +                  // record count
+                sizeof(ushort) +                // padding
+                recordWriters.Sum(w => w.Count) // records
+            ];
+
+            var cmw = new BlobWriter(result);
             cmw.WriteByte(CDI.CdiVersion);
-            cmw.WriteByte((byte)customDebugInfo.Count); // count
-            cmw.Align(4);
-            foreach (MemoryStream ms in customDebugInfo)
+            cmw.WriteByte((byte)recordWriters.Count); // count
+            cmw.WriteInt16(0);
+            foreach (BlobBuilder recordWriter in recordWriters)
             {
-                ms.WriteTo(customMetadata);
+                cmw.WriteBytes(recordWriter);
             }
 
-            var result = customMetadata.ToArray();
-            customMetadata.Free();
             return result;
         }
 
-        private void SerializeNamespaceScopeMetadata(EmitContext context, IMethodBody methodBody, ArrayBuilder<MemoryStream> customDebugInfo)
+        private void SerializeNamespaceScopeMetadata(EmitContext context, IMethodBody methodBody, ArrayBuilder<BlobBuilder> customDebugInfo)
         {
             if (context.Module.GenerateVisualBasicStylePdb)
             {
@@ -333,33 +338,32 @@ namespace Microsoft.Cci
                 return;
             }
 
-            MemoryStream customMetadata = new MemoryStream();
             List<ushort> usingCounts = new List<ushort>();
-            BinaryWriter cmw = new BinaryWriter(customMetadata);
+            var cmw = new BlobBuilder();
             for (IImportScope scope = methodBody.ImportScope; scope != null; scope = scope.Parent)
             {
-                usingCounts.Add((ushort)scope.GetUsedNamespaces(context).Length);
+                usingCounts.Add((ushort)scope.GetUsedNamespaces().Length);
             }
 
             // ACASEY: This originally wrote (uint)12, (ushort)1, (ushort)0 in the
             // case where usingCounts was empty, but I'm not sure why.
             if (usingCounts.Count > 0)
             {
-                uint streamLength = 0;
+                uint streamLength;
                 cmw.WriteByte(CDI.CdiVersion);
                 cmw.WriteByte(CDI.CdiKindUsingInfo);
                 cmw.Align(4);
 
-                cmw.WriteUint(streamLength = BitArithmeticUtilities.Align((uint)usingCounts.Count * 2 + 10, 4));
-                cmw.WriteUshort((ushort)usingCounts.Count);
+                cmw.WriteUInt32(streamLength = BitArithmeticUtilities.Align((uint)usingCounts.Count * 2 + 10, 4));
+                cmw.WriteUInt16((ushort)usingCounts.Count);
                 foreach (ushort uc in usingCounts)
                 {
-                    cmw.WriteUshort(uc);
+                    cmw.WriteUInt16(uc);
                 }
 
                 cmw.Align(4);
-                Debug.Assert(streamLength == customMetadata.Length);
-                customDebugInfo.Add(customMetadata);
+                Debug.Assert(streamLength == cmw.Count);
+                customDebugInfo.Add(cmw);
             }
 
             if (_methodBodyWithModuleInfo != null && !ReferenceEquals(_methodBodyWithModuleInfo, methodBody))
@@ -401,7 +405,7 @@ namespace Microsoft.Cci
             var s2 = previousScopes;
             while (s1 != null && s2 != null)
             {
-                if (!s1.GetUsedNamespaces(context).SequenceEqual(s2.GetUsedNamespaces(context)))
+                if (!s1.GetUsedNamespaces().SequenceEqual(s2.GetUsedNamespaces()))
                 {
                     return false;
                 }
@@ -413,28 +417,26 @@ namespace Microsoft.Cci
             return s1 == s2;
         }
 
-        private void SerializeReferenceToMethodWithModuleInfo(ArrayBuilder<MemoryStream> customDebugInfo)
+        private void SerializeReferenceToMethodWithModuleInfo(ArrayBuilder<BlobBuilder> customDebugInfo)
         {
-            MemoryStream customMetadata = new MemoryStream(12);
-            BinaryWriter cmw = new BinaryWriter(customMetadata);
+            BlobBuilder cmw = new BlobBuilder(12);
             cmw.WriteByte(CDI.CdiVersion);
             cmw.WriteByte(CDI.CdiKindForwardToModuleInfo);
             cmw.Align(4);
-            cmw.WriteUint(12);
-            cmw.WriteUint(_methodTokenWithModuleInfo);
-            customDebugInfo.Add(customMetadata);
+            cmw.WriteUInt32(12);
+            cmw.WriteUInt32((uint)_methodTokenWithModuleInfo);
+            customDebugInfo.Add(cmw);
         }
 
-        private void SerializeReferenceToPreviousMethodWithUsingInfo(ArrayBuilder<MemoryStream> customDebugInfo)
+        private void SerializeReferenceToPreviousMethodWithUsingInfo(ArrayBuilder<BlobBuilder> customDebugInfo)
         {
-            MemoryStream customMetadata = new MemoryStream(12);
-            BinaryWriter cmw = new BinaryWriter(customMetadata);
+            BlobBuilder cmw = new BlobBuilder(12);
             cmw.WriteByte(CDI.CdiVersion);
             cmw.WriteByte(CDI.CdiKindForwardInfo);
             cmw.Align(4);
-            cmw.WriteUint(12);
-            cmw.WriteUint(_previousMethodTokenWithUsingInfo);
-            customDebugInfo.Add(customMetadata);
+            cmw.WriteUInt32(12);
+            cmw.WriteUInt32((uint)_previousMethodTokenWithUsingInfo);
+            customDebugInfo.Add(cmw);
         }
     }
 }

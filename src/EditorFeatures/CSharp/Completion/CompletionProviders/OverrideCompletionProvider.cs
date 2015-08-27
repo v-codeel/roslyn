@@ -4,8 +4,6 @@ using System.Collections.Generic;
 using System.ComponentModel.Composition;
 using System.Linq;
 using System.Threading;
-using Microsoft.CodeAnalysis.CodeGeneration;
-using Microsoft.CodeAnalysis.Completion;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Completion.Providers;
 using Microsoft.CodeAnalysis.CSharp.Extensions;
@@ -13,11 +11,11 @@ using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.CodeAnalysis.Editing;
 using Microsoft.CodeAnalysis.Editor.Host;
 using Microsoft.CodeAnalysis.Editor.Implementation.IntelliSense.Completion;
-using Microsoft.CodeAnalysis.Editor.Implementation.IntelliSense.Completion.CompletionProviders;
 using Microsoft.CodeAnalysis.Options;
 using Microsoft.CodeAnalysis.Shared.Extensions;
 using Microsoft.CodeAnalysis.Shared.Utilities;
 using Microsoft.CodeAnalysis.Text;
+using Roslyn.Utilities;
 
 namespace Microsoft.CodeAnalysis.Editor.CSharp.Completion.CompletionProviders
 {
@@ -33,21 +31,16 @@ namespace Microsoft.CodeAnalysis.Editor.CSharp.Completion.CompletionProviders
 
         protected override SyntaxNode GetSyntax(SyntaxToken token)
         {
-            return (SyntaxNode)token.GetAncestor<EventFieldDeclarationSyntax>()
-                ?? (SyntaxNode)token.GetAncestor<EventDeclarationSyntax>()
-                ?? (SyntaxNode)token.GetAncestor<PropertyDeclarationSyntax>()
-                ?? (SyntaxNode)token.GetAncestor<IndexerDeclarationSyntax>()
+            return token.GetAncestor<EventFieldDeclarationSyntax>()
+                ?? token.GetAncestor<EventDeclarationSyntax>()
+                ?? token.GetAncestor<PropertyDeclarationSyntax>()
+                ?? token.GetAncestor<IndexerDeclarationSyntax>()
                 ?? (SyntaxNode)token.GetAncestor<MethodDeclarationSyntax>();
         }
 
         protected override TextSpan GetTextChangeSpan(SourceText text, int position)
         {
             return CompletionUtilities.GetTextChangeSpan(text, position);
-        }
-
-        public override bool SendEnterThroughToEditor(CompletionItem completionItem, string textTypedSoFar)
-        {
-            return false;
         }
 
         public override bool IsTriggerCharacter(SourceText text, int characterPosition, OptionSet options)
@@ -217,27 +210,24 @@ namespace Microsoft.CodeAnalysis.Editor.CSharp.Completion.CompletionProviders
                     return lastStatement.GetLocation().SourceSpan.End;
                 }
             }
-            else if (caretTarget is PropertyDeclarationSyntax)
+            else if (caretTarget is BasePropertyDeclarationSyntax)
             {
-                // property: no accesors; move to the end of the declaration
-                var propertyDeclaration = (PropertyDeclarationSyntax)caretTarget;
-                if (!propertyDeclaration.AccessorList.Accessors.Any())
-                {
-                    return propertyDeclaration.GetLocation().SourceSpan.End;
-                }
-                else
+                // property: no accessors; move to the end of the declaration
+                var propertyDeclaration = (BasePropertyDeclarationSyntax)caretTarget;
+                if (propertyDeclaration.AccessorList != null && propertyDeclaration.AccessorList.Accessors.Any())
                 {
                     // move to the end of the last statement of the first accessor
                     var firstAccessorStatement = propertyDeclaration.AccessorList.Accessors.First().Body.Statements.Last();
                     return firstAccessorStatement.GetLocation().SourceSpan.End;
                 }
+                else
+                {
+                    return propertyDeclaration.GetLocation().SourceSpan.End;
+                }
             }
             else
             {
-                // indexer: move to the end of the last statement
-                var indexerDeclaration = (IndexerDeclarationSyntax)caretTarget;
-                var firstAccessorStatement = indexerDeclaration.AccessorList.Accessors.First().Body.Statements.Last();
-                return firstAccessorStatement.GetLocation().SourceSpan.End;
+                throw ExceptionUtilities.Unreachable;
             }
         }
     }

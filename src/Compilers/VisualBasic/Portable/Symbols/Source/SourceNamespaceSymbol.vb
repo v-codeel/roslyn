@@ -8,7 +8,7 @@ Imports Microsoft.CodeAnalysis.VisualBasic.Symbols
 Imports Microsoft.CodeAnalysis.VisualBasic.Syntax
 
 Namespace Microsoft.CodeAnalysis.VisualBasic.Symbols
-    Friend Class SourceNamespaceSymbol
+    Friend NotInheritable Class SourceNamespaceSymbol
         Inherits PEOrSourceOrMergedNamespaceSymbol
 
         Private ReadOnly _declaration As MergedNamespaceDeclaration
@@ -234,7 +234,7 @@ Namespace Microsoft.CodeAnalysis.VisualBasic.Symbols
                 Dim typeDecl = DirectCast(decl, MergedTypeDeclaration)
 #If DEBUG Then
                 ' Ensure that the type declaration is either from user code or embedded
-                ' code, but not merged accross embedded code/user code boundary.
+                ' code, but not merged across embedded code/user code boundary.
                 Dim embedded = EmbeddedSymbolKind.Unset
                 For Each ref In typeDecl.SyntaxReferences
                     Dim refKind = ref.SyntaxTree.GetEmbeddedKind()
@@ -332,7 +332,7 @@ Namespace Microsoft.CodeAnalysis.VisualBasic.Symbols
         Public Overloads Overrides Function GetMembers(name As String) As ImmutableArray(Of Symbol)
             Dim members As ImmutableArray(Of NamespaceOrTypeSymbol) = Nothing
             If Me.GetNameToMembersMap().TryGetValue(name, members) Then
-                Return ImmutableArray.Create(Of Symbol, NamespaceOrTypeSymbol)(members)
+                Return ImmutableArray(Of Symbol).CastUp(members)
             Else
                 Return ImmutableArray(Of Symbol).Empty
             End If
@@ -414,21 +414,26 @@ Namespace Microsoft.CodeAnalysis.VisualBasic.Symbols
                 Return True
             Else
                 ' Check if any namespace declaration block intersects with the given tree/span.
-                Dim syntaxRefs = Me.DeclaringSyntaxReferences
-                If syntaxRefs.Length = 0 Then
-                    Return True
-                End If
-
-                For Each syntaxRef In syntaxRefs
+                For Each decl In _declaration.Declarations
                     cancellationToken.ThrowIfCancellationRequested()
 
-                    Dim syntax = syntaxRef.GetSyntax(cancellationToken)
-                    If TypeOf syntax Is NamespaceStatementSyntax Then
-                        ' Get the parent NamespaceBlockSyntax
-                        syntax = syntax.Parent
-                    End If
+                    Dim reference = decl.SyntaxReference
+                    If reference IsNot Nothing AndAlso reference.SyntaxTree Is tree Then
+                        If Not reference.SyntaxTree.IsEmbeddedOrMyTemplateTree() Then
+                            Dim syntaxRef = New NamespaceDeclarationSyntaxReference(reference)
+                            Dim syntax = syntaxRef.GetSyntax(cancellationToken)
+                            If TypeOf syntax Is NamespaceStatementSyntax Then
+                                ' Get the parent NamespaceBlockSyntax
+                                syntax = syntax.Parent
+                            End If
 
-                    If IsDefinedInSourceTree(syntax, tree, definedWithinSpan, cancellationToken) Then
+                            If IsDefinedInSourceTree(syntax, tree, definedWithinSpan, cancellationToken) Then
+                                Return True
+                            End If
+                        End If
+
+                    ElseIf decl.IsPartOfRootNamespace
+                        ' Root namespace is implicitly defined in every tree 
                         Return True
                     End If
                 Next
@@ -483,7 +488,7 @@ Namespace Microsoft.CodeAnalysis.VisualBasic.Symbols
                     Case SyntaxKind.GlobalName
                         ValidateNamespaceGlobalSyntax(DirectCast(node, GlobalNameSyntax), diagnostics)
                     Case SyntaxKind.CompilationUnit
-                    ' nothing to validate
+                        ' nothing to validate
                     Case Else
                         Throw ExceptionUtilities.UnexpectedValue(node.Kind)
                 End Select
@@ -630,9 +635,9 @@ Namespace Microsoft.CodeAnalysis.VisualBasic.Symbols
                 ' just find the declaration that encloses the location (as opposed to recreating the name 
                 ' by walking the syntax)
                 Dim containingDecl = _declaration.Declarations.FirstOrDefault(Function(decl)
-                                                                                   Dim nsBlock As NamespaceBlockSyntax = decl.GetNamespaceBlockSyntax()
-                                                                                   Return nsBlock IsNot Nothing AndAlso nsBlock.SyntaxTree Is tree AndAlso nsBlock.Span.Contains(location)
-                                                                               End Function)
+                                                                                  Dim nsBlock As NamespaceBlockSyntax = decl.GetNamespaceBlockSyntax()
+                                                                                  Return nsBlock IsNot Nothing AndAlso nsBlock.SyntaxTree Is tree AndAlso nsBlock.Span.Contains(location)
+                                                                              End Function)
                 If containingDecl Is Nothing Then
                     ' Could be project namespace, which has no namespace block syntax.
                     containingDecl = _declaration.Declarations.FirstOrDefault(Function(decl) decl.GetNamespaceBlockSyntax() Is Nothing)

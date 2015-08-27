@@ -75,7 +75,7 @@ namespace Microsoft.CodeAnalysis.CodeGeneration
         public abstract TDeclarationNode AddStatements<TDeclarationNode>(TDeclarationNode destinationMember, IEnumerable<SyntaxNode> statements, CodeGenerationOptions options, CancellationToken cancellationToken) where TDeclarationNode : SyntaxNode;
 
         public abstract TDeclarationNode UpdateDeclarationModifiers<TDeclarationNode>(TDeclarationNode declaration, IEnumerable<SyntaxToken> newModifiers, CodeGenerationOptions options, CancellationToken cancellationToken) where TDeclarationNode : SyntaxNode;
-        public abstract TDeclarationNode UpdateDeclarationAccessibility<TDeclarationNode>(TDeclarationNode declaration, Accessibility newAccesibility, CodeGenerationOptions options, CancellationToken cancellationToken) where TDeclarationNode : SyntaxNode;
+        public abstract TDeclarationNode UpdateDeclarationAccessibility<TDeclarationNode>(TDeclarationNode declaration, Accessibility newAccessibility, CodeGenerationOptions options, CancellationToken cancellationToken) where TDeclarationNode : SyntaxNode;
         public abstract TDeclarationNode UpdateDeclarationType<TDeclarationNode>(TDeclarationNode declaration, ITypeSymbol newType, CodeGenerationOptions options, CancellationToken cancellationToken) where TDeclarationNode : SyntaxNode;
         public abstract TDeclarationNode UpdateDeclarationMembers<TDeclarationNode>(TDeclarationNode declaration, IList<ISymbol> newMembers, CodeGenerationOptions options = null, CancellationToken cancellationToken = default(CancellationToken)) where TDeclarationNode : SyntaxNode;
 
@@ -96,11 +96,16 @@ namespace Microsoft.CodeAnalysis.CodeGeneration
 
         protected static void CheckDeclarationNode<TDeclarationNode>(SyntaxNode destination) where TDeclarationNode : SyntaxNode
         {
+            if (destination == null)
+            {
+                throw new ArgumentNullException(nameof(destination));
+            }
+
             if (!(destination is TDeclarationNode))
             {
                 throw new ArgumentException(
-                    string.Format(WorkspacesResources.InvalidDestinationNode, typeof(TDeclarationNode).Name),
-                    "destination");
+                    string.Format(WorkspacesResources.InvalidDestinationNode, typeof(TDeclarationNode).Name, destination.GetType().Name),
+                    nameof(destination));
             }
         }
 
@@ -108,13 +113,18 @@ namespace Microsoft.CodeAnalysis.CodeGeneration
             where TDeclarationNode1 : SyntaxNode
             where TDeclarationNode2 : SyntaxNode
         {
+            if (destination == null)
+            {
+                throw new ArgumentNullException(nameof(destination));
+            }
+
             if (!(destination is TDeclarationNode1) &&
                 !(destination is TDeclarationNode2))
             {
                 throw new ArgumentException(
                     string.Format(WorkspacesResources.InvalidDestinationNode2,
-                        typeof(TDeclarationNode1).Name, typeof(TDeclarationNode2).Name),
-                    "destination");
+                        typeof(TDeclarationNode1).Name, typeof(TDeclarationNode2).Name, destination.GetType().Name),
+                    nameof(destination));
             }
         }
 
@@ -123,14 +133,19 @@ namespace Microsoft.CodeAnalysis.CodeGeneration
             where TDeclarationNode2 : SyntaxNode
             where TDeclarationNode3 : SyntaxNode
         {
+            if (destination == null)
+            {
+                throw new ArgumentNullException(nameof(destination));
+            }
+
             if (!(destination is TDeclarationNode1) &&
                 !(destination is TDeclarationNode2) &&
                 !(destination is TDeclarationNode3))
             {
                 throw new ArgumentException(
                     string.Format(WorkspacesResources.InvalidDestinationNode3,
-                        typeof(TDeclarationNode1).Name, typeof(TDeclarationNode2).Name, typeof(TDeclarationNode3).Name),
-                    "destination");
+                        typeof(TDeclarationNode1).Name, typeof(TDeclarationNode2).Name, typeof(TDeclarationNode3).Name, destination.GetType().Name),
+                    nameof(destination));
             }
         }
 
@@ -148,7 +163,7 @@ namespace Microsoft.CodeAnalysis.CodeGeneration
                 throw new ArgumentException(
                     string.Format(WorkspacesResources.InvalidDestinationNode3,
                         typeof(TDeclarationNode1).Name, typeof(TDeclarationNode2).Name, typeof(TDeclarationNode3).Name, typeof(TDeclarationNode4).Name),
-                    "destination");
+                    nameof(destination));
             }
         }
 
@@ -244,11 +259,18 @@ namespace Microsoft.CodeAnalysis.CodeGeneration
                     }
                 }
 
+                // Metadata as source generates complete declarations and doesn't modify
+                // existing ones. We can take the members to generate, sort them once,
+                // and then add them in that order to the end of the destination.
+                newMembers.Sort(GetMemberComparer());
+
                 currentDestination = this.AddMembers(currentDestination, newMembers);
             }
 
             return currentDestination;
         }
+
+        protected abstract IComparer<SyntaxNode> GetMemberComparer();
 
         protected static CodeGenerationOptions CreateOptionsForMultipleMembers(CodeGenerationOptions options)
         {
@@ -349,7 +371,7 @@ namespace Microsoft.CodeAnalysis.CodeGeneration
         {
             if (namespaceOrType == null)
             {
-                throw new ArgumentNullException("namespaceOrType");
+                throw new ArgumentNullException(nameof(namespaceOrType));
             }
 
             if (namespaceOrType is INamespaceSymbol)
@@ -443,7 +465,7 @@ namespace Microsoft.CodeAnalysis.CodeGeneration
                         continue;
                     }
 
-                    newModifier = newModifierTokens.ElementAt(0)
+                    newModifier = newModifierTokens[0]
                         .WithLeadingTrivia(modifier.LeadingTrivia)
                         .WithTrailingTrivia(modifier.TrailingTrivia);
                     newModifierTokens.RemoveAt(0);

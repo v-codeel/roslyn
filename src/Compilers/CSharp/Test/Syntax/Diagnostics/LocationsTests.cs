@@ -4,6 +4,7 @@ using System;
 using System.Collections.Immutable;
 using System.IO;
 using System.Linq;
+using Microsoft.CodeAnalysis.Test.Utilities;
 using Microsoft.CodeAnalysis.Text;
 using Roslyn.Test.Utilities;
 using Xunit;
@@ -66,7 +67,7 @@ namespace Microsoft.CodeAnalysis.CSharp.UnitTests
             return new TextSpan(index, textToFind.Length);
         }
 
-        [Fact]
+        [ClrOnlyFact]
         public void TestGetSourceLocationInFile()
         {
             string sampleProgram = @"class X {
@@ -109,7 +110,7 @@ int x;
             Assert.Equal(1, flpsXToCloseBrace.EndLinePosition.Character);
         }
 
-        [Fact]
+        [ClrOnlyFact]
         public void TestLineMapping1()
         {
             string sampleProgram = @"using System;
@@ -135,7 +136,7 @@ int a;
 
             AssertMappedSpanEqual(syntaxTree, "ing Sy", "foo.cs", 0, 2, 0, 8, hasMappedPath: false);
             AssertMappedSpanEqual(syntaxTree, "class X", "foo.cs", 1, 0, 1, 7, hasMappedPath: false);
-            AssertMappedSpanEqual(syntaxTree, "System;\r\nclass X", "foo.cs", 0, 6, 1, 7, hasMappedPath: false);
+            AssertMappedSpanEqual(syntaxTree, $"System;\r\nclass X", "foo.cs", 0, 6, 1, 7, hasMappedPath: false);
             AssertMappedSpanEqual(syntaxTree, "x;", "banana.cs", 19, 4, 19, 6, hasMappedPath: true);
             AssertMappedSpanEqual(syntaxTree, "y;", "banana.cs", 20, 4, 20, 6, hasMappedPath: true);
             AssertMappedSpanEqual(syntaxTree, "z;", "banana.cs", 43, 4, 43, 6, hasMappedPath: true);
@@ -202,7 +203,7 @@ class X {
             AssertMappedSpanEqual(syntaxTree, "int s", "seconddirective", 19, 4, 19, 9, hasMappedPath: true);
         }
 
-        [Fact]
+        [ClrOnlyFact]
         public void TestLineMappingNoDirectives()
         {
             string sampleProgram = @"using System;
@@ -364,7 +365,7 @@ end class";
 
         [WorkItem(541612, "DevDiv")]
         [Fact]
-        public void DiagnsoticsGetLineSpanForErrorinTryCatch()
+        public void DiagnosticsGetLineSpanForErrorinTryCatch()
         {
             string sampleProgram = @"
 class Program
@@ -393,7 +394,8 @@ class Program
             }
         }
 
-        [Fact, WorkItem(537926, "DevDiv")]
+        [WorkItem(537926, "DevDiv")]
+        [ClrOnlyFact]
         public void TestSourceLocationToString()
         {
             string sampleProgram = @"using System;
@@ -427,7 +429,7 @@ class MainClass
         public void TestExternalLocationFormatting()
         {
             Location location = Location.Create("test.txt", new TextSpan(), new LinePositionSpan(new LinePosition(2, 1), new LinePosition(3, 1)));
-            var diagnostic = Diagnostic.Create("CS0000", "", "msg", DiagnosticSeverity.Warning, DiagnosticSeverity.Warning, true, 1, location: location);
+            var diagnostic = CodeAnalysis.Diagnostic.Create("CS0000", "", "msg", DiagnosticSeverity.Warning, DiagnosticSeverity.Warning, true, 1, location: location);
 
             Assert.Equal("test.txt(3,2): warning CS0000: msg", CSharpDiagnosticFormatter.Instance.Format(diagnostic, EnsureEnglishUICulture.PreferredOrNull));
         }

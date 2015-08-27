@@ -4,7 +4,6 @@ using System;
 
 namespace Microsoft.CodeAnalysis.Scripting
 {
-    [Serializable]
     public sealed class ObjectFormattingOptions
     {
         public static readonly ObjectFormattingOptions Default = new ObjectFormattingOptions();
@@ -32,7 +31,7 @@ namespace Microsoft.CodeAnalysis.Scripting
         {
             if (!memberFormat.IsValid())
             {
-                throw new ArgumentOutOfRangeException("memberFormat");
+                throw new ArgumentOutOfRangeException(nameof(memberFormat));
             }
 
             this.MemberFormat = memberFormat;

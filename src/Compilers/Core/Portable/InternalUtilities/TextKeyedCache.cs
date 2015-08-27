@@ -69,14 +69,14 @@ namespace Roslyn.Utilities
 
         // local cache
         // simple fast and not threadsafe cache 
-        // with lmited size and "last add wins" expiration policy
+        // with limited size and "last add wins" expiration policy
         private readonly LocalEntry[] _localTable = new LocalEntry[LocalSize];
 
         // shared threadsafe cache
         // slightly slower than local cache
         // we read this cache when having a miss in local cache
         // writes to local cache will update shared cache as well.
-        private static SharedEntry[] s_sharedTable = new SharedEntry[SharedSize];
+        private static readonly SharedEntry[] s_sharedTable = new SharedEntry[SharedSize];
 
         // store a reference to shared cache locally
         // accessing a static field of a generic type could be nontrivial
@@ -147,7 +147,7 @@ namespace Roslyn.Utilities
             SharedEntryValue e = FindSharedEntry(chars, start, len, hashCode);
             if (e != null)
             {
-                // PERF: the following code does elementwise assignment of a struct
+                // PERF: the following code does element-wise assignment of a struct
                 //       because current JIT produces better code compared to
                 //       arr[idx] = new LocalEntry(...)
                 arr[idx].HashCode = hashCode;

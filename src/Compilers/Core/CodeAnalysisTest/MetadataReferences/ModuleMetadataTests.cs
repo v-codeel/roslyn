@@ -7,13 +7,12 @@ using Roslyn.Test.Utilities;
 using Xunit;
 using System.Collections.Generic;
 using System.Reflection.PortableExecutable;
-using ProprietaryTestResources = Microsoft.CodeAnalysis.Test.Resources.Proprietary;
 
 namespace Microsoft.CodeAnalysis.UnitTests
 {
     public class ModuleMetadataTests : TestBase
     {
-        private char _systemDrive = Environment.GetFolderPath(Environment.SpecialFolder.Windows)[0];
+        private readonly char _systemDrive = Environment.GetFolderPath(Environment.SpecialFolder.Windows)[0];
 
         [Fact]
         public unsafe void CreateFromMetadata_Errors()
@@ -32,7 +31,7 @@ namespace Microsoft.CodeAnalysis.UnitTests
         [Fact]
         public unsafe void CreateFromMetadata_Assembly()
         {
-            var assembly = TestResources.MetadataTests.Basic.Members;
+            var assembly = TestResources.Basic.Members;
             PEHeaders h = new PEHeaders(new MemoryStream(assembly));
 
             fixed (byte* ptr = &assembly[h.MetadataStartOffset])
@@ -96,7 +95,7 @@ namespace Microsoft.CodeAnalysis.UnitTests
         [Fact]
         public void Disposal()
         {
-            var md = ModuleMetadata.CreateFromImage(ProprietaryTestResources.NetFX.v4_0_30319.mscorlib);
+            var md = ModuleMetadata.CreateFromImage(TestResources.NetFX.v4_0_30319.mscorlib);
             md.Dispose();
             Assert.Throws<ObjectDisposedException>(() => md.Module);
             md.Dispose();
@@ -105,7 +104,7 @@ namespace Microsoft.CodeAnalysis.UnitTests
         [Fact]
         public void ImageOwnership()
         {
-            var m = ModuleMetadata.CreateFromImage(ProprietaryTestResources.NetFX.v4_0_30319.mscorlib);
+            var m = ModuleMetadata.CreateFromImage(TestResources.NetFX.v4_0_30319.mscorlib);
             var copy1 = m.Copy();
             var copy2 = copy1.Copy();
 
@@ -129,6 +128,14 @@ namespace Microsoft.CodeAnalysis.UnitTests
             Assert.Throws<ObjectDisposedException>(() => m.Module);
             Assert.Throws<ObjectDisposedException>(() => copy1.Module);
             Assert.Throws<ObjectDisposedException>(() => copy2.Module);
+        }
+
+        [Fact, WorkItem(2988, "https://github.com/dotnet/roslyn/issues/2988")]
+        public void EmptyStream()
+        {
+            ModuleMetadata.CreateFromStream(new MemoryStream(), PEStreamOptions.Default);
+            Assert.Throws<BadImageFormatException>(() => ModuleMetadata.CreateFromStream(new MemoryStream(), PEStreamOptions.PrefetchMetadata));
+            Assert.Throws<BadImageFormatException>(() => ModuleMetadata.CreateFromStream(new MemoryStream(), PEStreamOptions.PrefetchMetadata | PEStreamOptions.PrefetchEntireImage));
         }
     }
 }

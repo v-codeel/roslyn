@@ -1315,7 +1315,7 @@ class C
                 .ToArray());
 
             var expected = string.Join("\n", source
-                .Split(new[] { "\r\n" }, System.StringSplitOptions.RemoveEmptyEntries)
+                .Split(new[] { Environment.NewLine }, System.StringSplitOptions.RemoveEmptyEntries)
                 .Where(x => x.Contains("//-"))
                 .Select(x => x.Substring(x.IndexOf("//-", StringComparison.Ordinal) + 3).Trim())
                 .ToArray());
@@ -3678,7 +3678,7 @@ class Program
 }
 ";
 
-            CompileAndVerify(source, emitOptions: TestEmitters.CCI, expectedOutput: "").VerifyDiagnostics();
+            CompileAndVerify(source, expectedOutput: "").VerifyDiagnostics();
         }
 
         [WorkItem(546655, "DevDiv")]
@@ -3710,7 +3710,7 @@ class Test
     }
 }
 ";
-            var comp = CompileAndVerify(source, emitOptions: TestEmitters.CCI, expectedOutput: @"False
+            var comp = CompileAndVerify(source, expectedOutput: @"False
 False");
             comp.VerifyDiagnostics();
         }
@@ -3994,7 +3994,7 @@ struct S
 }
 
 ";
-            CompileAndVerify(source1, emitOptions: TestEmitters.CCI, expectedOutput: "1");
+            CompileAndVerify(source1, expectedOutput: "1");
             CreateCompilationWithMscorlib(source2).VerifyDiagnostics(
 // (16,9): error CS0034: Operator '==' is ambiguous on operands of type 'S?' and '<null>'
 //     if (s == null) s = default(S);
@@ -4080,7 +4080,7 @@ class D
 ";
             string expectedOutput = @"True
 False";
-            CompileAndVerify(source, emitOptions: TestEmitters.CCI, expectedOutput: expectedOutput);
+            CompileAndVerify(source, expectedOutput: expectedOutput);
         }
 
         [WorkItem(543431, "DevDiv")]
@@ -4204,7 +4204,7 @@ class D
 ";
             string expectedOutput = @"True
 False";
-            CompileAndVerify(source, emitOptions: TestEmitters.CCI, expectedOutput: expectedOutput);
+            CompileAndVerify(source, expectedOutput: expectedOutput);
         }
 
         [WorkItem(543754, "DevDiv")]
@@ -4884,7 +4884,7 @@ A");
         }
 
         [WorkItem(656739, "DevDiv")]
-        [Fact]
+        [ClrOnlyFact]
         public void DynamicAmbiguousOrConversion()
         {
             string source = @"
@@ -6423,9 +6423,9 @@ public static class Program
         M(1 - Color.Red);
     }
 }";
-            CreateCompilationWithMscorlib(source1, options: Test.Utilities.TestOptions.ReleaseDll).VerifyDiagnostics(
+            CreateCompilationWithMscorlib(source1, options: TestOptions.ReleaseDll).VerifyDiagnostics(
                 );
-            CreateCompilationWithMscorlib(source1, options: Test.Utilities.TestOptions.ReleaseDll.WithFeatures(new[] { "strict" }.AsImmutable())).VerifyDiagnostics(
+            CreateCompilationWithMscorlib(source1, options: TestOptions.ReleaseDll, parseOptions: TestOptions.Regular.WithStrictFeature()).VerifyDiagnostics(
                 // (7,11): error CS0019: Operator '-' cannot be applied to operands of type 'int' and 'Color'
                 //         M(1 - Color.Red);
                 Diagnostic(ErrorCode.ERR_BadBinaryOps, "1 - Color.Red").WithArguments("-", "int", "Color").WithLocation(7, 11)
@@ -8650,8 +8650,104 @@ class M
 
             var err = compilation.GetDiagnostics().Single();
 
-            Assert.Equal((int)ErrorCode.ERR_ContantStringTooLong, err.Code);
+            Assert.Equal((int)ErrorCode.ERR_ConstantStringTooLong, err.Code);
             Assert.Equal("Length of String constant exceeds current memory limit.  Try splitting the string into multiple constants.", err.GetMessage(EnsureEnglishUICulture.PreferredOrNull));
+        }
+
+        [Fact, WorkItem(2075, "https://github.com/dotnet/roslyn/issues/2075")]
+        public void NegateALiteral()
+        {
+            string source = @"
+using System;
+
+namespace roslynChanges
+{
+    class MainClass
+    {
+        public static void Main (string[] args)
+        {
+            Console.WriteLine ((-(2147483648)).GetType ());
+            Console.WriteLine ((-2147483648).GetType ());
+        }
+    }
+}";
+            CompileAndVerify(source: source, expectedOutput:
+@"System.Int64
+System.Int32
+");
+        }
+
+        [Fact, WorkItem(4132, "https://github.com/dotnet/roslyn/issues/4132")]
+        public void Issue4132()
+        {
+            string source = @"
+using System;
+
+namespace NullableMathRepro
+{
+    class Program
+    {
+        static void Main(string[] args)
+        {
+            int? x = 0;
+            x += 5;
+            Console.WriteLine(""'x' is {0}"", x);
+
+            IntHolder? y = 0;
+            y += 5;
+            Console.WriteLine(""'y' is {0}"", y);
+        }
+    }
+
+    struct IntHolder
+    {
+        private int x;
+
+        public static implicit operator int (IntHolder ih)
+        {
+            Console.WriteLine(""operator int (IntHolder ih)"");
+            return ih.x;
+        }
+
+        public static implicit operator IntHolder(int i)
+        {
+            Console.WriteLine(""operator IntHolder(int i)"");
+            return new IntHolder { x = i };
+        }
+
+        public override string ToString()
+        {
+            return x.ToString();
+        }
+    }
+}";
+            CompileAndVerify(source: source, expectedOutput:
+@"'x' is 5
+operator IntHolder(int i)
+operator int (IntHolder ih)
+operator IntHolder(int i)
+'y' is 5");
+        }
+
+        [Fact, WorkItem(4027, "https://github.com/dotnet/roslyn/issues/4027")]
+        public void NotSignExtendedOperand()
+        {
+            string source = @"
+class MainClass
+{
+    public static void Main ()
+    {
+        short a = 0;
+        int b = 0;
+        a |= (short)b;
+        a = (short)(a | (short)b);
+    }
+}
+";
+
+            var compilation = CreateCompilationWithMscorlib(source, options: TestOptions.DebugDll);
+
+            compilation.VerifyDiagnostics();
         }
     }
 }

@@ -3,10 +3,9 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
-using Microsoft.VisualStudio.Language.StandardClassification;
 using Microsoft.VisualStudio.Text;
 using Microsoft.VisualStudio.Text.Classification;
-using Roslyn.Utilities;
+using Microsoft.VisualStudio.Utilities;
 
 namespace Microsoft.VisualStudio.InteractiveWindow.Commands
 {
@@ -15,17 +14,21 @@ namespace Microsoft.VisualStudio.InteractiveWindow.Commands
     /// 
     /// This interface is a MEF contract and can be implemented and exported to add commands to the REPL window.
     /// </summary>
+    [ContentType(PredefinedInteractiveCommandsContentTypes.InteractiveCommandContentTypeName)]
     internal abstract class InteractiveWindowCommand : IInteractiveWindowCommand
     {
-        public virtual IEnumerable<ClassificationSpan> ClassifyArguments(ITextSnapshot snapshot, Span argumentsSpan, Span spanToClassify)
-        {
-            return SpecializedCollections.EmptyEnumerable<ClassificationSpan>();
-        }
-
         public abstract Task<ExecutionResult> Execute(IInteractiveWindow window, string arguments);
+
         public abstract string Description { get; }
 
-        public virtual IEnumerable<KeyValuePair<string, string>> ParametersDescription
+        public abstract IEnumerable<string> Names { get; }
+
+        public virtual IEnumerable<ClassificationSpan> ClassifyArguments(ITextSnapshot snapshot, Span argumentsSpan, Span spanToClassify)
+        {
+            return Enumerable.Empty<ClassificationSpan>();
+        }
+
+        public virtual string CommandLine
         {
             get { return null; }
         }
@@ -35,12 +38,7 @@ namespace Microsoft.VisualStudio.InteractiveWindow.Commands
             get { return null; }
         }
 
-        public virtual string CommandLine
-        {
-            get { return null; }
-        }
-
-        public virtual IEnumerable<string> Names
+        public virtual IEnumerable<KeyValuePair<string, string>> ParametersDescription
         {
             get { return null; }
         }

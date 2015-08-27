@@ -6,6 +6,7 @@ using System.Collections.Immutable;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using System.Runtime.CompilerServices;
 using Microsoft.CodeAnalysis.CSharp.Symbols;
 using Microsoft.CodeAnalysis.CSharp.Test.Utilities;
@@ -397,7 +398,9 @@ class C
                 CompileAndVerify(comp, symbolValidator: m =>
                 {
                     var foo = m.GlobalNamespace.GetMember<MethodSymbol>("C.Foo");
-                    AssertEx.SetEqual(new[] { "AsyncStateMachineAttribute" }, GetAttributeNames(foo.GetAttributes()));
+                    AssertEx.SetEqual(options.OptimizationLevel == OptimizationLevel.Debug ?
+                                        new[] { "AsyncStateMachineAttribute", "DebuggerStepThroughAttribute" } :
+                                        new[] { "AsyncStateMachineAttribute" }, GetAttributeNames(foo.GetAttributes()));
 
                     var iter = m.GlobalNamespace.GetMember<NamedTypeSymbol>("C.<Foo>d__0");
                     AssertEx.SetEqual(new[] { "CompilerGeneratedAttribute" }, GetAttributeNames(iter.GetAttributes()));
@@ -1257,7 +1260,6 @@ public class Test
 
         #region UnverifiableCode, SecurityPermission(SkipVerification)
 
-        // Verify via CCI
         [Fact]
         public void CheckUnsafeAttributes1()
         {
@@ -1280,7 +1282,6 @@ class C
             VerifyUnverifiableCodeAttribute(moduleAttribute, compilation);
         }
 
-        // Verify via CCI (module case)
         [Fact]
         public void CheckUnsafeAttributes2()
         {
@@ -1312,8 +1313,8 @@ class C
 
             var assemblyAttributeArgument = assemblyAttribute.CommonConstructorArguments.Single();
             Assert.Equal(compilation.GetWellKnownType(WellKnownType.System_Security_Permissions_SecurityAction), assemblyAttributeArgument.Type);
-            Assert.Equal(Cci.SecurityAction.RequestMinimum, securityAttribute.Action);
-            Assert.Equal(Cci.SecurityAction.RequestMinimum, (Cci.SecurityAction)assemblyAttributeArgument.Value);
+            Assert.Equal(DeclarativeSecurityAction.RequestMinimum, securityAttribute.Action);
+            Assert.Equal(DeclarativeSecurityAction.RequestMinimum, (DeclarativeSecurityAction)(int)assemblyAttributeArgument.Value);
 
             var assemblyAttributeNamedArgument = assemblyAttribute.CommonNamedArguments.Single();
             Assert.Equal("SkipVerification", assemblyAttributeNamedArgument.Key);
@@ -1363,6 +1364,33 @@ class Test
         }
 
         [Fact]
+        public void AsyncStateMachineAttribute_Method_Debug()
+        {
+            string source = @"
+using System.Threading.Tasks;
+
+class Test
+{
+    public static async void F()
+    {
+        await Task.Delay(0);
+    }
+}
+";
+            var reference = CreateCompilationWithMscorlib45(source, options: TestOptions.DebugDll).EmitToImageReference();
+            var comp = CreateCompilationWithMscorlib45("", new[] { reference }, options: TestOptions.ReleaseDll.WithMetadataImportOptions(MetadataImportOptions.All));
+
+            var stateMachine = comp.GetMember<NamedTypeSymbol>("Test.<F>d__0");
+            var asyncMethod = comp.GetMember<MethodSymbol>("Test.F");
+
+            var asyncMethodAttributes = asyncMethod.GetAttributes();
+            AssertEx.SetEqual(new[] { "AsyncStateMachineAttribute", "DebuggerStepThroughAttribute" }, GetAttributeNames(asyncMethodAttributes));
+
+            var attributeArg = (NamedTypeSymbol)asyncMethodAttributes.First().ConstructorArguments.Single().Value;
+            Assert.Equal(attributeArg, stateMachine);
+        }
+
+        [Fact]
         public void AsyncStateMachineAttribute_Lambda()
         {
             string source = @"
@@ -1387,6 +1415,34 @@ class Test
             AssertEx.SetEqual(new[] { "AsyncStateMachineAttribute" }, GetAttributeNames(asyncMethodAttributes));
 
             var attributeArg = (NamedTypeSymbol)asyncMethodAttributes.Single().ConstructorArguments.Single().Value;
+            Assert.Equal(attributeArg, stateMachine);
+        }
+
+        [Fact]
+        public void AsyncStateMachineAttribute_Lambda_Debug()
+        {
+            string source = @"
+using System;
+using System.Threading.Tasks;
+
+class Test
+{
+    public static void F()
+    {
+        Action f = async () => { await Task.Delay(0); };
+    }
+}
+";
+            var reference = CreateCompilationWithMscorlib45(source, options: TestOptions.DebugDll).EmitToImageReference();
+            var comp = CreateCompilationWithMscorlib45("", new[] { reference }, options: TestOptions.ReleaseDll.WithMetadataImportOptions(MetadataImportOptions.All));
+
+            var stateMachine = comp.GetMember<NamedTypeSymbol>("Test.<>c.<<F>b__0_0>d");
+            var asyncMethod = comp.GetMember<MethodSymbol>("Test.<>c.<F>b__0_0");
+
+            var asyncMethodAttributes = asyncMethod.GetAttributes();
+            AssertEx.SetEqual(new[] { "AsyncStateMachineAttribute", "DebuggerStepThroughAttribute" }, GetAttributeNames(asyncMethodAttributes));
+
+            var attributeArg = (NamedTypeSymbol)asyncMethodAttributes.First().ConstructorArguments.Single().Value;
             Assert.Equal(attributeArg, stateMachine);
         }
 
@@ -1445,6 +1501,34 @@ class Test
             Assert.Empty(GetAttributeNames(asyncMethodAttributes));
         }
 
+        [Fact]
+        public void AsyncStateMachineAttribute_MetadataOnly_Debug()
+        {
+            string source = @"
+using System;
+using System.Threading;
+using System.Threading.Tasks;
+
+class Test
+{
+    public static async void F()
+    {
+        await Task.Delay(0);
+    }
+}
+";
+            var reference = CreateCompilationWithMscorlib45(source, options: TestOptions.DebugDll).
+                EmitToImageReference(new EmitOptions(metadataOnly: true));
+
+            var comp = CreateCompilationWithMscorlib45("", new[] { reference }, options: TestOptions.ReleaseDll.WithMetadataImportOptions(MetadataImportOptions.All));
+            Assert.Empty(comp.GetMember<NamedTypeSymbol>("Test").GetMembers("<F>d__1"));
+
+            var asyncMethod = comp.GetMember<MethodSymbol>("Test.F");
+
+            var asyncMethodAttributes = asyncMethod.GetAttributes();
+            AssertEx.SetEqual(new[] { "DebuggerStepThroughAttribute" }, GetAttributeNames(asyncMethodAttributes));
+        }
+
         #endregion
 
         #region IteratorStateMachineAttribute
@@ -1463,17 +1547,20 @@ class Test
     }
 }
 ";
-            var reference = CreateCompilationWithMscorlib45(source).EmitToImageReference();
-            var comp = CreateCompilationWithMscorlib45("", new[] { reference }, options: TestOptions.ReleaseDll.WithMetadataImportOptions(MetadataImportOptions.All));
+            foreach (var options in new[] { TestOptions.ReleaseDll, TestOptions.DebugDll })
+            {
+                var reference = CreateCompilationWithMscorlib45(source, options: options).EmitToImageReference();
+                var comp = CreateCompilationWithMscorlib45("", new[] { reference }, options: TestOptions.ReleaseDll.WithMetadataImportOptions(MetadataImportOptions.All));
 
-            var stateMachine = comp.GetMember<NamedTypeSymbol>("Test.<F>d__0");
-            var asyncMethod = comp.GetMember<MethodSymbol>("Test.F");
+                var stateMachine = comp.GetMember<NamedTypeSymbol>("Test.<F>d__0");
+                var asyncMethod = comp.GetMember<MethodSymbol>("Test.F");
 
-            var asyncMethodAttributes = asyncMethod.GetAttributes();
-            AssertEx.SetEqual(new[] { "IteratorStateMachineAttribute" }, GetAttributeNames(asyncMethodAttributes));
+                var asyncMethodAttributes = asyncMethod.GetAttributes();
+                AssertEx.SetEqual(new[] { "IteratorStateMachineAttribute" }, GetAttributeNames(asyncMethodAttributes));
 
-            var attributeArg = (NamedTypeSymbol)asyncMethodAttributes.Single().ConstructorArguments.Single().Value;
-            Assert.Equal(attributeArg, stateMachine);
+                var attributeArg = (NamedTypeSymbol)asyncMethodAttributes.Single().ConstructorArguments.Single().Value;
+                Assert.Equal(attributeArg, stateMachine);
+            }
         }
 
         [Fact]
@@ -1517,18 +1604,54 @@ public class Test
     }
 }
 ";
-            var reference = CreateCompilationWithMscorlib45(source).
-                EmitToImageReference(new EmitOptions(metadataOnly: true));
 
-            var comp = CreateCompilationWithMscorlib45("", new[] { reference }, options: TestOptions.ReleaseDll.WithMetadataImportOptions(MetadataImportOptions.All));
-            Assert.Empty(comp.GetMember<NamedTypeSymbol>("Test").GetMembers("<F>d__0"));
+            foreach (var options in new[] { TestOptions.ReleaseDll, TestOptions.DebugDll })
+            {
+                var reference = CreateCompilationWithMscorlib45(source, options: options).
+                    EmitToImageReference(new EmitOptions(metadataOnly: true));
 
-            var iteratorMethod = comp.GetMember<MethodSymbol>("Test.F");
+                var comp = CreateCompilationWithMscorlib45("", new[] { reference }, options: TestOptions.ReleaseDll.WithMetadataImportOptions(MetadataImportOptions.All));
+                Assert.Empty(comp.GetMember<NamedTypeSymbol>("Test").GetMembers("<F>d__0"));
 
-            var iteratorMethodAttributes = iteratorMethod.GetAttributes();
-            Assert.Empty(GetAttributeNames(iteratorMethodAttributes));
+                var iteratorMethod = comp.GetMember<MethodSymbol>("Test.F");
+
+                var iteratorMethodAttributes = iteratorMethod.GetAttributes();
+                Assert.Empty(GetAttributeNames(iteratorMethodAttributes)); // We haven't bound the body, so we don't know that this is an iterator method.
+            }
         }
 
         #endregion
+
+        [Fact, WorkItem(431)]
+        public void BaseMethodWrapper()
+        {
+            string source = @"
+using System.Threading.Tasks;
+
+class A
+{
+    public virtual async Task<int> GetIntAsync()
+    {
+        return 42;
+    }
+}
+class B : A
+{
+    public override async Task<int> GetIntAsync()
+    {
+        return await base.GetIntAsync();
+    }
+}
+";
+            foreach (var options in new[] { TestOptions.ReleaseDll, TestOptions.DebugDll })
+            {
+                var reference = CreateCompilationWithMscorlib45(source, options: options).EmitToImageReference();
+                var comp = CreateCompilationWithMscorlib45("", new[] { reference }, options: TestOptions.ReleaseDll.WithMetadataImportOptions(MetadataImportOptions.All));
+
+                var baseMethodWrapper = comp.GetMember<MethodSymbol>("B.<>n__0");
+
+                AssertEx.SetEqual(new[] { "CompilerGeneratedAttribute", "DebuggerHiddenAttribute" }, GetAttributeNames(baseMethodWrapper.GetAttributes()));
+            }
+        }
     }
 }

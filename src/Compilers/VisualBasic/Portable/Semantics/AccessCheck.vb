@@ -189,7 +189,7 @@ Namespace Microsoft.CodeAnalysis.VisualBasic
             End Select
         End Function
 
-        ' Is a member with declared accessibily "declaredAccessiblity" accessible from within "within", which must
+        ' Is a member with declared accessibily "declaredAccessibility" accessible from within "within", which must
         ' be a named type or an assembly.
         Private Shared Function CheckMemberAccessibility(containingType As NamedTypeSymbol,
                                                          declaredAccessibility As Accessibility,
@@ -480,7 +480,7 @@ Namespace Microsoft.CodeAnalysis.VisualBasic
         '   2. toAssembly has an InternalsVisibleTo attribute that names fromAssembly
         '   3. They are both interactive assemblies.
         Public Shared Function HasFriendAccessTo(fromAssembly As AssemblySymbol, toAssembly As AssemblySymbol) As Boolean
-            ' TODO: Implement by checking attributes, and also that interactive assemblys have access to each other.
+            ' TODO: Implement by checking attributes, and also that interactive assemblies have access to each other.
             Return _
                 IsSameAssembly(fromAssembly, toAssembly) OrElse
                 InternalsAccessibleTo(toAssembly, fromAssembly)
@@ -728,7 +728,7 @@ Namespace Microsoft.CodeAnalysis.VisualBasic
         End Function
 
 
-        Private Shared s_mapAccessToAccessOutsideAssembly() As Accessibility
+        Private Shared ReadOnly s_mapAccessToAccessOutsideAssembly() As Accessibility
 
         Shared Sub New()
             s_mapAccessToAccessOutsideAssembly = New Accessibility(Accessibility.Public) {}

@@ -17,7 +17,7 @@ Namespace Microsoft.CodeAnalysis.VisualBasic.Formatting
         Public Sub New()
         End Sub
 
-        Public Sub AddSuppressOperations(operations As List(Of SuppressOperation), node As SyntaxNode, optionSet As OptionSet, nextAction As NextAction(Of SuppressOperation)) Implements IFormattingRule.AddSuppressOperations
+        Public Sub AddSuppressOperations(operations As List(Of SuppressOperation), node As SyntaxNode, lastToken As SyntaxToken, optionSet As OptionSet, nextAction As NextAction(Of SuppressOperation)) Implements IFormattingRule.AddSuppressOperations
         End Sub
 
         Public Sub AddAnchorIndentationOperations(operations As List(Of AnchorIndentationOperation), node As SyntaxNode, optionSet As OptionSet, nextAction As NextAction(Of AnchorIndentationOperation)) Implements IFormattingRule.AddAnchorIndentationOperations
@@ -53,11 +53,6 @@ Namespace Microsoft.CodeAnalysis.VisualBasic.Formatting
             End If
 
             If previousToken.Kind = SyntaxKind.GreaterThanToken AndAlso previousToken.Parent IsNot Nothing AndAlso TypeOf previousToken.Parent Is AttributeListSyntax Then
-
-                ' If the attribute is followed by another attribute then there is no line operation
-                If currentToken.Kind = SyntaxKind.LessThanToken AndAlso currentToken.Parent IsNot Nothing AndAlso TypeOf currentToken.Parent Is AttributeListSyntax Then
-                    Return Nothing
-                End If
 
                 ' This AttributeList is the last applied attribute
                 ' If this AttributeList belongs to a parameter then apply no line operation

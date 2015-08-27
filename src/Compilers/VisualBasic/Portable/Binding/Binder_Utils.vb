@@ -51,7 +51,7 @@ Namespace Microsoft.CodeAnalysis.VisualBasic
         End Function
 
         ' An array consisting of just the Friend keyword.
-        Private Shared s_friendKeyword As SyntaxKind() = {SyntaxKind.FriendKeyword}
+        Private Shared ReadOnly s_friendKeyword As SyntaxKind() = {SyntaxKind.FriendKeyword}
 
         ' Report an error on the first keyword to match one of the given kinds.
         Public Sub ReportModifierError(modifiers As SyntaxTokenList,
@@ -287,7 +287,7 @@ Namespace Microsoft.CodeAnalysis.VisualBasic
         ''' <summary>
         ''' Possible create the array version of type, given the element type and the array modifier syntax.
         ''' </summary>
-        Public Function ApplyArrayRankSpecifersToType(elementType As TypeSymbol,
+        Public Function ApplyArrayRankSpecifiersToType(elementType As TypeSymbol,
                                       arrayModifierSyntax As SyntaxList(Of ArrayRankSpecifierSyntax),
                                       diagnostics As DiagnosticBag) As TypeSymbol
 
@@ -319,7 +319,7 @@ Namespace Microsoft.CodeAnalysis.VisualBasic
             Dim currentType As TypeSymbol = elementType
 
             ' Array modifiers must be handled in reverse order, that's the language syntax.
-            currentType = ApplyArrayRankSpecifersToType(elementType, arrayModifierSyntax, diagnostics)
+            currentType = ApplyArrayRankSpecifiersToType(elementType, arrayModifierSyntax, diagnostics)
 
             ' Array bounds must be handled in reverse order, that's the language syntax.
             If arrayBoundsOpt IsNot Nothing Then
@@ -1104,7 +1104,7 @@ Namespace Microsoft.CodeAnalysis.VisualBasic
         End Sub
 
         ' An array consisting of just the NotInheritable keyword.
-        Private Shared s_notInheritableKeyword As SyntaxKind() = {SyntaxKind.NotInheritableKeyword}
+        Private Shared ReadOnly s_notInheritableKeyword As SyntaxKind() = {SyntaxKind.NotInheritableKeyword}
 
         ''' <summary>
         ''' Modifier validation code shared between properties and methods.
@@ -1171,7 +1171,7 @@ Namespace Microsoft.CodeAnalysis.VisualBasic
             ' Don't allow Overridable, etc. on NotInheritable.
             If container.IsNotInheritable Then
                 If (flags And SourceMemberFlags.InvalidInNotInheritableClass) <> 0 Then
-                    ' Somewhat strangly, the old VB compiler has different behavior depending on whether the containing type DECLARATION
+                    ' Somewhat strangely, the old VB compiler has different behavior depending on whether the containing type DECLARATION
                     ' has NotInheritable, vs. any partial has NotInheritable (although they are semantically the same). If the containing declaration
                     ' does not have NotInheritable, then only MustOverride has an error reported for it, and the error has a different code.
 
@@ -1457,7 +1457,7 @@ Namespace Microsoft.CodeAnalysis.VisualBasic
             End If
 
             ' It is OK to convert Nothing literal of one reference type to another 
-            ' reference type or (only in default parameter valus context) Nothing 
+            ' reference type or (only in default parameter value context) Nothing 
             ' literal of reference type to a value type,
             ' if the conversion is not correct, errors should have been reported by now
             If operandType.IsReferenceType AndAlso
@@ -1710,12 +1710,12 @@ Namespace Microsoft.CodeAnalysis.VisualBasic
         ''' These are the flags that are found in the syntax.  They must correspond to the modifiers list.
         ''' </summary>
         ''' <remarks></remarks>
-        Private _foundFlags As SourceMemberFlags
+        Private ReadOnly _foundFlags As SourceMemberFlags
         ''' <summary>
         ''' These are flags that are implied or computed
         ''' </summary>
         ''' <remarks></remarks>
-        Private _computedFlags As SourceMemberFlags
+        Private ReadOnly _computedFlags As SourceMemberFlags
 
         Public Sub New(foundFlags As SourceMemberFlags, computedFlags As SourceMemberFlags)
             _foundFlags = foundFlags

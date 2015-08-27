@@ -262,8 +262,7 @@ namespace Microsoft.CodeAnalysis.CSharp
                                     break;
                                 }
                             default:
-                                Debug.Assert(false, "Accessor unexpectedly attached to " + propertyOrEventDecl.Kind());
-                                break;
+                                throw ExceptionUtilities.UnexpectedValue(propertyOrEventDecl.Kind());
                         }
 
                         if ((object)accessor != null)
@@ -774,7 +773,7 @@ namespace Microsoft.CodeAnalysis.CSharp
             {
                 if (compilationUnit != syntaxTree.GetRoot())
                 {
-                    throw new ArgumentOutOfRangeException("compilationUnit", "node not part of tree");
+                    throw new ArgumentOutOfRangeException(nameof(compilationUnit), "node not part of tree");
                 }
 
                 var extraInfo = inUsing

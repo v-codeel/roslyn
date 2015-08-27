@@ -60,13 +60,14 @@ namespace Microsoft.CodeAnalysis.CSharp.Formatting
 
                     if (!previousToken.IsCloseBraceOfExpression())
                     {
-                        if (currentToken.Kind() != SyntaxKind.SemicolonToken &&
+                        if (!currentToken.IsKind(SyntaxKind.SemicolonToken) &&
                             !currentToken.IsParenInParenthesizedExpression() &&
                             !currentToken.IsCommaInInitializerExpression() &&
                             !currentToken.IsCommaInAnyArgumentsList() &&
                             !currentToken.IsParenInArgumentList() &&
                             !currentToken.IsDotInMemberAccess() &&
-                            !currentToken.IsCloseParenInStatement())
+                            !currentToken.IsCloseParenInStatement() &&
+                            !currentToken.IsEqualsTokenInAutoPropertyInitializers())
                         {
                             return CreateAdjustNewLinesOperation(1, AdjustNewLinesOption.PreserveLines);
                         }
@@ -199,7 +200,6 @@ namespace Microsoft.CodeAnalysis.CSharp.Formatting
                     previousToken.Kind() == SyntaxKind.BaseKeyword ||
                     previousToken.Kind() == SyntaxKind.ThisKeyword ||
                     previousToken.Kind() == SyntaxKind.NewKeyword ||
-                    previousToken.Parent.Kind() == SyntaxKind.OperatorDeclaration ||
                     previousToken.IsGenericGreaterThanToken() ||
                     currentToken.IsParenInArgumentList())
                 {
@@ -228,7 +228,6 @@ namespace Microsoft.CodeAnalysis.CSharp.Formatting
             }
 
             // * )
-            // * [
             // * ]
             // * ,
             // * .
@@ -236,12 +235,17 @@ namespace Microsoft.CodeAnalysis.CSharp.Formatting
             switch (currentToken.Kind())
             {
                 case SyntaxKind.CloseParenToken:
-                case SyntaxKind.OpenBracketToken:
                 case SyntaxKind.CloseBracketToken:
                 case SyntaxKind.CommaToken:
                 case SyntaxKind.DotToken:
                 case SyntaxKind.MinusGreaterThanToken:
                     return CreateAdjustSpacesOperation(0, AdjustSpacesOption.ForceSpacesIfOnSingleLine);
+            }
+
+            // * [
+            if (currentToken.IsKind(SyntaxKind.OpenBracketToken) && !previousToken.IsOpenBraceOrCommaOfObjectInitializer())
+            {
+                return CreateAdjustSpacesOperation(0, AdjustSpacesOption.ForceSpacesIfOnSingleLine);
             }
 
             // case * :
@@ -303,7 +307,7 @@ namespace Microsoft.CodeAnalysis.CSharp.Formatting
                 return CreateAdjustSpacesOperation(0, AdjustSpacesOption.ForceSpacesIfOnSingleLine);
             }
 
-            // For spacing between the identifer and the conditional operator 
+            // For spacing between the identifier and the conditional operator 
             if (currentToken.IsKind(SyntaxKind.QuestionToken) && currentToken.Parent.Kind() == SyntaxKind.ConditionalAccessExpression)
             {
                 return CreateAdjustSpacesOperation(0, AdjustSpacesOption.ForceSpacesIfOnSingleLine);

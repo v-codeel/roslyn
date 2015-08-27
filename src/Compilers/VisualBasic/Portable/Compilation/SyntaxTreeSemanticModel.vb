@@ -83,7 +83,7 @@ Namespace Microsoft.CodeAnalysis.VisualBasic
         ''' <param name="cancellationToken">A cancellation token that can be used to cancel the process of obtaining the
         ''' diagnostics.</param>
         ''' <remarks>
-        ''' Because this method must semantically analyse all method bodies and initializers to check for diagnostics, it may
+        ''' Because this method must semantically analyze all method bodies and initializers to check for diagnostics, it may
         ''' take a significant amount of time. Unlike GetDeclarationDiagnostics, diagnostics for method bodies and
         ''' initializers are not cached, the any semantic information used to obtain the diagnostics is discarded.
         ''' </remarks>
@@ -314,7 +314,10 @@ Namespace Microsoft.CodeAnalysis.VisualBasic
                 ElseIf SyntaxFacts.IsHandlesProperty(node) Then
                     Return GetHandlesPropertyTypeInfo(DirectCast(node.Parent.Parent, HandlesClauseItemSyntax))
                 ElseIf IsInCrefOrNameAttributeInterior(node) Then
-                    Return GetTypeInfoForCrefOrNameAttributeReference(DirectCast(node, TypeSyntax))
+                    Dim typeSyntax = TryCast(node, TypeSyntax)
+                    If typeSyntax IsNot Nothing Then
+                        Return GetTypeInfoForCrefOrNameAttributeReference(typeSyntax)
+                    End If
                 ElseIf SyntaxFacts.IsInNamespaceOrTypeContext(node) Then
                     ' Bind the type or namespace name.
                     Return GetTypeOrNamespaceTypeInfoNotInMember(DirectCast(node, TypeSyntax))
@@ -524,7 +527,7 @@ Namespace Microsoft.CodeAnalysis.VisualBasic
                                                                 <Out> ByRef typeParameters As ImmutableArray(Of Symbol)) As ImmutableArray(Of Symbol)
             typeParameters = ImmutableArray(Of Symbol).Empty
 
-            ' We only allow a sertain list of node kinds to be processed here
+            ' We only allow a certain list of node kinds to be processed here
             If node.Kind = SyntaxKind.XmlString Then
                 Return Nothing
             End If
@@ -755,13 +758,13 @@ Namespace Microsoft.CodeAnalysis.VisualBasic
                     Dim methodSym = DirectCast(implementingMember, SourceMemberMethodSymbol)
 
                     Dim diagbag = DiagnosticBag.GetInstance()
-                    Dim boundClause = methodSym.BindSingleHandlesClause(handlesClause,
-                                                                        binder,
-                                                                        diagbag,
-                                                                        eventSymbolBuilder,
-                                                                        containerSymbolBuilder,
-                                                                        propertySymbolBuilder,
-                                                                        resultKind)
+                    methodSym.BindSingleHandlesClause(handlesClause,
+                                                      binder,
+                                                      diagbag,
+                                                      eventSymbolBuilder,
+                                                      containerSymbolBuilder,
+                                                      propertySymbolBuilder,
+                                                      resultKind)
 
                     diagbag.Free()
                 End If
@@ -847,7 +850,7 @@ Namespace Microsoft.CodeAnalysis.VisualBasic
         End Function
 
         ''' <summary>
-        ''' Checks all symbol locations against the syntax provided and rreturn symbol if any of the locations is 
+        ''' Checks all symbol locations against the syntax provided and return symbol if any of the locations is 
         ''' inside the syntax span. Returns Nothing otherwise.
         ''' </summary>
         Private Function CheckSymbolLocationsAgainstSyntax(symbol As NamedTypeSymbol, nodeToCheck As VisualBasicSyntaxNode) As NamedTypeSymbol
@@ -865,7 +868,7 @@ Namespace Microsoft.CodeAnalysis.VisualBasic
         ''' <param name="declarationSyntax">The syntax node that declares a type.</param>
         ''' <returns>The type symbol that was declared.</returns>
         Public Overloads Function GetDeclaredSymbol(declarationSyntax As DelegateStatementSyntax, Optional cancellationToken As CancellationToken = Nothing) As NamedTypeSymbol
-            If declarationSyntax Is Nothing Then Throw New ArgumentNullException("declarationSyntax")
+            If declarationSyntax Is Nothing Then Throw New ArgumentNullException(NameOf(declarationSyntax))
             If Not IsInTree(declarationSyntax) Then Throw New ArgumentException(VBResources.DeclarationSyntaxNotWithinTree)
 
             ' Don't need to wrap in a SemanticModelBinder, since we're not binding.
@@ -885,7 +888,7 @@ Namespace Microsoft.CodeAnalysis.VisualBasic
         ''' <param name="declarationSyntax">The syntax node that declares a type.</param>
         ''' <returns>The type symbol that was declared.</returns>
         Public Overloads Overrides Function GetDeclaredSymbol(declarationSyntax As TypeStatementSyntax, Optional cancellationToken As CancellationToken = Nothing) As INamedTypeSymbol
-            If declarationSyntax Is Nothing Then Throw New ArgumentNullException("declarationSyntax")
+            If declarationSyntax Is Nothing Then Throw New ArgumentNullException(NameOf(declarationSyntax))
             If Not IsInTree(declarationSyntax) Then Throw New ArgumentException(VBResources.DeclarationSyntaxNotWithinTree)
 
             ' Don't need to wrap in a SemanticModelBinder, since we're not binding.
@@ -904,7 +907,7 @@ Namespace Microsoft.CodeAnalysis.VisualBasic
         ''' <param name="declarationSyntax">The syntax node that declares an enum.</param>
         ''' <returns>The type symbol that was declared.</returns>
         Public Overloads Overrides Function GetDeclaredSymbol(declarationSyntax As EnumStatementSyntax, Optional cancellationToken As CancellationToken = Nothing) As INamedTypeSymbol
-            If declarationSyntax Is Nothing Then Throw New ArgumentNullException("declarationSyntax")
+            If declarationSyntax Is Nothing Then Throw New ArgumentNullException(NameOf(declarationSyntax))
             If Not IsInTree(declarationSyntax) Then Throw New ArgumentException(VBResources.DeclarationSyntaxNotWithinTree)
 
             ' Don't need to wrap in a SemanticModelBinder, since we're not binding.
@@ -923,7 +926,7 @@ Namespace Microsoft.CodeAnalysis.VisualBasic
         ''' <param name="declarationSyntax">The syntax node that declares a namespace.</param>
         ''' <returns>The namespace symbol that was declared.</returns>
         Public Overloads Overrides Function GetDeclaredSymbol(declarationSyntax As NamespaceStatementSyntax, Optional cancellationToken As CancellationToken = Nothing) As INamespaceSymbol
-            If declarationSyntax Is Nothing Then Throw New ArgumentNullException("declarationSyntax")
+            If declarationSyntax Is Nothing Then Throw New ArgumentNullException(NameOf(declarationSyntax))
             If Not IsInTree(declarationSyntax) Then Throw New ArgumentException(VBResources.DeclarationSyntaxNotWithinTree)
 
             Dim parentBlock = TryCast(declarationSyntax.Parent, NamespaceBlockSyntax)
@@ -945,7 +948,7 @@ Namespace Microsoft.CodeAnalysis.VisualBasic
         ''' <param name="declarationSyntax">The syntax node that declares a method, property, or event.</param>
         ''' <returns>The method, property, or event symbol that was declared.</returns>
         Friend Overloads Overrides Function GetDeclaredSymbol(declarationSyntax As MethodBaseSyntax, Optional cancellationToken As CancellationToken = Nothing) As ISymbol
-            If declarationSyntax Is Nothing Then Throw New ArgumentNullException("declarationSyntax")
+            If declarationSyntax Is Nothing Then Throw New ArgumentNullException(NameOf(declarationSyntax))
             If Not IsInTree(declarationSyntax) Then
                 Throw New ArgumentException(VBResources.DeclarationSyntaxNotWithinTree)
             End If
@@ -1038,7 +1041,7 @@ Namespace Microsoft.CodeAnalysis.VisualBasic
         ''' <returns>The parameter symbol that was declared.</returns>
         Public Overloads Overrides Function GetDeclaredSymbol(parameter As ParameterSyntax, Optional cancellationToken As CancellationToken = Nothing) As IParameterSymbol
             If parameter Is Nothing Then
-                Throw New ArgumentNullException("parameter")
+                Throw New ArgumentNullException(NameOf(parameter))
             End If
 
             Dim paramList As ParameterListSyntax = TryCast(parameter.Parent, ParameterListSyntax)
@@ -1084,7 +1087,7 @@ Namespace Microsoft.CodeAnalysis.VisualBasic
         ''' <returns>The type parameter symbol that was declared.</returns>
         Public Overloads Overrides Function GetDeclaredSymbol(typeParameter As TypeParameterSyntax, Optional cancellationToken As CancellationToken = Nothing) As ITypeParameterSymbol
             If typeParameter Is Nothing Then
-                Throw New ArgumentNullException("typeParameter")
+                Throw New ArgumentNullException(NameOf(typeParameter))
             End If
             If Not IsInTree(typeParameter) Then
                 Throw New ArgumentException(VBResources.TypeParameterNotWithinTree)
@@ -1132,7 +1135,7 @@ Namespace Microsoft.CodeAnalysis.VisualBasic
 
         Public Overrides Function GetDeclaredSymbol(declarationSyntax As EnumMemberDeclarationSyntax, Optional cancellationToken As CancellationToken = Nothing) As IFieldSymbol
             If declarationSyntax Is Nothing Then
-                Throw New ArgumentNullException("declarationSyntax")
+                Throw New ArgumentNullException(NameOf(declarationSyntax))
             End If
 
             If Not IsInTree(declarationSyntax) Then
@@ -1158,7 +1161,7 @@ Namespace Microsoft.CodeAnalysis.VisualBasic
         ''' <returns>The symbol that was declared.</returns>
         Public Overrides Function GetDeclaredSymbol(declarationSyntax As ModifiedIdentifierSyntax, Optional cancellationToken As CancellationToken = Nothing) As ISymbol
             If declarationSyntax Is Nothing Then
-                Throw New ArgumentNullException("declarationSyntax")
+                Throw New ArgumentNullException(NameOf(declarationSyntax))
             End If
 
             If Not IsInTree(declarationSyntax) Then
@@ -1284,7 +1287,7 @@ Namespace Microsoft.CodeAnalysis.VisualBasic
         ''' <returns>The alias symbol that was declared or Nothing if no alias symbol was declared.</returns>
         Public Overloads Overrides Function GetDeclaredSymbol(declarationSyntax As SimpleImportsClauseSyntax, Optional cancellationToken As CancellationToken = Nothing) As IAliasSymbol
             If declarationSyntax Is Nothing Then
-                Throw New ArgumentNullException("declarationSyntax")
+                Throw New ArgumentNullException(NameOf(declarationSyntax))
             End If
 
             If Not IsInTree(declarationSyntax) Then
@@ -1333,7 +1336,7 @@ Namespace Microsoft.CodeAnalysis.VisualBasic
         ''' <returns>The field symbols that were declared.</returns>
         Friend Overrides Function GetDeclaredSymbols(declarationSyntax As FieldDeclarationSyntax, Optional cancellationToken As CancellationToken = Nothing) As ImmutableArray(Of ISymbol)
             If declarationSyntax Is Nothing Then
-                Throw New ArgumentNullException("declarationSyntax")
+                Throw New ArgumentNullException(NameOf(declarationSyntax))
             End If
 
             If Not IsInTree(declarationSyntax) Then
@@ -1369,10 +1372,10 @@ Namespace Microsoft.CodeAnalysis.VisualBasic
         Public Overrides Function ClassifyConversion(expression As ExpressionSyntax, destination As ITypeSymbol) As Conversion
             CheckSyntaxNode(expression)
             If destination Is Nothing Then
-                Throw New ArgumentNullException("destination")
+                Throw New ArgumentNullException(NameOf(destination))
             End If
 
-            Dim vbdestination = destination.EnsureVbSymbolOrNothing(Of TypeSymbol)("destination")
+            Dim vbdestination = destination.EnsureVbSymbolOrNothing(Of TypeSymbol)(NameOf(destination))
 
             ' TODO(cyrusn): Check arguments.  This is a public entrypoint, so we must do appropriate
             ' checks here.  However, no other methods in this type do any checking currently.  SO i'm
@@ -1545,7 +1548,7 @@ Namespace Microsoft.CodeAnalysis.VisualBasic
                 Return
             End If
 
-            ' CASE 2: If the region flow analysis is performed on the argiments of field declaration of array
+            ' CASE 2: If the region flow analysis is performed on the arguments of field declaration of array
             '         data type having explicit initializer, like 'Public AnArray(2) = {0, 1}'; 
             '         VB semantics generates an error about specifying both bounds and initializer and ignores them
             If expression.Kind = SyntaxKind.NumericLiteralExpression AndAlso
@@ -1553,7 +1556,7 @@ Namespace Microsoft.CodeAnalysis.VisualBasic
 
                 '           VariableDeclarator
                 '          |                  |
-                '  ModifiedIdenitfier     EqualsValue
+                '  ModifiedIdentifier     EqualsValue
                 '          |
                 '  ArgumentList
                 '      |...|...|
@@ -1574,7 +1577,7 @@ Namespace Microsoft.CodeAnalysis.VisualBasic
                 End If
             End If
 
-            Debug.Assert(False)
+            Throw ExceptionUtilities.Unreachable
         End Sub
 
         ''' <summary>
@@ -1658,7 +1661,7 @@ Namespace Microsoft.CodeAnalysis.VisualBasic
                         Case SyntaxKind.ArgumentList,
                              SyntaxKind.SimpleArgument,
                              SyntaxKind.ObjectMemberInitializer
-                        ' proceed to the upper-level node
+                            ' proceed to the upper-level node
 
                         Case SyntaxKind.GoToStatement
                             Return False
@@ -1695,7 +1698,7 @@ Namespace Microsoft.CodeAnalysis.VisualBasic
         End Sub
 
         Private Function ValidateRegionDefiningExpression(expression As ExpressionSyntax) As Boolean
-            AssertNodeInTree(expression, "expression")
+            AssertNodeInTree(expression, NameOf(expression))
 
             If expression.Kind = SyntaxKind.PredefinedType OrElse SyntaxFacts.IsInNamespaceOrTypeContext(expression) Then
                 Return False
@@ -1757,8 +1760,8 @@ Namespace Microsoft.CodeAnalysis.VisualBasic
         End Function
 
         Private Function ValidateRegionDefiningStatementsRange(firstStatement As StatementSyntax, lastStatement As StatementSyntax) As Boolean
-            AssertNodeInTree(firstStatement, "firstStatement")
-            AssertNodeInTree(lastStatement, "lastStatement")
+            AssertNodeInTree(firstStatement, NameOf(firstStatement))
+            AssertNodeInTree(lastStatement, NameOf(lastStatement))
 
             If firstStatement.Parent Is Nothing OrElse firstStatement.Parent IsNot lastStatement.Parent Then
                 Throw New ArgumentException("statements not within the same statement list")

@@ -208,8 +208,8 @@ Namespace Microsoft.CodeAnalysis.VisualBasic.Symbols
                                     TypeKind.Error
 
                                 Case TypeKind.Module
-                                ' No error reported for Module. If the type reference was in source, BC30371
-                                ' ERR_ModuleAsType1 will have been reported binding the type reference.
+                                    ' No error reported for Module. If the type reference was in source, BC30371
+                                    ' ERR_ModuleAsType1 will have been reported binding the type reference.
 
                                 Case TypeKind.TypeParameter
                                     Dim constraintTypeParameter = DirectCast(constraintType, TypeParameterSymbol)
@@ -596,7 +596,7 @@ Namespace Microsoft.CodeAnalysis.VisualBasic.Symbols
             ' substitute the type parameter constraints from the original definition of the type parameters
             ' using the TypeSubstitution from the constructed type/method.
             For Each t In typeParameter.ConstraintTypesWithDefinitionUseSiteDiagnostics(useSiteDiagnostics)
-                Dim constraintType = t.InternalSubstituteTypeParameters(substitution)
+                Dim constraintType = t.InternalSubstituteTypeParameters(substitution).Type
 
                 If Not SatisfiesTypeConstraint(typeArgument, constraintType, useSiteDiagnostics) Then
                     If diagnosticsBuilder IsNot Nothing Then

@@ -29,6 +29,7 @@ namespace Microsoft.CodeAnalysis.Internal.Log
         Diagnostics_DocumentOpen,
         Diagnostics_RemoveDocument,
         Diagnostics_RemoveProject,
+        Diagnostics_DocumentClose,
 
         // add new values after this
         Run_Environment,
@@ -117,6 +118,7 @@ namespace Microsoft.CodeAnalysis.Internal.Log
         Formatting_AggregateCreateFormattedRoot,
         Formatting_CreateTextChanges,
         Formatting_CreateFormattedRoot,
+        Formatting_Partitions,
 
         SmartIndentation_Start,
         SmartIndentation_OpenCurly,
@@ -244,7 +246,7 @@ namespace Microsoft.CodeAnalysis.Internal.Log
         TemporaryStorageServiceFactory_ReadStream,
         TemporaryStorageServiceFactory_WriteStream,
 
-        // currently no one uses these
+        // currently no-one uses these
         SmartTags_RefreshSession,
         SmartTags_SmartTagInitializeFixes,
         SmartTags_ApplyQuickFix,
@@ -285,7 +287,7 @@ namespace Microsoft.CodeAnalysis.Internal.Log
 
         SolutionExplorer_AnalyzerItemSource_GetItems,
         SolutionExplorer_DiagnosticItemSource_GetItems,
-        WorkCoordinator_ActivieFileEnqueue,
+        WorkCoordinator_ActiveFileEnqueue,
         SymbolFinder_FindDeclarationsAsync,
         SymbolFinder_Project_AddDeclarationsAsync,
         SymbolFinder_Assembly_AddDeclarationsAsync,
@@ -297,7 +299,14 @@ namespace Microsoft.CodeAnalysis.Internal.Log
         Tagger_Diagnostics_Updated,
         SuggestedActions_HasSuggestedActionsAsync,
         SuggestedActions_GetSuggestedActions,
-        AnalyzerDependencyCheckingService_CheckForConflictsAsync,
-        VirtualMemory_MemoryLow
+        AnalyzerDependencyCheckingService_LogConflict,
+        AnalyzerDependencyCheckingService_LogMissingDependency,
+        VirtualMemory_MemoryLow,
+        Extension_Exception,
+
+        WorkCoordinator_WaitForHigherPriorityOperationsAsync,
+
+        CSharp_Interactive_Window,
+        VisualBasic_Interactive_Window
     }
 }

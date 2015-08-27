@@ -28,6 +28,11 @@ namespace Microsoft.CodeAnalysis.CSharp.Extensions
                 return semanticModel.GetTypeInfo(castExpression).Type;
             }
 
+            if (parentNode.IsKind(SyntaxKind.PointerIndirectionExpression))
+            {
+                return semanticModel.GetTypeInfo(expression).Type;
+            }
+
             if (parentNode.IsKind(SyntaxKind.IsExpression) ||
                 parentNode.IsKind(SyntaxKind.AsExpression))
             {
@@ -62,8 +67,8 @@ namespace Microsoft.CodeAnalysis.CSharp.Extensions
             if ((parentNode is PrefixUnaryExpressionSyntax || parentNode is PostfixUnaryExpressionSyntax) &&
                 !semanticModel.GetConversion(expression).IsUserDefined)
             {
-                var parentEpression = (ExpressionSyntax)parentNode;
-                return GetOuterCastType(parentEpression, semanticModel, out parentIsOrAsExpression) ?? semanticModel.GetTypeInfo(parentEpression).ConvertedType;
+                var parentExpression = (ExpressionSyntax)parentNode;
+                return GetOuterCastType(parentExpression, semanticModel, out parentIsOrAsExpression) ?? semanticModel.GetTypeInfo(parentExpression).ConvertedType;
             }
 
             return null;
@@ -350,6 +355,23 @@ namespace Microsoft.CodeAnalysis.CSharp.Extensions
 
                 return true;
             }
+            else if (expressionToCastType.IsExplicit && expressionToCastType.IsReference)
+            {
+                // Explicit reference conversions can cause an exception or data loss, hence can never be removed.
+                return false;
+            }
+            else if (expressionToCastType.IsExplicit && expressionToCastType.IsNumeric)
+            {
+                // Don't remove any explicit numeric casts.
+                // https://github.com/dotnet/roslyn/issues/2987 tracks improving on this conservative approach.
+                return false;
+            }
+            else if (expressionToCastType.IsPointer)
+            {
+                // Don't remove any non-identity pointer conversions.
+                // https://github.com/dotnet/roslyn/issues/2987 tracks improving on this conservative approach.
+                return expressionType != null && expressionType.Equals(outerType);
+            }
 
             if (parentIsOrAsExpression)
             {
@@ -429,7 +451,7 @@ namespace Microsoft.CodeAnalysis.CSharp.Extensions
 
                         // We should not remove the cast to "float?".
                         // However, cast to "int?" is unnecessary and should be removable.
-                        return expressionToCastType.IsImplicit && !((ITypeSymbol)expressionType).IsNullable();
+                        return expressionToCastType.IsImplicit && !expressionType.IsNullable();
                     }
                     else if (expressionToCastType.IsImplicit && expressionToCastType.IsNumeric && !castToOuterType.IsIdentity)
                     {
@@ -491,16 +513,6 @@ namespace Microsoft.CodeAnalysis.CSharp.Extensions
                             !speculationAnalyzer.ReplacementChangesSemanticsOfUnchangedLambda(cast.Expression, speculationAnalyzer.ReplacedExpression);
                     }
 
-                    return true;
-                }
-
-                // case :
-                // 4. baseType x;
-                //    baseType y = (DerivedType)x;
-                if (expressionToOuterType.IsIdentity &&
-                    castToOuterType.IsImplicit &&
-                    castToOuterType.IsReference)
-                {
                     return true;
                 }
             }

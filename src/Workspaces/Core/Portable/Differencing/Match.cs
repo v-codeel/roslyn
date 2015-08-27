@@ -139,14 +139,14 @@ namespace Microsoft.CodeAnalysis.Differencing
             // 
             // 1) A label may be marked "tied to parent". Let x, y have both label l and l is "tied to parent".
             //    Then (x,y) can be in M only if (parent(x), parent(y)) in M.
-            //    Thus we require labels of children tied to a parent to be preceeded by all their possible parent labels.
+            //    Thus we require labels of children tied to a parent to be preceded by all their possible parent labels.
             //
             // 2) Rather than defining function equal in terms of constants f and t, which are hard to get right,
-            //    we try to match multiple times with different threashold for node distance.
+            //    we try to match multiple times with different threshold for node distance.
             //    The comparer defines the distance [0..1] between two nodes and it can do so by analyzing 
             //    the node structure and value. The comparer can tune the distance specifically for each node kind.
-            //    We first try to match nodes of the same labels to the exactly matching or almost matching counterpars.
-            //    The we keep increasing the threashold and keep adding matches. 
+            //    We first try to match nodes of the same labels to the exactly matching or almost matching counterparts.
+            //    The we keep increasing the threshold and keep adding matches. 
 
             for (int l = 0; l < nodes1.Length; l++)
             {
@@ -212,7 +212,7 @@ namespace Microsoft.CodeAnalysis.Differencing
                     if (tiedToAncestor > 0)
                     {
                         // TODO (tomat): For nodes tied to their parents, 
-                        // consider avoding matching them to all other nodes of the same label.
+                        // consider avoiding matching them to all other nodes of the same label.
                         // Rather we should only match them with their siblings that share the same parent.
 
                         var ancestor1 = _comparer.GetAncestor(node1, tiedToAncestor);
@@ -381,12 +381,12 @@ namespace Microsoft.CodeAnalysis.Differencing
         {
             if (oldNodes == null)
             {
-                throw new ArgumentNullException("oldNodes");
+                throw new ArgumentNullException(nameof(oldNodes));
             }
 
             if (newNodes == null)
             {
-                throw new ArgumentNullException("newNodes");
+                throw new ArgumentNullException(nameof(newNodes));
             }
 
             var oldList = (oldNodes as IReadOnlyList<TNode>) ?? oldNodes.ToList();

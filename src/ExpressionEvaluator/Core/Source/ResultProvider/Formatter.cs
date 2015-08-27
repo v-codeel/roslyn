@@ -36,9 +36,10 @@ namespace Microsoft.CodeAnalysis.ExpressionEvaluator
             return GetValueString(value, inspectionContext, options, GetValueFlags.IncludeObjectId);
         }
 
-        string IDkmClrFormatter.GetTypeName(DkmInspectionContext inspectionContext, DkmClrType type, ReadOnlyCollection<string> formatSpecifiers)
+        string IDkmClrFormatter.GetTypeName(DkmInspectionContext inspectionContext, DkmClrType type, DkmClrCustomTypeInfo typeInfo, ReadOnlyCollection<string> formatSpecifiers)
         {
-            return GetTypeName(type.GetLmrType());
+            bool unused;
+            return GetTypeName(new TypeAndCustomInfo(type.GetLmrType(), typeInfo), escapeKeywordIdentifiers: false, sawInvalidIdentifier: out unused);
         }
 
         bool IDkmClrFormatter.HasUnderlyingString(DkmClrValue value, DkmInspectionContext inspectionContext)
@@ -57,6 +58,8 @@ namespace Microsoft.CodeAnalysis.ExpressionEvaluator
         // It seems more natural to ask these questions of the ResultProvider, but adding such a component
         // for these few methods seemed a bit overly elaborate given the current internal usage.
         #region Language-specific syntax helpers
+
+        internal abstract bool IsValidIdentifier(string name);
 
         internal abstract bool IsIdentifierPartCharacter(char c);
 

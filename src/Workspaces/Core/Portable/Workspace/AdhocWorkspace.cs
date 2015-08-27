@@ -56,10 +56,12 @@ namespace Microsoft.CodeAnalysis
         {
             if (solutionInfo == null)
             {
-                throw new ArgumentNullException("solutionInfo");
+                throw new ArgumentNullException(nameof(solutionInfo));
             }
 
             this.OnSolutionAdded(solutionInfo);
+
+            this.UpdateReferencesAfterAdd();
 
             return this.CurrentSolution;
         }
@@ -80,10 +82,12 @@ namespace Microsoft.CodeAnalysis
         {
             if (projectInfo == null)
             {
-                throw new ArgumentNullException("projectInfo");
+                throw new ArgumentNullException(nameof(projectInfo));
             }
 
             this.OnProjectAdded(projectInfo);
+
+            this.UpdateReferencesAfterAdd();
 
             return this.CurrentSolution.GetProject(projectInfo.Id);
         }
@@ -96,13 +100,15 @@ namespace Microsoft.CodeAnalysis
         {
             if (projectInfos == null)
             {
-                throw new ArgumentNullException("projectInfos");
+                throw new ArgumentNullException(nameof(projectInfos));
             }
 
             foreach (var info in projectInfos)
             {
                 this.OnProjectAdded(info);
             }
+
+            this.UpdateReferencesAfterAdd();
         }
 
         /// <summary>
@@ -112,17 +118,17 @@ namespace Microsoft.CodeAnalysis
         {
             if (projectId == null)
             {
-                throw new ArgumentNullException("projectId");
+                throw new ArgumentNullException(nameof(projectId));
             }
 
             if (name == null)
             {
-                throw new ArgumentNullException("name");
+                throw new ArgumentNullException(nameof(name));
             }
 
             if (text == null)
             {
-                throw new ArgumentNullException("text");
+                throw new ArgumentNullException(nameof(text));
             }
 
             var id = DocumentId.CreateNewId(projectId);
@@ -138,7 +144,7 @@ namespace Microsoft.CodeAnalysis
         {
             if (documentInfo == null)
             {
-                throw new ArgumentNullException("documentInfo");
+                throw new ArgumentNullException(nameof(documentInfo));
             }
 
             this.OnDocumentAdded(documentInfo);

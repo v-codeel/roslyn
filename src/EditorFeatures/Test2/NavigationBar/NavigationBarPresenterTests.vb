@@ -1,16 +1,17 @@
 ' Copyright (c) Microsoft.  All Rights Reserved.  Licensed under the Apache License, Version 2.0.  See License.txt in the project root for license information.
 
+Imports System.Composition
 Imports Microsoft.CodeAnalysis.Shared.TestHooks
 Imports Microsoft.CodeAnalysis.Editor.UnitTests.Workspaces
 Imports Microsoft.VisualStudio.Text
 Imports Microsoft.VisualStudio.Composition
-Imports System.ComponentModel.Composition
 
 Namespace Microsoft.CodeAnalysis.Editor.UnitTests.NavigationBar
     Public Class NavigationBarControllerTests
         Friend ReadOnly ExportProvider As ExportProvider = MinimalTestExportProvider.CreateExportProvider(
             TestExportProvider.EntireAssemblyCatalogWithCSharpAndVisualBasic.WithPart(GetType(NavigationBarWaiter)))
 
+        <[Shared]>
         <Export(GetType(IAsynchronousOperationListener))>
         <Export(GetType(IAsynchronousOperationWaiter))>
         <Export(GetType(NavigationBarWaiter))>
@@ -20,7 +21,7 @@ Namespace Microsoft.CodeAnalysis.Editor.UnitTests.NavigationBar
         End Class
 
         <Fact, Trait(Traits.Feature, Traits.Features.NavigationBar), WorkItem(544957)>
-        Sub DoNotRecomputeAfterFullRecompute()
+        Public Sub DoNotRecomputeAfterFullRecompute()
             Using workspace = TestWorkspaceFactory.CreateWorkspace(
                 <Workspace>
                     <Project Language="C#" CommonReferences="true">
@@ -53,7 +54,7 @@ Namespace Microsoft.CodeAnalysis.Editor.UnitTests.NavigationBar
         End Sub
 
         <Fact, Trait(Traits.Feature, Traits.Features.NavigationBar), WorkItem(544957)>
-        Sub ProjectionBuffersWork()
+        Public Sub ProjectionBuffersWork()
             Using workspace = TestWorkspaceFactory.CreateWorkspace(
                 <Workspace>
                     <Project Language="C#" CommonReferences="true">
@@ -84,7 +85,7 @@ Namespace Microsoft.CodeAnalysis.Editor.UnitTests.NavigationBar
         End Sub
 
         <Fact, Trait(Traits.Feature, Traits.Features.NavigationBar)>
-        Sub TestNavigationBarInCSharpLinkedFiles()
+        Public Sub TestNavigationBarInCSharpLinkedFiles()
             Using workspace = TestWorkspaceFactory.CreateWorkspace(
                 <Workspace>
                     <Project Language="C#" CommonReferences="true" AssemblyName="CSProj" PreprocessorSymbols="Proj1">
@@ -141,7 +142,7 @@ class C
         End Sub
 
         <Fact, Trait(Traits.Feature, Traits.Features.NavigationBar)>
-        Sub TestNavigationBarInVisualBasicLinkedFiles()
+        Public Sub TestNavigationBarInVisualBasicLinkedFiles()
             Using workspace = TestWorkspaceFactory.CreateWorkspace(
                 <Workspace>
                     <Project Language="Visual Basic" CommonReferences="true" AssemblyName="VBProj" PreprocessorSymbols="Proj1=True">
@@ -201,7 +202,7 @@ End Class
         End Sub
 
         <Fact, Trait(Traits.Feature, Traits.Features.NavigationBar)>
-        Sub TestProjectItemsAreSortedCSharp()
+        Public Sub TestProjectItemsAreSortedCSharp()
             Using workspace = TestWorkspaceFactory.CreateWorkspace(
                 <Workspace>
                     <Project Language="C#" CommonReferences="true" AssemblyName="BProj">
@@ -244,7 +245,7 @@ class C
         End Sub
 
         <Fact, Trait(Traits.Feature, Traits.Features.NavigationBar)>
-        Sub TestProjectItemsAreSortedVisualBasic()
+        Public Sub TestProjectItemsAreSortedVisualBasic()
             Using workspace = TestWorkspaceFactory.CreateWorkspace(
                 <Workspace>
                     <Project Language="Visual Basic" CommonReferences="true" AssemblyName="VBProj">
@@ -283,7 +284,7 @@ End Class
         End Sub
 
         <Fact, Trait(Traits.Feature, Traits.Features.NavigationBar)>
-        Sub TestNavigationBarRefreshesAfterProjectRename()
+        Public Sub TestNavigationBarRefreshesAfterProjectRename()
             Using workspace = TestWorkspaceFactory.CreateWorkspace(
                 <Workspace>
                     <Project Language="Visual Basic" CommonReferences="true" AssemblyName="VBProj">

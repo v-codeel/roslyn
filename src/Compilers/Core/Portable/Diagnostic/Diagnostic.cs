@@ -2,12 +2,12 @@
 
 using System;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.Diagnostics;
 using System.Globalization;
+using Microsoft.CodeAnalysis.Diagnostics;
 using Microsoft.CodeAnalysis.Text;
 using Roslyn.Utilities;
-using System.Collections.Immutable;
-using Microsoft.CodeAnalysis.Diagnostics;
 
 namespace Microsoft.CodeAnalysis
 {
@@ -20,7 +20,7 @@ namespace Microsoft.CodeAnalysis
         internal const string CompilerDiagnosticCategory = "Compiler";
 
         /// <summary>
-        /// Highest valid warning level for non-error diagnostcs.
+        /// Highest valid warning level for non-error diagnostics.
         /// </summary>
         internal const int HighestValidWarningLevel = 4;
 
@@ -99,7 +99,7 @@ namespace Microsoft.CodeAnalysis
         {
             if (descriptor == null)
             {
-                throw new ArgumentNullException("descriptor");
+                throw new ArgumentNullException(nameof(descriptor));
             }
 
             var warningLevel = GetDefaultWarningLevel(descriptor.DefaultSeverity);
@@ -156,17 +156,17 @@ namespace Microsoft.CodeAnalysis
         {
             if (id == null)
             {
-                throw new ArgumentNullException("id");
+                throw new ArgumentNullException(nameof(id));
             }
 
             if (category == null)
             {
-                throw new ArgumentNullException("category");
+                throw new ArgumentNullException(nameof(category));
             }
 
             if (message == null)
             {
-                throw new ArgumentNullException("message");
+                throw new ArgumentNullException(nameof(message));
             }
 
             return SimpleDiagnostic.Create(id, title ?? string.Empty, category, message, description ?? string.Empty, helpLink ?? string.Empty,

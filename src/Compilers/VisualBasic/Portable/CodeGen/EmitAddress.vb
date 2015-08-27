@@ -70,6 +70,9 @@ Namespace Microsoft.CodeAnalysis.VisualBasic.CodeGen
                     Debug.Assert(Not expression.Type.IsReferenceType)
                     Debug.Assert(Not expression.Type.IsValueType)
 
+                Case BoundKind.ComplexConditionalAccessReceiver
+                    EmitComplexConditionalAccessReceiverAddress(DirectCast(expression, BoundComplexConditionalAccessReceiver))
+
                 Case BoundKind.Parameter
                     EmitParameterAddress(DirectCast(expression, BoundParameter))
 
@@ -273,7 +276,8 @@ Namespace Microsoft.CodeAnalysis.VisualBasic.CodeGen
         ''' </summary>
         Private Function AllowedToTakeRef(expression As BoundExpression, addressKind As AddressKind) As Boolean
 
-            If expression.Kind = BoundKind.ConditionalAccessReceiverPlaceholder Then
+            If expression.Kind = BoundKind.ConditionalAccessReceiverPlaceholder OrElse
+               expression.Kind = BoundKind.ComplexConditionalAccessReceiver Then
                 Return addressKind = AddressKind.ReadOnly OrElse addressKind = AddressKind.Immutable
             End If
 
@@ -375,7 +379,7 @@ Namespace Microsoft.CodeAnalysis.VisualBasic.CodeGen
                             ' can mutate field since its parent has no home and we will be dealing with a copy
                             Return True
                         Else
-                            ' this field access is readonly due to languge reasons -
+                            ' this field access is readonly due to language reasons -
                             ' most likely topmost receiver is a readonly local or a runtime const
                             Return False
                         End If
@@ -437,7 +441,7 @@ Namespace Microsoft.CodeAnalysis.VisualBasic.CodeGen
         ''' receiver with readonly intent. For the value types it is an address of the receiver.
         ''' 
         ''' isAccessConstrained indicates that receiver is a target of a constrained callvirt
-        ''' in such case it is unnecessary to box a receier that is typed to a type parameter
+        ''' in such case it is unnecessary to box a receiver that is typed to a type parameter
         ''' 
         ''' May introduce a temp which it will return. (otherwise returns null)
         ''' </summary>

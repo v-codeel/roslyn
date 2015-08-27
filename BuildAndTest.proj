@@ -10,19 +10,18 @@
   <!-- At the moment Jenkins runs on a machine without any build of Visual Studio 2015.  Hence we must
        use a 2013 compatible solution. -->
   <PropertyGroup>
-    <RoslynSolution>$(MSBuildThisFileDirectory)\Src\Roslyn.sln</RoslynSolution>
-    <RoslynSolution Condition="'$(CIBuild)' == 'true'">$(MSBuildThisFileDirectory)\Src\RoslynLight.sln</RoslynSolution>
+    <RoslynSolution>$(MSBuildThisFileDirectory)Roslyn.sln</RoslynSolution>
     <Configuration Condition="'$(Configuration)' == ''">Debug</Configuration>
-    <RunTestArgs></RunTestArgs>
-    <RunTestArgs Condition="'$(Test64)' == 'true'">-test64</RunTestArgs>
-
-    <!-- Emit XML in a CIBuild in order to get structured test results -->
-    <RunTestArgs Condition="'$(CIBuild)' == 'true'">$(RunTestArgs) -xml</RunTestArgs>
+    <RunTestArgs>$(RunTestArgs) -xml</RunTestArgs>
+    <RunTestArgs Condition="'$(Test64)' == 'true'">$(RunTestArgs) -test64</RunTestArgs>
+    <IncludePattern Condition="'$(IncludePattern)' == ''">*.UnitTests*.dll</IncludePattern>
   </PropertyGroup>
 
   <Target Name="RestorePackages">
-    <Exec Command="&quot;$(MSBuildThisFileDirectory)\Src\.nuget\Nuget.exe&quot; install xunit.runners -pre -version 2.0.0-alpha-build2576 -outputdirectory packages"/>
-    <Exec Command="&quot;$(MSBuildThisFileDirectory)\Src\.nuget\Nuget.exe&quot; restore &quot;$(RoslynSolution)&quot;" />
+    <Exec Command="&quot;$(MSBuildThisFileDirectory)\.nuget\Nuget.exe&quot; install xunit.runners -pre -version 2.0.0-alpha-build2576 -outputdirectory packages"/>
+    <Exec Command="&quot;$(MSBuildThisFileDirectory)\.nuget\Nuget.exe&quot; restore .nuget\packages.config -PackagesDirectory packages" />
+    <Exec Command="&quot;$(MSBuildThisFileDirectory)\.nuget\V3\Nuget.exe&quot; restore .nuget\V3\packages.config -PackagesDirectory packages" />
+    <Exec Command="&quot;$(MSBuildThisFileDirectory)\.nuget\V3\Nuget.exe&quot; restore &quot;$(RoslynSolution)&quot;" />
   </Target>
 
   <Target Name="Build" DependsOnTargets="RestorePackages">
@@ -47,18 +46,8 @@
   </Target>
 
   <Target Name="Test">
-
-    <ItemGroup Condition="'$(CIBuild)' == ''">
-      <TestAssemblies 
-        Include="Binaries\$(Configuration)\**\*.UnitTests*.dll" 
-        Exclude="Binaries\$(Configuration)\Roslyn.Compilers.NativeClient.UnitTests.dll" />
-    </ItemGroup>
-
-    <!-- The Microsoft.CodeAnalysis.Scripting.UnitTests.dll is disabled due to https://github.com/dotnet/roslyn/issues/860 -->
-    <ItemGroup Condition="'$(CIBuild)' == 'true'">
-      <TestAssemblies 
-        Include="Binaries\$(Configuration)\**\*.UnitTests*.dll" 
-        Exclude="Binaries\$(Configuration)\Roslyn.Compilers.NativeClient.UnitTests.dll;Binaries\$(Configuration)\*ResultProvider*.UnitTests.dll;Binaries\$(Configuration)\Microsoft.CodeAnalysis.Scripting.UnitTests.dll" />
+    <ItemGroup>
+      <TestAssemblies Include="Binaries\$(Configuration)\**\$(IncludePattern)" />
     </ItemGroup>
 
     <Exec Command="Binaries\$(Configuration)\RunTests.exe packages\xunit.runners.2.0.0-alpha-build2576\tools $(RunTestArgs) @(TestAssemblies, ' ')" />

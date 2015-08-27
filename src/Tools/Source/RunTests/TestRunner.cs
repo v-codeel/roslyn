@@ -106,6 +106,12 @@ namespace RunTests
             Console.WriteLine("================");
         }
 
+        private static readonly string[] UpgradedTests = new string[] {
+            "Microsoft.DiaSymReader.PortablePdb.UnitTests.dll",
+            "Microsoft.CodeAnalysis.Scripting.VisualBasic.UnitTests.dll",
+            "Microsoft.CodeAnalysis.Scripting.CSharp.UnitTests.dll"
+        };
+
         private async Task<TestResult> RunTest(string assemblyPath, CancellationToken cancellationToken)
         {
             var assemblyName = Path.GetFileName(assemblyPath);
@@ -118,10 +124,12 @@ namespace RunTests
             builder.AppendFormat(@" -{0} ""{1}""", _useHtml ? "html" : "xml", resultsPath);
             builder.Append(" -noshadow");
 
-            var errorOutput = string.Empty;
+            var errorOutput = new StringBuilder();
             var start = DateTime.UtcNow;
+
+            var xunitPath = UpgradedTests.Contains(assemblyName) ? Path.Combine($"{Path.GetDirectoryName(_xunitConsolePath)}", @"..\..\xunit.runner.console.2.1.0-beta4-build3109\tools", $"{Path.GetFileName(_xunitConsolePath)}") : _xunitConsolePath;
             var processOutput = await ProcessRunner.RunProcessAsync(
-                _xunitConsolePath,
+                xunitPath,
                 builder.ToString(),
                 lowPriority: false,
                 displayWindow: false,
@@ -131,8 +139,10 @@ namespace RunTests
 
             if (processOutput.ExitCode != 0)
             {
-                // On occasion we get a non-0 output but no actual data in the result file.  Switch to output in this 
-                // case.
+                // On occasion we get a non-0 output but no actual data in the result file.  The could happen
+                // if xunit manages to crash when running a unit test (a stack overflow could cause this, for instance).
+                // To avoid losing information, write the process output to the console.  In addition, delete the results
+                // file to avoid issues with any tool attempting to interpret the (potentially malformed) text.
                 var all = string.Empty;
                 try
                 {
@@ -143,24 +153,39 @@ namespace RunTests
                     // Happens if xunit didn't produce a log file
                 }
 
-                if (all.Length == 0)
+                bool noResultsData = (all.Length == 0);
+                if (noResultsData)
                 {
-                    var output = processOutput.OutputLines.Concat(processOutput.ErrorLines).ToArray();
-                    File.WriteAllLines(resultsPath, output);
+                    var output = processOutput.OutputLines.Concat(processOutput.ErrorLines);
+                    Console.Write(string.Join(Environment.NewLine, output));
+
+                    // Delete the output file.
+                    File.Delete(resultsPath);
                 }
 
-                errorOutput = processOutput.ErrorLines.Any()
-                    ? processOutput.ErrorLines.Aggregate((x, y) => x + Environment.NewLine + y)
-                    : string.Format("xunit produced no error output but had exit code {0}", processOutput.ExitCode);
+                errorOutput.AppendLine($"Command: {_xunitConsolePath} {builder}");
 
-                errorOutput = string.Format("Command: {0} {1}", _xunitConsolePath, builder.ToString())
-                    + Environment.NewLine
-                    + errorOutput;
+                if (processOutput.ErrorLines.Any())
+                {
+                    foreach (var line in processOutput.ErrorLines)
+                    {
+                        errorOutput.AppendLine(line);
+                    }
+                }
+                else
+                {
+                    errorOutput.AppendLine($"xunit produced no error output but had exit code {processOutput.ExitCode}");
+                }
 
-                Process.Start(resultsPath);
+                // If the results are html, use Process.Start to open in the browser.
+
+                if (_useHtml && !noResultsData)
+                {
+                    Process.Start(resultsPath);
+                }
             }
 
-            return new TestResult(processOutput.ExitCode == 0, assemblyName, span, errorOutput);
+            return new TestResult(processOutput.ExitCode == 0, assemblyName, span, errorOutput.ToString());
         }
 
         private static void DeleteFile(string filePath)

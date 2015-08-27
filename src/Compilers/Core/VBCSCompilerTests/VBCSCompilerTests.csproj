@@ -2,8 +2,7 @@
 <!-- Copyright (c)  Microsoft.  All Rights Reserved.  Licensed under the Apache License, Version 2.0.  See License.txt in the project root for license information. -->
 <Project ToolsVersion="4.0" DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ImportGroup Label="Settings">
-    <Import Project="..\..\..\Tools\Microsoft.CodeAnalysis.Toolset.Open\Targets\VSL.Settings.targets" />
-    <Import Project="..\..\..\..\build\VSL.Settings.Closed.targets" />
+    <Import Project="..\..\..\..\build\Targets\VSL.Settings.targets" />
   </ImportGroup>
   <PropertyGroup>
     <Nonshipping>true</Nonshipping>
@@ -16,6 +15,7 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <SolutionDir Condition="'$(SolutionDir)' == '' OR '$(SolutionDir)' == '*Undefined*'">..\..\..\..\</SolutionDir>
     <RestorePackages>true</RestorePackages>
+    <TargetFrameworkVersion>v4.5</TargetFrameworkVersion>
   </PropertyGroup>
   <ItemGroup Label="Project References">
     <ProjectReference Include="..\..\CSharp\csc2\csc2.csproj">
@@ -30,29 +30,25 @@
       <Project>{21446697-e359-41d9-b39d-40ada2b20823}</Project>
       <Name>vbc2</Name>
     </ProjectReference>
-    <ProjectReference Include="..\..\VisualBasic\vbc\vbc.vbproj">
-      <Project>{2ac2755d-9437-4271-bbde-1a3795a0c320}</Project>
+    <ProjectReference Include="..\..\VisualBasic\vbc\vbc.csproj">
+      <Project>{e58ee9d7-1239-4961-a0c1-f9ec3952c4c1}</Project>
       <Name>vbc</Name>
-    </ProjectReference>
-    <ProjectReference Include="..\Desktop\CodeAnalysis.Desktop.csproj">
-      <Project>{dfa21ca1-7f96-47ee-940c-069858e81727}</Project>
-      <Name>CodeAnalysis.Desktop</Name>
     </ProjectReference>
     <ProjectReference Include="..\..\..\Test\PdbUtilities\PdbUtilities.csproj">
       <Project>{AFDE6BEA-5038-4A4A-A88E-DBD2E4088EED}</Project>
       <Name>PdbUtilities</Name>
     </ProjectReference>
-    <ProjectReference Include="..\..\..\Test\Utilities\TestUtilities.csproj">
+    <ProjectReference Include="..\..\..\Test\Utilities\Desktop\TestUtilities.Desktop.csproj">
       <Project>{76C6F005-C89D-4348-BB4A-391898DBEB52}</Project>
-      <Name>TestUtilities</Name>
+      <Name>TestUtilities.Desktop</Name>
     </ProjectReference>
-    <ProjectReference Include="..\..\Test\Resources\Core\CompilerTestResources.vbproj">
+    <ProjectReference Include="..\..\Test\Resources\Core\CompilerTestResources.csproj">
       <Project>{7FE6B002-89D8-4298-9B1B-0B5C247DD1FD}</Project>
       <Name>CompilerTestResources</Name>
     </ProjectReference>
-    <ProjectReference Include="..\..\Test\Utilities\Core2\CompilerTestUtilities2.csproj">
+    <ProjectReference Include="..\..\..\Test\Utilities\Portable.FX45\TestUtilities.FX45.csproj">
       <Project>{F7712928-1175-47B3-8819-EE086753DEE2}</Project>
-      <Name>CompilerTestUtilities2</Name>
+      <Name>TestUtilities.FX45</Name>
     </ProjectReference>
     <ProjectReference Include="..\MSBuildTask\MSBuildTask.csproj">
       <Project>{d874349c-8bb3-4bdc-8535-2d52ccca1198}</Project>
@@ -68,8 +64,9 @@
     </ProjectReference>
   </ItemGroup>
   <ItemGroup Label="File References">
-    <Reference Include="..\..\..\..\packages\System.Reflection.Metadata.1.0.18-beta\lib\portable-net45+win8\System.Reflection.Metadata.dll" />
-    <Reference Include="..\..\..\..\packages\System.Collections.Immutable.1.1.33-beta\lib\portable-net45+win8+wp8+wpa81\System.Collections.Immutable.dll" />
+    <Reference Include="..\..\..\..\packages\System.Reflection.Metadata.$(SystemReflectionMetadataVersion)\lib\portable-net45+win8\System.Reflection.Metadata.dll" />
+    <Reference Include="..\..\..\..\packages\System.Collections.Immutable.$(SystemCollectionsImmutableVersion)\lib\portable-net45+win8+wp8+wpa81\System.Collections.Immutable.dll" />
+    <Reference Include="..\..\..\..\packages\Microsoft.DiaSymReader.1.0.5\lib\net45\Microsoft.DiaSymReader.dll" />
     <Reference Include="..\..\..\..\packages\Moq.4.2.1402.2112\lib\net40\Moq.dll" />
     <Reference Include="Microsoft.Build.Framework">
       <HintPath>$(MSBuildProgramFiles32)\Reference Assemblies\Microsoft\MSBuild\v14.0\Microsoft.Build.Framework.dll</HintPath>
@@ -114,15 +111,15 @@
     <CodeAnalysisRuleSet>MinimumRecommendedRules.ruleset</CodeAnalysisRuleSet>
   </PropertyGroup>
   <ItemGroup>
-    <Reference Include="Microsoft.CodeAnalysis.Test.Resources.Proprietary, Version=1.0.0.0, Culture=neutral, PublicKeyToken=31bf3856ad364e35, processorArchitecture=MSIL">
+    <Reference Include="Microsoft.CodeAnalysis.Test.Resources.Proprietary, Culture=neutral, PublicKeyToken=31bf3856ad364e35, processorArchitecture=MSIL">
       <SpecificVersion>False</SpecificVersion>
-      <HintPath>..\..\..\..\packages\Microsoft.CodeAnalysis.Test.Resources.Proprietary.1.0.0-rc1-20150208-02\lib\net45\Microsoft.CodeAnalysis.Test.Resources.Proprietary.dll</HintPath>
+      <HintPath>..\..\..\..\packages\Microsoft.CodeAnalysis.Test.Resources.Proprietary.1.1.0-beta1-20150716-08\lib\net45\Microsoft.CodeAnalysis.Test.Resources.Proprietary.dll</HintPath>
     </Reference>
     <Reference Include="System" />
-    <Reference Include="System.Collections" />
     <Reference Include="System.Xml" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="AnalyzerConsistencyCheckerTests.cs" />
     <Compile Include="BuildProtocolTest.cs" />
     <Compile Include="CompilerServerApiTest.cs" />
     <Compile Include="CompilerServerTests.cs" />
@@ -138,9 +135,8 @@
     </None>
   </ItemGroup>
   <ImportGroup Label="Targets">
-    <Import Project="..\..\..\Tools\Microsoft.CodeAnalysis.Toolset.Open\Targets\VSL.Imports.targets" />
-    <Import Project="..\..\..\..\build\VSL.Imports.Closed.targets" />
-    <Import Project="..\..\..\..\build\Roslyn.Toolsets.Xunit.targets" />
+    <Import Project="..\..\..\..\build\Targets\VSL.Imports.targets" />
+    <Import Project="..\..\..\..\build\Targets\Roslyn.Toolsets.Xunit.targets" />
     <Import Project="$(SolutionDir)\.nuget\NuGet.targets" Condition="Exists('$(SolutionDir)\.nuget\NuGet.targets')" />
   </ImportGroup>
 </Project>

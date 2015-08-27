@@ -358,8 +358,7 @@ Namespace Microsoft.CodeAnalysis.VisualBasic
             End Function
 
             Public Overrides Function VisitLambda(node As BoundLambda) As BoundNode
-                Debug.Assert(False)
-                Return Nothing
+                Throw ExceptionUtilities.Unreachable
             End Function
 
             Public Overrides Function VisitReturnStatement(node As BoundReturnStatement) As BoundNode
@@ -911,12 +910,8 @@ Namespace Microsoft.CodeAnalysis.VisualBasic
             Dim symbol = New SourceLambdaSymbol(source.Syntax, source, parameters, LambdaSymbol.ReturnTypeIsBeingInferred, Me)
             Dim block As BoundBlock = BindLambdaBody(symbol, diagnostics, lambdaBinder:=Nothing)
 
-            ' Diagnostic about parameters and body binding is just a side-effect of code reuse, 
-            ' clearing it to avoid the same errors reported multiple times.  
-
             If block.HasErrors OrElse diagnostics.HasAnyErrors() Then
-                diagnostics.Free()
-                Return New KeyValuePair(Of TypeSymbol, ImmutableArray(Of Diagnostic))(LambdaSymbol.ReturnTypeIsUnknown, ImmutableArray(Of Diagnostic).Empty)
+                Return New KeyValuePair(Of TypeSymbol, ImmutableArray(Of Diagnostic))(LambdaSymbol.ReturnTypeIsUnknown, diagnostics.ToReadOnlyAndFree())
             End If
 
             diagnostics.Clear()
@@ -1059,8 +1054,7 @@ Namespace Microsoft.CodeAnalysis.VisualBasic
             End Function
 
             Public Overrides Function VisitLambda(node As BoundLambda) As BoundNode
-                Debug.Assert(False)
-                Return Nothing
+                Throw ExceptionUtilities.Unreachable
             End Function
 
             Public Overrides Function VisitReturnStatement(node As BoundReturnStatement) As BoundNode

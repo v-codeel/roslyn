@@ -2281,8 +2281,8 @@ public class Test
             CompileAndVerify(CreateCompilation(
                 text,
                 references: new[] {
-                    MetadataReference.CreateFromAssembly(typeof(object).Assembly),
-                    MetadataReference.CreateFromAssembly(typeof(System.Linq.Enumerable).Assembly)
+                    MetadataReference.CreateFromAssemblyInternal(typeof(object).Assembly),
+                    MetadataReference.CreateFromAssemblyInternal(typeof(System.Linq.Enumerable).Assembly)
                 },
                 options: TestOptions.ReleaseExe),
                 expectedOutput: TrimExpectedOutput(expectedOutput));
@@ -2586,6 +2586,84 @@ Lambda:
                 new[] { ExpressionAssemblyRef }, expectedOutput: TrimExpectedOutput(expectedOutput));
         }
 
+        [WorkItem(3906, "https://github.com/dotnet/roslyn/issues/3906")]
+        [Fact]
+        public void GenericField01()
+        {
+            var text =
+@"
+using System;
+
+public class M
+{
+
+    public class S<T>
+    {
+        public T x;
+    }
+
+    public static object SomeFunc<A>(System.Linq.Expressions.Expression<Func<object, A>> selector)
+    { return null; }
+
+    public static void CallIt<T>(T t)
+    {
+        Func<object, object> goodF = xs => SomeFunc<S<T>>(e => new S<T>());
+        var z1 = goodF(3);
+
+        Func<object, object> badF = xs => SomeFunc<S<T>>(e => new S<T> { x = t });
+        var z2 = badF(3);
+    }
+
+    public static void Main()
+    {
+        CallIt<int>(3);
+    }
+}
+";
+            CompileAndVerify(
+                new[] { text, ExpressionTestLibrary },
+                new[] { ExpressionAssemblyRef }, expectedOutput: "");
+        }
+
+        [WorkItem(3906, "https://github.com/dotnet/roslyn/issues/3906")]
+        [Fact]
+        public void GenericProperty01()
+        {
+            var text =
+@"
+using System;
+
+public class M
+{
+
+    public class S<T>
+    {
+        public T x{get; set;}
+    }
+
+    public static object SomeFunc<A>(System.Linq.Expressions.Expression<Func<object, A>> selector)
+    { return null; }
+
+    public static void CallIt<T>(T t)
+    {
+        Func<object, object> goodF = xs => SomeFunc<S<T>>(e => new S<T>());
+        var z1 = goodF(3);
+
+        Func<object, object> badF = xs => SomeFunc<S<T>>(e => new S<T> { x = t });
+        var z2 = badF(3);
+    }
+
+    public static void Main()
+    {
+        CallIt<int>(3);
+    }
+}
+";
+            CompileAndVerify(
+                new[] { text, ExpressionTestLibrary },
+                new[] { ExpressionAssemblyRef }, expectedOutput: "");
+        }
+
         [WorkItem(544304, "DevDiv")]
         [Fact]
         public void CheckedEnumAddition()
@@ -2856,7 +2934,6 @@ unsafe class Test
             var c = CompileAndVerify(text,
                 additionalRefs: new[] { SystemCoreRef },
                 options: TestOptions.UnsafeReleaseDll,
-                emitOptions: TestEmitters.RefEmitBug,
                 verify: false);
 
             c.VerifyDiagnostics();
@@ -4189,7 +4266,7 @@ Convert(Not(Convert(Parameter(x Type:Test+Color) Type:System.Int32) Type:System.
 
         [WorkItem(531382, "DevDiv")]
         [Fact]
-        public void IndexerIsIndexedPropoperty()
+        public void IndexerIsIndexedProperty()
         {
             var source1 =
 @"<System.Runtime.InteropServices.ComImport>
@@ -4922,6 +4999,223 @@ class C : TestBase
                 expectedOutput: expectedOutput);
         }
 
+        [Fact]
+        public void LiftedIntPtrConversion()
+        {
+            string source = @"
+using System;
+using System.Linq.Expressions;
+
+class C : TestBase
+{
+    static void Main()
+    {
+        Check(() => (IntPtr?)M(), ""Convert(Call(null.[System.Nullable`1[System.Int32] M()]() Type:System.Nullable`1[System.Int32]) Lifted LiftedToNull Method:[IntPtr op_Explicit(Int32)] Type:System.Nullable`1[System.IntPtr])"");
+        Console.WriteLine(""DONE"");
+    }
+
+    static int? M() { return 0; }
+}
+";
+
+            CompileAndVerify(
+                new[] { source, ExpressionTestLibrary },
+                new[] { ExpressionAssemblyRef },
+                expectedOutput: "DONE");
+        }
+
+        /// <summary>
+        /// Ignore inaccessible members of System.Linq.Expressions.Expression.
+        /// </summary>
+        [WorkItem(1618, "https://github.com/dotnet/roslyn/issues/1618")]
+        [Fact]
+        public void IgnoreInaccessibleExpressionMembers()
+        {
+            var source1 =
+@"namespace System.Linq.Expressions
+{
+    public class Expression
+    {
+        public static Expression Constant(object o, Type t) { return null; }
+        protected static Expression Convert(object e, Type t) { return null; }
+        public static Expression Convert(Expression e, object t) { return null; }
+        protected static void Lambda<T>(Expression e, ParameterExpression[] args) { }
+        public static Expression<T> Lambda<T>(Expression e, Expression[] args) { return null; }
+    }
+    public class Expression<T> { }
+    public class ParameterExpression : Expression { }
+}";
+            var compilation1 = CreateCompilationWithMscorlib(source1);
+            compilation1.VerifyDiagnostics();
+            var reference1 = compilation1.EmitToImageReference();
+
+            var source2 =
+@"using System.Linq.Expressions;
+delegate object D();
+class C
+{
+    static Expression<D> E = () => 1;
+}";
+            var compilation2 = CreateCompilationWithMscorlib(source2, references: new[] { reference1 });
+            compilation2.VerifyDiagnostics();
+
+            using (var stream = new MemoryStream())
+            {
+                var result = compilation2.Emit(stream);
+                result.Diagnostics.Verify();
+            }
+        }
+
+
+        [WorkItem(3923, "https://github.com/dotnet/roslyn/issues/3923")]
+        [Fact]
+        public void NameofInExpressionTree()
+        {
+            string program = @"
+using System;
+using System.Linq.Expressions;
+
+public class Program
+{
+    public static void Main()
+    {
+        Expression<Func<string>> func = () => nameof(Main);
+        Console.WriteLine(func.Compile().Invoke());
+    }
+}
+";
+            CompileAndVerify(
+                sources: new string[] { program },
+                additionalRefs: new[] { SystemCoreRef },
+                expectedOutput: @"Main")
+                .VerifyDiagnostics();
+        }
+
+        [WorkItem(3292, "https://github.com/dotnet/roslyn/issues/3292")]
+        [Fact]
+        public void EnumConversions001()
+        {
+            const string source = @"
+using System;
+using System.Linq.Expressions;
+
+struct S { }
+
+class C //: TestBase
+{
+    enum E1
+    {
+        a,
+        b
+    }
+
+    class Program
+    {
+        static void Main(string[] args)
+        {
+            var v = E1.b;
+            Expression<Func<bool>> e = () => E1.b == v;
+
+            System.Console.WriteLine(e);
+        }
+    }
+}";
+
+            const string expectedOutput = @"() => (1 == Convert(value(C+Program+<>c__DisplayClass0_0).v))";
+            CompileAndVerify(
+                new[] {
+                    source,
+                //    ExpressionTestLibrary
+                },
+                new[] { ExpressionAssemblyRef },
+                expectedOutput: expectedOutput);
+        }
+
+        [WorkItem(3292, "https://github.com/dotnet/roslyn/issues/3292")]
+        [Fact]
+        public void EnumConversions002()
+        {
+            const string source = @"
+using System;
+using System.Linq.Expressions;
+
+struct S { }
+
+class C //: TestBase
+{
+    enum E1
+    {
+        a,
+        b
+    }
+
+    class Program
+    {
+        static void Main(string[] args)
+        {
+            var v = E1.b;
+            Expression<Func<bool>> e = () => (43 - E1.b) == v;
+
+            System.Console.WriteLine(e);
+        }
+    }
+}";
+
+            const string expectedOutput = @"() => (42 == Convert(value(C+Program+<>c__DisplayClass0_0).v))";
+            CompileAndVerify(
+                new[] {
+                    source,
+                //    ExpressionTestLibrary
+                },
+                new[] { ExpressionAssemblyRef },
+                expectedOutput: expectedOutput);
+        }
+
+        [WorkItem(3292, "https://github.com/dotnet/roslyn/issues/3292")]
+        [Fact]
+        public void EnumConversions003()
+        {
+            const string source = @"
+using System;
+using System.Linq.Expressions;
+
+struct S { }
+
+class C //: TestBase
+{
+    enum E1
+    {
+        a,
+        b
+    }
+
+    class Program
+    {
+        static void Main(string[] args)
+        {
+            Expression<Func<int>> e = () => foo((int)E1.b);
+
+            System.Console.WriteLine(e);
+        }
+
+        static int foo(int x)
+        {
+            return x;
+        }
+    }
+}";
+
+            const string expectedOutput = @"() => foo(1)";
+            CompileAndVerify(
+                new[] {
+                    source,
+                //    ExpressionTestLibrary
+                },
+                new[] { ExpressionAssemblyRef },
+                expectedOutput: expectedOutput);
+        }
+
+
         #endregion Regression Tests
 
         #region helpers
@@ -5258,7 +5552,7 @@ public class ExpressionVisitor
 
     internal virtual MemberListBinding VisitMemberListBinding(MemberListBinding binding)
     {
-        toStr = toStr + ""Initiailizers->"" + ""\n"";
+        toStr = toStr + ""Initializers->"" + ""\n"";
         IEnumerable<ElementInit> initializers = this.VisitElementInitializerList(binding.Initializers);
 
         if (initializers != binding.Initializers)

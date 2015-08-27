@@ -155,7 +155,7 @@ Namespace Microsoft.CodeAnalysis.VisualBasic
 
                         If result.IsEmpty Then
                             ' We were not able to find anything by this name,
-                            ' generate diagnostic and use errorneous 
+                            ' generate diagnostic and use erroneous 
                             ProcessErrorLocations(crefAttr, errorLocations, Nothing, ERRID.WRN_XMLDocCrefAttributeNotFound1)
 
                         ElseIf result.Length > 1 AndAlso reference.Signature IsNot Nothing Then
@@ -170,7 +170,7 @@ Namespace Microsoft.CodeAnalysis.VisualBasic
                             ' From the rest of the symbols we take the symbol with 'smallest' documentation 
                             ' comment id: we want to ensure that when we compile the same compilation several 
                             ' times we deterministically use/write the same documentation id each time, and it 
-                            ' does not matter much which one it is. So instead of doing sofisticated location 
+                            ' does not matter much which one it is. So instead of doing sophisticated location 
                             ' based sorting we just choose the lexically smallest documentation id.
 
                             Dim smallestSymbolCommentId As String = Nothing

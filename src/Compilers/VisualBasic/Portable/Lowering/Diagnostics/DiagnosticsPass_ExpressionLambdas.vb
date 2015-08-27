@@ -10,7 +10,7 @@ Namespace Microsoft.CodeAnalysis.VisualBasic
     Partial Friend Class DiagnosticsPass
         Inherits BoundTreeWalker
 
-        Private _expressionTreePlaceholders As New HashSet(Of BoundNode)(ReferenceEqualityComparer.Instance)
+        Private ReadOnly _expressionTreePlaceholders As New HashSet(Of BoundNode)(ReferenceEqualityComparer.Instance)
 
         Public Overrides Function VisitObjectCreationExpression(node As BoundObjectCreationExpression) As BoundNode
             If Me.IsInExpressionLambda Then
@@ -55,7 +55,7 @@ Namespace Microsoft.CodeAnalysis.VisualBasic
 
         Public Overrides Function VisitAnonymousTypePropertyAccess(node As BoundAnonymousTypePropertyAccess) As BoundNode
             If Me.IsInExpressionLambda Then
-                ' we do not allow anonymous objects which use one field to initalize another one
+                ' we do not allow anonymous objects which use one field to initialize another one
                 GenerateDiagnostic(ERRID.ERR_BadAnonymousTypeForExprTree, node)
             End If
 
@@ -89,7 +89,7 @@ Namespace Microsoft.CodeAnalysis.VisualBasic
                 Select Case opKind
                     Case BinaryOperatorKind.Like,
                          BinaryOperatorKind.Concatenate
-                    'Do Nothing
+                        'Do Nothing
 
                     Case Else
                         If (node.OperatorKind And BinaryOperatorKind.Lifted) <> 0 Then

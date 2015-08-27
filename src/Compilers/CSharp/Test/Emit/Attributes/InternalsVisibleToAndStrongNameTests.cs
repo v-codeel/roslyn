@@ -18,7 +18,7 @@ using Xunit;
 
 namespace Microsoft.CodeAnalysis.CSharp.UnitTests
 {
-    public class InternalsVisibleToAndStrongNameTests : CSharpTestBase
+    public partial class InternalsVisibleToAndStrongNameTests : CSharpTestBase
     {
         #region Helpers
 
@@ -81,20 +81,20 @@ public class Test
             Assert.True(ByteSequenceComparer.Equals(s_publicKey, other.Assembly.Identity.PublicKey));
 
             CompileAndVerify(other, symbolValidator: (ModuleSymbol m) =>
+            {
+                bool haveAttribute = false;
+
+                foreach (var attrData in m.ContainingAssembly.GetAttributes())
                 {
-                    bool haveAttribute = false;
-
-                    foreach (var attrData in m.ContainingAssembly.GetAttributes())
+                    if (attrData.IsTargetAttribute(m.ContainingAssembly, AttributeDescription.AssemblyKeyFileAttribute))
                     {
-                        if (attrData.IsTargetAttribute(m.ContainingAssembly, AttributeDescription.AssemblyKeyFileAttribute))
-                        {
-                            haveAttribute = true;
-                            break;
-                        }
+                        haveAttribute = true;
+                        break;
                     }
+                }
 
-                    Assert.True(haveAttribute);
-                }, emitOptions: TestEmitters.CCI);
+                Assert.True(haveAttribute);
+            });
         }
 
         [Fact]
@@ -206,7 +206,7 @@ public class Test
                 }
 
                 Assert.True(haveAttribute);
-            }, emitOptions: TestEmitters.CCI);
+            });
         }
 
         [Fact]
@@ -255,7 +255,7 @@ public class Test
             var other = CreateCompilationWithMscorlib(s,
                 options: TestOptions.ReleaseDll.WithCryptoKeyFile(s_publicKeyFile).WithDelaySign(true).WithStrongNameProvider(s_defaultProvider));
             other.VerifyDiagnostics();
-            Assert.True(ByteSequenceComparer.Equals(TestResources.SymbolsTests.General.snPublicKey.AsImmutableOrNull(), other.Assembly.Identity.PublicKey));
+            Assert.True(ByteSequenceComparer.Equals(TestResources.General.snPublicKey.AsImmutableOrNull(), other.Assembly.Identity.PublicKey));
         }
 
         [Fact]
@@ -425,7 +425,7 @@ public class C {}
             string source = @"public class C {}";
 
             var c = CreateCompilationWithMscorlib(source, options: TestOptions.ReleaseDll.
-                WithCryptoPublicKey(ImmutableArray.Create<byte>(1,2,3)).
+                WithCryptoPublicKey(ImmutableArray.Create<byte>(1, 2, 3)).
                 WithCryptoKeyContainer("roslynTestContainer").
                 WithCryptoKeyFile("file.snk").
                 WithStrongNameProvider(s_defaultProvider));
@@ -646,7 +646,8 @@ public class A
                 options: TestOptions.ReleaseDll.WithStrongNameProvider(s_defaultProvider));
 
             Assert.True(ByteSequenceComparer.Equals(s_publicKey, requestor.Assembly.Identity.PublicKey));
-            requestor.VerifyDiagnostics(Diagnostic(ErrorCode.ERR_FriendRefSigningMismatch, null, new object[] { "Paul, Version=0.0.0.0, Culture=neutral, PublicKeyToken=null" }));
+            requestor.VerifyDiagnostics(
+                Diagnostic(ErrorCode.ERR_FriendRefSigningMismatch, arguments: new object[] { "Paul, Version=0.0.0.0, Culture=neutral, PublicKeyToken=null" }));
         }
 
         [Fact]
@@ -674,7 +675,7 @@ public class A
               options: TestOptions.ReleaseDll.WithStrongNameProvider(s_defaultProvider));
 
             Assert.True(ByteSequenceComparer.Equals(s_publicKey, requestor.Assembly.Identity.PublicKey));
-            requestor.VerifyDiagnostics(Diagnostic(ErrorCode.ERR_FriendRefNotEqualToThis, null, new object[] { "Paul, Version=0.0.0.0, Culture=neutral, PublicKeyToken=ce65828c82a341f2" }));
+            requestor.VerifyDiagnostics(Diagnostic(ErrorCode.ERR_FriendRefNotEqualToThis, arguments: new object[] { "Paul, Version=0.0.0.0, Culture=neutral, PublicKeyToken=ce65828c82a341f2" }));
         }
 
         [Fact]
@@ -730,7 +731,7 @@ public class A
                 assemblyName: "John");
 
             Assert.False(((IAssemblySymbol)other.Assembly).GivesAccessTo(requestor.Assembly));
-            requestor.VerifyDiagnostics(Diagnostic(ErrorCode.ERR_FriendRefNotEqualToThis, null, new object[] { "Paul, Version=0.0.0.0, Culture=neutral, PublicKeyToken=ce65828c82a341f2" }));
+            requestor.VerifyDiagnostics(Diagnostic(ErrorCode.ERR_FriendRefNotEqualToThis, arguments: new object[] { "Paul, Version=0.0.0.0, Culture=neutral, PublicKeyToken=ce65828c82a341f2" }));
         }
 
         [WorkItem(820450, "DevDiv")]
@@ -851,7 +852,7 @@ public class C
                 var flags = metadata.Module.PEReaderOpt.PEHeaders.CorHeader.Flags;
                 //confirm file does not claim to be signed
                 Assert.Equal(0, (int)(flags & CorFlags.StrongNameSigned));
-                Handle token = metadata.Module.GetTypeRef(metadata.Module.GetAssemblyRef("mscorlib"), "System.Runtime.CompilerServices", "AssemblyAttributesGoHere");
+                EntityHandle token = metadata.Module.GetTypeRef(metadata.Module.GetAssemblyRef("mscorlib"), "System.Runtime.CompilerServices", "AssemblyAttributesGoHere");
                 Assert.False(token.IsNil);   //could the type ref be located? If not then the attribute's not there.
                 var attrInfos = metadata.Module.FindTargetAttributes(token, expectedModuleAttr);
                 Assert.Equal(1, attrInfos.Count());
@@ -861,7 +862,7 @@ public class Z
 {
 }";
 
-                //now that the module checks out, ensure that adding it to a compilation outputing a dll
+                //now that the module checks out, ensure that adding it to a compilation outputting a dll
                 //results in a signed assembly.
                 var assemblyComp = CreateCompilationWithMscorlib(source,
                     new[] { metadata.GetReference() },
@@ -1292,7 +1293,7 @@ public class C : B
             comp3.VerifyDiagnostics();
 
             // Note: calls B.M, not A.M, since asm1 is not accessible.
-            var verifier = CompileAndVerify(comp3, emitOptions: TestEmitters.CCI);
+            var verifier = CompileAndVerify(comp3);
 
             verifier.VerifyIL("C.Test", @"
 {
@@ -1414,7 +1415,7 @@ public class D : C
 
             // Note: calls C.M, not A.M, since asm2 is not accessible (stops search).
             // Confirmed in Dev11.
-            var verifier = CompileAndVerify(comp4, emitOptions: TestEmitters.CCI);
+            var verifier = CompileAndVerify(comp4);
 
             verifier.VerifyIL("D.Test", @"
 {
@@ -1604,11 +1605,9 @@ public class C
 }
 ", options: TestOptions.ReleaseDll.WithCryptoKeyFile(s_keyPairFile).WithStrongNameProvider(s_defaultProvider));
 
-            CompileAndVerify(other.WithReferences(new[] { other.References.ElementAt(0), new CSharpCompilationReference(unsigned) }),
-                             emitOptions: TestEmitters.CCI).VerifyDiagnostics();
+            CompileAndVerify(other.WithReferences(new[] { other.References.ElementAt(0), new CSharpCompilationReference(unsigned) })).VerifyDiagnostics();
 
-            CompileAndVerify(other.WithReferences(new[] { other.References.ElementAt(0), MetadataReference.CreateFromStream(unsigned.EmitToStream()) }),
-                             emitOptions: TestEmitters.CCI).VerifyDiagnostics();
+            CompileAndVerify(other.WithReferences(new[] { other.References.ElementAt(0), MetadataReference.CreateFromStream(unsigned.EmitToStream()) })).VerifyDiagnostics();
         }
 
         [Fact]
@@ -1927,7 +1926,7 @@ class B
             CompileAndVerify(ca);
 
             var cb = CreateCompilationWithMscorlib(sourceB, options: TestOptions.ReleaseExe, assemblyName: "X", references: new[] { new CSharpCompilationReference(ca) });
-            CompileAndVerify(cb, expectedOutput: "42", emitOptions: TestEmitters.CCI).Diagnostics.Verify();
+            CompileAndVerify(cb, expectedOutput: "42").Diagnostics.Verify();
         }
 
         [Fact, WorkItem(1072339, "DevDiv")]
@@ -1953,7 +1952,7 @@ class B
             CompileAndVerify(ca);
 
             var cb = CreateCompilationWithMscorlib(sourceB, options: TestOptions.ReleaseExe, assemblyName: "X", references: new[] { new CSharpCompilationReference(ca) });
-            CompileAndVerify(cb, expectedOutput: "42", emitOptions: TestEmitters.CCI).Diagnostics.Verify();
+            CompileAndVerify(cb, expectedOutput: "42").Diagnostics.Verify();
         }
 
         [Fact, WorkItem(1095618, "DevDiv")]

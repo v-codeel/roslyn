@@ -76,6 +76,8 @@ namespace Microsoft.CodeAnalysis.CSharp.Syntax.InternalSyntax
         private DirectiveStack _directives;
         private readonly LexerCache _cache;
         private readonly bool _allowPreprocessorDirectives;
+        private DocumentationCommentParser _xmlParser;
+        private int _badTokenCount; // cumulative count of bad tokens produced
 
         internal struct TokenInfo
         {
@@ -255,10 +257,9 @@ namespace Microsoft.CodeAnalysis.CSharp.Syntax.InternalSyntax
                     return this.LexXmlCrefOrNameToken();
                 case LexerMode.XmlCharacter:
                     return this.LexXmlCharacter();
+                default:
+                    throw ExceptionUtilities.UnexpectedValue(ModeOf(_mode));
             }
-
-            Debug.Assert(false, "Unknown LexMode passed to Lexer.Lex");
-            return this.LexSyntaxToken();
         }
 
         private SyntaxListBuilder _leadingTriviaCache = new SyntaxListBuilder(10);
@@ -674,12 +675,6 @@ namespace Microsoft.CodeAnalysis.CSharp.Syntax.InternalSyntax
                     break;
 
                 case '<':
-                    if (this.ModeIs(LexerMode.DebuggerSyntax) && TextWindow.PeekChar(1) == '>')
-                    {
-                        // For "<>f_AnonymousType", which is an identifier in DebuggerSyntax mode
-                        goto case 'a';
-                    }
-
                     TextWindow.AdvanceChar();
                     if (TextWindow.PeekChar() == '=')
                     {
@@ -688,13 +683,6 @@ namespace Microsoft.CodeAnalysis.CSharp.Syntax.InternalSyntax
                     }
                     else if (TextWindow.PeekChar() == '<')
                     {
-                        if (this.ModeIs(LexerMode.DebuggerSyntax) && TextWindow.PeekChar(1) == '>')
-                        {
-                            // For "GenericOf<<>f__AnonymousType>"
-                            info.Kind = SyntaxKind.LessThanToken;
-                            break;
-                        }
-
                         TextWindow.AdvanceChar();
                         if (TextWindow.PeekChar() == '=')
                         {
@@ -883,7 +871,19 @@ namespace Microsoft.CodeAnalysis.CSharp.Syntax.InternalSyntax
                         TextWindow.AdvanceChar();
                     }
 
-                    info.Text = TextWindow.GetText(intern: true);
+                    if (_badTokenCount++ > 200)
+                    {
+                        // If we get too many characters that we cannot make sense of, absorb the rest of the input.
+                        int position = TextWindow.Position - 1;
+                        int end = TextWindow.Text.Length;
+                        int width = end - position;
+                        info.Text = TextWindow.Text.ToString(new TextSpan(position, width));
+                        TextWindow.Reset(end);
+                    }
+                    else
+                    {
+                        info.Text = TextWindow.GetText(intern: true);
+                    }
 
                     this.AddError(ErrorCode.ERR_UnexpectedCharacter, info.Text);
                     break;
@@ -892,6 +892,15 @@ namespace Microsoft.CodeAnalysis.CSharp.Syntax.InternalSyntax
 
         private void CheckFeatureAvailability(MessageID feature)
         {
+            if (feature.RequiredFeature() != null)
+            {
+                if (!this.Options.IsFeatureEnabled(feature))
+                {
+                    this.AddError(ErrorCode.ERR_FeatureIsExperimental, feature.Localize());
+                }
+                return;
+            }
+
             LanguageVersion availableVersion = this.Options.LanguageVersion;
             var requiredVersion = feature.RequiredVersion();
             if (availableVersion >= requiredVersion) return;
@@ -1347,7 +1356,7 @@ namespace Microsoft.CodeAnalysis.CSharp.Syntax.InternalSyntax
         // and max positions and use those for quick checks internally.
         //
         // Note: it is critical that this method must only be called from a 
-        // codepath that checked for IsIdentifierStartChar or '@' first. 
+        // code path that checked for IsIdentifierStartChar or '@' first. 
         private bool ScanIdentifier_FastPath(ref TokenInfo info)
         {
             if ((_mode & LexerMode.MaskLexMode) == LexerMode.DebuggerSyntax)
@@ -1685,7 +1694,7 @@ namespace Microsoft.CodeAnalysis.CSharp.Syntax.InternalSyntax
                             else if (_identLen > 0 && ch > 127 && SyntaxFacts.IsIdentifierPartCharacter(ch))
                             {
                                 //// BUG 424819 : Handle identifier chars > 0xFFFF via surrogate pairs
-                                if (SyntaxFacts.IsFormattingChar(ch))
+                                if (UnicodeCharacterUtilities.IsFormattingChar(ch))
                                 {
                                     if (isEscaped)
                                     {
@@ -1973,7 +1982,7 @@ namespace Microsoft.CodeAnalysis.CSharp.Syntax.InternalSyntax
                             else if (_identLen > 0 && consumedChar > 127 && SyntaxFacts.IsIdentifierPartCharacter(consumedChar))
                             {
                                 //// BUG 424819 : Handle identifier chars > 0xFFFF via surrogate pairs
-                                if (SyntaxFacts.IsFormattingChar(consumedChar))
+                                if (UnicodeCharacterUtilities.IsFormattingChar(consumedChar))
                                 {
                                     continue; // Ignore formatting characters
                                 }
@@ -2001,7 +2010,7 @@ namespace Microsoft.CodeAnalysis.CSharp.Syntax.InternalSyntax
             {
                 // NOTE: If we don't intern the string value, then we won't get a hit
                 // in the keyword dictionary!  (It searches for a key using identity.)
-                // The text does not have to be interned (and probalbly shouldn't be
+                // The text does not have to be interned (and probably shouldn't be
                 // if it contains entities (else-case).
 
                 var width = TextWindow.Width; // exact size of input characters
@@ -2186,7 +2195,16 @@ namespace Microsoft.CodeAnalysis.CSharp.Syntax.InternalSyntax
                     case '#':
                         if (_allowPreprocessorDirectives)
                         {
-                            this.LexDirectiveAndExcludedTrivia(afterFirstToken, isTrailing || !onlyWhitespaceOnLine, ref triviaList);
+                            if (_options.Kind == SourceCodeKind.Script && TextWindow.Position == 0 && TextWindow.PeekChar(1) == '!')
+                            {
+                                // #! single line comment
+                                this.AddTrivia(this.LexSingleLineComment(), ref triviaList);
+                            }
+                            else
+                            {
+                                this.LexDirectiveAndExcludedTrivia(afterFirstToken, isTrailing || !onlyWhitespaceOnLine, ref triviaList);
+                            }
+
                             break;
                         }
                         else
@@ -2708,9 +2726,7 @@ namespace Microsoft.CodeAnalysis.CSharp.Syntax.InternalSyntax
                     if (TextWindow.PeekChar(1) == '/')
                     {
                         // normal single line comment
-                        this.ScanToEndOfLine();
-                        var text = TextWindow.GetText(false);
-                        trivia = SyntaxFactory.Comment(text);
+                        trivia = LexSingleLineComment();
                     }
 
                     break;
@@ -2742,7 +2758,12 @@ namespace Microsoft.CodeAnalysis.CSharp.Syntax.InternalSyntax
             return trivia;
         }
 
-        private DocumentationCommentParser _xmlParser;
+        private CSharpSyntaxNode LexSingleLineComment()
+        {
+            this.ScanToEndOfLine();
+            var text = TextWindow.GetText(false);
+            return SyntaxFactory.Comment(text);
+        }
 
         private CSharpSyntaxNode LexXmlDocComment(XmlDocCommentStyle style)
         {

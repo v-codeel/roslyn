@@ -113,7 +113,7 @@ NewLines("Imports System \n Imports System.Collections.Generic \n Interface IInt
         End Sub
 
         <Fact, WorkItem(6623, "DevDiv_Projects/Roslyn"), Trait(Traits.Feature, Traits.Features.CodeActionsImplementInterface)>
-        Public Sub TestImplementGenericTypeWithGenericMethodWithUnexpressableConstraint()
+        Public Sub TestImplementGenericTypeWithGenericMethodWithUnexpressibleConstraint()
             Test(
 NewLines("Interface IInterface1(Of T) \n Sub Method1(Of U As T)(arg As T, arg1 As U) \n End Interface \n Class [Class] \n Implements [|IInterface1(Of Integer)|] \n End Class "),
 NewLines("Imports System \n Interface IInterface1(Of T) \n Sub Method1(Of U As T)(arg As T, arg1 As U) \n End Interface \n Class [Class] \n Implements IInterface1(Of Integer) \n Public Sub Method1(Of U As Integer)(arg As Integer, arg1 As U) Implements IInterface1(Of Integer).Method1 \n Throw New NotImplementedException() \n End Sub \n End Class "))
@@ -131,6 +131,48 @@ NewLines("Imports System \n Interface I \n Sub M() \n End Interface \n Class C \
             Test(
 NewLines("Interface I \n Sub M() \n End Interface \n Class C \n Implements [|I|] \n Private x As I \n End Class"),
 NewLines("Interface I \n Sub M() \n End Interface \n Class C \n Implements I \n Private x As I \n Public Sub M() Implements I.M \n x.M() \n End Sub \n End Class"),
+index:=1)
+        End Sub
+
+        <WorkItem(472, "https://github.com/dotnet/roslyn/issues/472")>
+        <Fact, Trait(Traits.Feature, Traits.Features.CodeActionsImplementInterface)>
+        Public Sub TestImplementThroughFieldMemberRemoveUnnecessaryCast()
+            Test(
+"Imports System.Collections
+
+NotInheritable Class X : Implements [|IComparer|]
+    Private x As X
+End Class",
+"Imports System.Collections
+
+NotInheritable Class X : Implements IComparer
+    Private x As X
+
+    Public Function Compare(x As Object, y As Object) As Integer Implements IComparer.Compare
+        Return Me.x.Compare(x, y)
+    End Function
+End Class",
+index:=1)
+        End Sub
+
+        <WorkItem(472, "https://github.com/dotnet/roslyn/issues/472")>
+        <Fact, Trait(Traits.Feature, Traits.Features.CodeActionsImplementInterface)>
+        Public Sub TestImplementThroughFieldMemberRemoveUnnecessaryCastAndMe()
+            Test(
+"Imports System.Collections
+
+NotInheritable Class X : Implements [|IComparer|]
+    Private a As X
+End Class",
+"Imports System.Collections
+
+NotInheritable Class X : Implements IComparer
+    Private a As X
+
+    Public Function Compare(x As Object, y As Object) As Integer Implements IComparer.Compare
+        Return a.Compare(x, y)
+    End Function
+End Class",
 index:=1)
         End Sub
 
@@ -851,6 +893,67 @@ Class C
     Implements [|I|]
 End Class]]></Text>.Value.Replace(vbLf, vbCrLf),
 <Text><![CDATA[Imports System
+
+Enum E
+    A = 1
+    B = 2
+End Enum
+
+<FlagsAttribute>
+Enum FlagE
+    A = 1
+    B = 2
+End Enum
+
+Interface I
+    Sub M1(Optional e As E = E.A Or E.B)
+    Sub M2(Optional e As FlagE = FlagE.A Or FlagE.B)
+End Interface
+
+Class C
+    Implements I
+
+    Public Sub M1(Optional e As E = 3) Implements I.M1
+        Throw New NotImplementedException()
+    End Sub
+
+    Public Sub M2(Optional e As FlagE = FlagE.A Or FlagE.B) Implements I.M2
+        Throw New NotImplementedException()
+    End Sub
+End Class]]></Text>.Value.Replace(vbLf, vbCrLf),
+compareTokens:=False)
+        End Sub
+
+        <WorkItem(715013)>
+        <Fact(), Trait(Traits.Feature, Traits.Features.CodeActionsImplementInterface)>
+        Public Sub TestEnumParameters2()
+            Test(
+<Text><![CDATA[
+Option Strict On
+Imports System
+
+Enum E
+    A = 1
+    B = 2
+End Enum
+
+<FlagsAttribute>
+Enum FlagE
+    A = 1
+    B = 2
+End Enum
+
+Interface I
+    Sub M1(Optional e As E = E.A Or E.B)
+    Sub M2(Optional e As FlagE = FlagE.A Or FlagE.B)
+End Interface
+
+Class C
+    Implements [|I|]
+End Class]]></Text>.Value.Replace(vbLf, vbCrLf),
+<Text><![CDATA[
+Option Strict On
+Imports System
 
 Enum E
     A = 1
@@ -2024,5 +2127,45 @@ End Interface", index:=1, compareTokens:=False)
 
             Return code
         End Function
+
+        <WorkItem(1132014)>
+        <Fact, Trait(Traits.Feature, Traits.Features.CodeActionsImplementInterface)>
+        Public Sub TestInaccessibleAttributes()
+            Test(
+"Imports System
+
+Public Class Foo
+    Implements [|Holder.SomeInterface|]
+End Class
+
+Public Class Holder
+	Public Interface SomeInterface
+		Sub Something(<SomeAttribute> helloWorld As String)
+	End Interface
+
+	Private Class SomeAttribute
+		Inherits Attribute
+	End Class
+End Class",
+"Imports System
+
+Public Class Foo
+    Implements Holder.SomeInterface
+
+    Public Sub Something(helloWorld As String) Implements Holder.SomeInterface.Something
+        Throw New NotImplementedException()
+    End Sub
+End Class
+
+Public Class Holder
+	Public Interface SomeInterface
+		Sub Something(<SomeAttribute> helloWorld As String)
+	End Interface
+
+	Private Class SomeAttribute
+		Inherits Attribute
+	End Class
+End Class", compareTokens:=False)
+        End Sub
     End Class
 End Namespace

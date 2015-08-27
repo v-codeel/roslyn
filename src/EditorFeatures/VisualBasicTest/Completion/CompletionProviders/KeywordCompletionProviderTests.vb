@@ -1,19 +1,19 @@
 ' Copyright (c) Microsoft.  All Rights Reserved.  Licensed under the Apache License, Version 2.0.  See License.txt in the project root for license information.
 
-Imports Microsoft.CodeAnalysis.Completion.Providers
+Imports Microsoft.CodeAnalysis.Completion
 Imports Microsoft.CodeAnalysis.VisualBasic.Completion.Providers
 
 Namespace Microsoft.CodeAnalysis.Editor.VisualBasic.UnitTests.Completion.CompletionProviders
     Public Class KeywordCompletionProviderTests
         Inherits AbstractVisualBasicCompletionProviderTests
 
-        Friend Overrides Function CreateCompletionProvider() As ICompletionProvider
+        Friend Overrides Function CreateCompletionProvider() As CompletionListProvider
             Return New KeywordCompletionProvider()
         End Function
 
         <Fact(), Trait(Traits.Feature, Traits.Features.KeywordRecommending)>
         Public Sub IsCommitCharacterTest()
-            TestCommonIsCommitCharacter()
+            VerifyCommonCommitCharacters("$$", textTypedSoFar:="")
         End Sub
 
         <Fact(), Trait(Traits.Feature, Traits.Features.KeywordRecommending)>
@@ -25,9 +25,8 @@ Namespace Microsoft.CodeAnalysis.Editor.VisualBasic.UnitTests.Completion.Complet
 
         <Fact(), Trait(Traits.Feature, Traits.Features.KeywordRecommending)>
         Public Sub SendEnterThroughToEditorTest()
-            TestCommonSendEnterThroughToEditor()
+            VerifySendEnterThroughToEditor("$$", "Class", expected:=True)
         End Sub
-
 
         <Fact(), Trait(Traits.Feature, Traits.Features.KeywordRecommending)>
         Public Sub InEmptyFile()
@@ -117,6 +116,80 @@ End Class]]>
 
             VerifyItemInLinkedFiles(markup, "Public", Nothing)
             VerifyItemInLinkedFiles(markup, "For", Nothing)
+        End Sub
+
+        <WorkItem(1736, "https://github.com/dotnet/roslyn/issues/1736")>
+        <Fact(), Trait(Traits.Feature, Traits.Features.KeywordRecommending)>
+        Public Sub NotInInteger()
+            Dim code = <Text>
+Class C
+    Sub Main(args As String())
+        dim c = 2$$00
+    End Sub
+End Class
+</Text>.Value
+
+            VerifyNoItemsExist(code)
+        End Sub
+
+        <WorkItem(1736, "https://github.com/dotnet/roslyn/issues/1736")>
+        <Fact(), Trait(Traits.Feature, Traits.Features.KeywordRecommending)>
+        Public Sub NotInDecimal()
+            Dim code = <Text>
+Class C
+    Sub Main(args As String())
+        dim c = 2$$.00D
+    End Sub
+End Class
+</Text>.Value
+
+            VerifyNoItemsExist(code)
+        End Sub
+
+        <WorkItem(1736, "https://github.com/dotnet/roslyn/issues/1736")>
+        <Fact(), Trait(Traits.Feature, Traits.Features.KeywordRecommending)>
+        Public Sub NotInFloat()
+            Dim code = <Text>
+Class C
+    Sub Main(args As String())
+        dim c = 2$$.00
+    End Sub
+End Class
+</Text>.Value
+
+            VerifyNoItemsExist(code)
+        End Sub
+
+        <WorkItem(1736, "https://github.com/dotnet/roslyn/issues/1736")>
+        <Fact(), Trait(Traits.Feature, Traits.Features.KeywordRecommending)>
+        Public Sub NotInDate()
+            Dim code = <Text>
+Class C
+    Sub Main(args As String())
+        dim c = #4/2$$/2015
+    End Sub
+End Class
+</Text>.Value
+
+            VerifyNoItemsExist(code)
+        End Sub
+
+        <WorkItem(4167, "https://github.com/dotnet/roslyn/issues/4167")>
+        <Fact(), Trait(Traits.Feature, Traits.Features.KeywordRecommending)>
+        Public Sub ImplementsAfterSub()
+            Dim code = "
+Interface I
+End Interface
+
+Class C
+    Implements I
+
+    Sub M() $$
+    End Sub
+End Class
+"
+
+            VerifyItemExists(code, "Implements")
         End Sub
     End Class
 End Namespace

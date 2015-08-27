@@ -147,7 +147,7 @@ Namespace Microsoft.CodeAnalysis.Editor.VisualBasic.LineCommit
             End If
 
             formattingInfo.UseSemantics = True
-            Dim tree = document.GetVisualBasicSyntaxTreeAsync(cancellationToken).WaitAndGetResult(cancellationToken)
+            Dim tree = document.GetSyntaxTreeAsync(cancellationToken).WaitAndGetResult(cancellationToken)
 
             ' No matter what, we will always include the dirty span
             Dim finalSpanStart = dirtySpan.Start.Position
@@ -200,7 +200,7 @@ Namespace Microsoft.CodeAnalysis.Editor.VisualBasic.LineCommit
                 Return False
             End If
 
-            Dim tree = document.GetVisualBasicSyntaxTreeAsync(cancellationToken).WaitAndGetResult(cancellationToken)
+            Dim tree = document.GetSyntaxTreeAsync(cancellationToken).WaitAndGetResult(cancellationToken)
 
             Dim oldStatement = ContainingStatementInfo.GetInfo(oldPoint, tree, cancellationToken)
             Dim newStatement = ContainingStatementInfo.GetInfo(newPoint, tree, cancellationToken)
@@ -224,7 +224,7 @@ Namespace Microsoft.CodeAnalysis.Editor.VisualBasic.LineCommit
                 If documentBeforePreviousEdit IsNot Nothing Then
                     _documentBeforePreviousEdit = documentBeforePreviousEdit
                     ' Kick off a task to eagerly force compute InternalsVisibleTo semantics for all the references.
-                    ' This provides a noticable perf improvement when code cleanup is subsequently invoked on this document.
+                    ' This provides a noticeable perf improvement when code cleanup is subsequently invoked on this document.
                     Task.Run(Async Function()
                                  Await ForceComputeInternalsVisibleToAsync(documentBeforePreviousEdit, CancellationToken.None).ConfigureAwait(False)
                              End Function)

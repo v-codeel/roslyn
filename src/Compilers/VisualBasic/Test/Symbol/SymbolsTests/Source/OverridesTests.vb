@@ -1296,7 +1296,7 @@ Module Test
 End Module
     </file>
     </compilation>, {csharpRef}, TestOptions.ReleaseExe)
-            CompileAndVerify(vbComp, emitOptions:=TestEmitters.CCI, expectedOutput:=<![CDATA[
+            CompileAndVerify(vbComp, expectedOutput:=<![CDATA[
 D1.P.set
 D1.P.get
 D2.P.set
@@ -1493,7 +1493,7 @@ Module Test
 End Module
     </file>
     </compilation>, {csharpRef}, TestOptions.ReleaseExe)
-            CompileAndVerify(vbComp, emitOptions:=TestEmitters.CCI, expectedOutput:=<![CDATA[
+            CompileAndVerify(vbComp, expectedOutput:=<![CDATA[
 D1.P.set
 D1.P.get
 D2.P.set
@@ -2560,7 +2560,7 @@ End Class     ]]></file>
 
         <WorkItem(608228, "DevDiv")>
         <Fact>
-        Sub OverridePropertyWithByRefParameter()
+        Public Sub OverridePropertyWithByRefParameter()
             Dim il = <![CDATA[
 .class public auto ansi Base
        extends [mscorlib]System.Object
@@ -2749,9 +2749,9 @@ End Class
                     </file>
                 </compilation>
 
-            ' Native compiler doesn't produce any error, but neither method is considered overriden by the runtime.
+            ' Native compiler doesn't produce any error, but neither method is considered overridden by the runtime.
             Dim reference As MetadataReference = Nothing
-            Using tempAssembly = SharedCompilationUtils.IlasmTempAssembly(ilSource)
+            Using tempAssembly = IlasmUtilities.CreateTempAssembly(ilSource)
                 reference = MetadataReference.CreateFromImage(ReadFromFile(tempAssembly.Path))
             End Using
 
@@ -3077,9 +3077,9 @@ End Class
                     </file>
                 </compilation>
 
-            ' Native compiler doesn't produce any error, but neither method is considered overriden by the runtime.
+            ' Native compiler doesn't produce any error, but neither method is considered overridden by the runtime.
             Dim reference As MetadataReference = Nothing
-            Using tempAssembly = SharedCompilationUtils.IlasmTempAssembly(ilSource)
+            Using tempAssembly = IlasmUtilities.CreateTempAssembly(ilSource)
                 reference = MetadataReference.CreateFromImage(ReadFromFile(tempAssembly.Path))
             End Using
 
@@ -3179,9 +3179,9 @@ End Class
                     </file>
                 </compilation>
 
-            ' Native compiler doesn't produce any error, but neither method is considered overriden by the runtime.
+            ' Native compiler doesn't produce any error, but neither method is considered overridden by the runtime.
             Dim reference As MetadataReference = Nothing
-            Using tempAssembly = SharedCompilationUtils.IlasmTempAssembly(ilSource)
+            Using tempAssembly = IlasmUtilities.CreateTempAssembly(ilSource)
                 reference = MetadataReference.CreateFromImage(ReadFromFile(tempAssembly.Path))
             End Using
 
@@ -3442,9 +3442,9 @@ End Class
                     </file>
                 </compilation>
 
-            ' Native compiler doesn't produce any error, but neither method is considered overriden by the runtime.
+            ' Native compiler doesn't produce any error, but neither method is considered overridden by the runtime.
             Dim reference As MetadataReference = Nothing
-            Using tempAssembly = SharedCompilationUtils.IlasmTempAssembly(ilSource)
+            Using tempAssembly = IlasmUtilities.CreateTempAssembly(ilSource)
                 reference = MetadataReference.CreateFromImage(ReadFromFile(tempAssembly.Path))
             End Using
 
@@ -3556,9 +3556,9 @@ End Class
                     </file>
                 </compilation>
 
-            ' Native compiler doesn't produce any error, but neither method is considered overriden by the runtime.
+            ' Native compiler doesn't produce any error, but neither method is considered overridden by the runtime.
             Dim reference As MetadataReference = Nothing
-            Using tempAssembly = SharedCompilationUtils.IlasmTempAssembly(ilSource)
+            Using tempAssembly = IlasmUtilities.CreateTempAssembly(ilSource)
                 reference = MetadataReference.CreateFromImage(ReadFromFile(tempAssembly.Path))
             End Using
 
@@ -3668,7 +3668,7 @@ End Class
                 </compilation>
 
             Dim reference As MetadataReference = Nothing
-            Using tempAssembly = SharedCompilationUtils.IlasmTempAssembly(ilSource)
+            Using tempAssembly = IlasmUtilities.CreateTempAssembly(ilSource)
                 reference = MetadataReference.CreateFromImage(ReadFromFile(tempAssembly.Path))
             End Using
 
@@ -3775,9 +3775,9 @@ End Class
                     </file>
                 </compilation>
 
-            ' Native compiler: no errors, nothing is overriden
+            ' Native compiler: no errors, nothing is overridden
             Dim reference As MetadataReference = Nothing
-            Using tempAssembly = SharedCompilationUtils.IlasmTempAssembly(ilSource)
+            Using tempAssembly = IlasmUtilities.CreateTempAssembly(ilSource)
                 reference = MetadataReference.CreateFromImage(ReadFromFile(tempAssembly.Path))
             End Using
 
@@ -3889,7 +3889,7 @@ End Class
             ' Base::M1_2
             ' Roslyn's behavior looks reasonable and it has nothing to do with custom modifiers.
             Dim reference As MetadataReference = Nothing
-            Using tempAssembly = SharedCompilationUtils.IlasmTempAssembly(ilSource)
+            Using tempAssembly = IlasmUtilities.CreateTempAssembly(ilSource)
                 reference = MetadataReference.CreateFromImage(ReadFromFile(tempAssembly.Path))
             End Using
 
@@ -3999,7 +3999,7 @@ End Class
                 </compilation>
 
             Dim reference As MetadataReference = Nothing
-            Using tempAssembly = SharedCompilationUtils.IlasmTempAssembly(ilSource)
+            Using tempAssembly = IlasmUtilities.CreateTempAssembly(ilSource)
                 reference = MetadataReference.CreateFromImage(ReadFromFile(tempAssembly.Path))
             End Using
 
@@ -4107,7 +4107,7 @@ End Class
                 </compilation>
 
             Dim reference As MetadataReference = Nothing
-            Using tempAssembly = SharedCompilationUtils.IlasmTempAssembly(ilSource)
+            Using tempAssembly = IlasmUtilities.CreateTempAssembly(ilSource)
                 reference = MetadataReference.CreateFromImage(ReadFromFile(tempAssembly.Path))
             End Using
 
@@ -4234,7 +4234,7 @@ End Class
                     </file>
                 </compilation>
 
-            Dim compilation = CompileWithCustomILSource(vbSource, ilSource, emitOptions:=TestEmitters.RefEmitBug, options:=TestOptions.ReleaseExe,
+            Dim compilation = CompileWithCustomILSource(vbSource, ilSource, options:=TestOptions.ReleaseExe,
                                                         expectedOutput:="Derived.M1" & vbCrLf & "Derived.M2" & vbCrLf & "Derived.M3" & vbCrLf &
                                                                         "Derived.M11" & vbCrLf & "Derived.M12" & vbCrLf & "Derived.M13" & vbCrLf &
                                                                         "Derived.M4")
@@ -4426,7 +4426,7 @@ End Class
             'Base.P1_set
             'Base.P2_get
             'Base.P2_set
-            Dim compilation = CompileWithCustomILSource(vbSource, ilSource, emitOptions:=TestEmitters.RefEmitBug, options:=TestOptions.ReleaseExe, expectedOutput:=
+            Dim compilation = CompileWithCustomILSource(vbSource, ilSource, options:=TestOptions.ReleaseExe, expectedOutput:=
 "Derived1.P1_get" & vbCrLf &
 "Derived1.P1_set" & vbCrLf &
 "Derived1.P2_get" & vbCrLf &
@@ -4615,7 +4615,7 @@ End Class
             'Base.P1_set
             'Base.P2_get
             'Base.P2_set
-            Dim compilation = CompileWithCustomILSource(vbSource, ilSource, emitOptions:=TestEmitters.RefEmitBug, options:=TestOptions.ReleaseExe, expectedOutput:=
+            Dim compilation = CompileWithCustomILSource(vbSource, ilSource, options:=TestOptions.ReleaseExe, expectedOutput:=
 "Derived1.P1_get" & vbCrLf &
 "Derived1.P1_set" & vbCrLf &
 "Derived1.P2_get" & vbCrLf &
@@ -4778,7 +4778,7 @@ End Class
             'Base.P2_set
 
             Dim reference As MetadataReference = Nothing
-            Using tempAssembly = SharedCompilationUtils.IlasmTempAssembly(ilSource)
+            Using tempAssembly = IlasmUtilities.CreateTempAssembly(ilSource)
                 reference = MetadataReference.CreateFromImage(ReadFromFile(tempAssembly.Path))
             End Using
 
@@ -4837,7 +4837,7 @@ End Class
             'Base.P1_set
             'Base.P2_get
             'Base.P2_set
-            Dim verifier = CompileWithCustomILSource(vbSource, ilSource, emitOptions:=TestEmitters.RefEmitBug, options:=TestOptions.ReleaseExe, expectedOutput:=
+            Dim verifier = CompileWithCustomILSource(vbSource, ilSource, options:=TestOptions.ReleaseExe, expectedOutput:=
 "Derived1.P1_get" & vbCrLf &
 "Derived1.P1_set" & vbCrLf &
 "Base.P2_get" & vbCrLf &
@@ -5000,7 +5000,7 @@ End Class
             'Base.P2_set
 
             Dim reference As MetadataReference = Nothing
-            Using tempAssembly = SharedCompilationUtils.IlasmTempAssembly(ilSource)
+            Using tempAssembly = IlasmUtilities.CreateTempAssembly(ilSource)
                 reference = MetadataReference.CreateFromImage(ReadFromFile(tempAssembly.Path))
             End Using
 
@@ -5161,7 +5161,7 @@ End Class
             'Derived.P2_set
 
             Dim reference As MetadataReference = Nothing
-            Using tempAssembly = SharedCompilationUtils.IlasmTempAssembly(ilSource)
+            Using tempAssembly = IlasmUtilities.CreateTempAssembly(ilSource)
                 reference = MetadataReference.CreateFromImage(ReadFromFile(tempAssembly.Path))
             End Using
 
@@ -5429,7 +5429,7 @@ End Class
             'Derived.P2_set
 
             Dim reference As MetadataReference = Nothing
-            Using tempAssembly = SharedCompilationUtils.IlasmTempAssembly(ilSource)
+            Using tempAssembly = IlasmUtilities.CreateTempAssembly(ilSource)
                 reference = MetadataReference.CreateFromImage(ReadFromFile(tempAssembly.Path))
             End Using
 
@@ -5695,7 +5695,7 @@ End Class
             'Base1.P1_set
             'Base1.P2_get
             'Base1.P2_set
-            Dim compilation = CompileWithCustomILSource(vbSource, ilSource, emitOptions:=TestEmitters.RefEmitBug, options:=TestOptions.ReleaseExe, expectedOutput:=
+            Dim compilation = CompileWithCustomILSource(vbSource, ilSource, options:=TestOptions.ReleaseExe, expectedOutput:=
 "Base2.P1_get" & vbCrLf &
 "Base2.P1_set" & vbCrLf &
 "Base2.P2_get" & vbCrLf &
@@ -5966,7 +5966,7 @@ End Class
             'Derived.P2_set
 
             Dim reference As MetadataReference = Nothing
-            Using tempAssembly = SharedCompilationUtils.IlasmTempAssembly(ilSource)
+            Using tempAssembly = IlasmUtilities.CreateTempAssembly(ilSource)
                 reference = MetadataReference.CreateFromImage(ReadFromFile(tempAssembly.Path))
             End Using
 
@@ -6095,7 +6095,7 @@ End Class
                     </file>
                 </compilation>
 
-            Dim compilation = CompileWithCustomILSource(vbSource, ilSource, emitOptions:=TestEmitters.RefEmitBug, options:=TestOptions.ReleaseExe, expectedOutput:="")
+            Dim compilation = CompileWithCustomILSource(vbSource, ilSource, options:=TestOptions.ReleaseExe, expectedOutput:="")
             compilation.VerifyDiagnostics()
 
             AssertOverridingProperty(compilation.Compilation)
@@ -6218,7 +6218,7 @@ End Class
                     </file>
                 </compilation>
 
-            Dim compilation = CompileWithCustomILSource(vbSource, ilSource, emitOptions:=TestEmitters.RefEmitBug, options:=TestOptions.ReleaseExe, expectedOutput:="")
+            Dim compilation = CompileWithCustomILSource(vbSource, ilSource, options:=TestOptions.ReleaseExe, expectedOutput:="")
             compilation.VerifyDiagnostics()
 
             AssertOverridingProperty(compilation.Compilation)
@@ -6341,7 +6341,7 @@ End Class
                     </file>
                 </compilation>
 
-            Dim compilation = CompileWithCustomILSource(vbSource, ilSource, emitOptions:=TestEmitters.RefEmitBug, options:=TestOptions.ReleaseExe, expectedOutput:="")
+            Dim compilation = CompileWithCustomILSource(vbSource, ilSource, options:=TestOptions.ReleaseExe, expectedOutput:="")
             compilation.VerifyDiagnostics()
 
             AssertOverridingProperty(compilation.Compilation)
@@ -6522,7 +6522,7 @@ End Class
             'Base.P1_set
             'Base.P2_get
             'Base.P2_set
-            Dim compilation = CompileWithCustomILSource(vbSource, ilSource, emitOptions:=TestEmitters.RefEmitBug, options:=TestOptions.ReleaseExe, expectedOutput:=
+            Dim compilation = CompileWithCustomILSource(vbSource, ilSource, options:=TestOptions.ReleaseExe, expectedOutput:=
 "Derived1.P1_get" & vbCrLf &
 "Derived1.P1_set" & vbCrLf &
 "Derived1.P2_get" & vbCrLf &
@@ -6711,7 +6711,7 @@ End Class
             'Base.P1_set
             'Base.P2_get
             'Base.P2_set
-            Dim compilation = CompileWithCustomILSource(vbSource, ilSource, emitOptions:=TestEmitters.RefEmitBug, options:=TestOptions.ReleaseExe, expectedOutput:=
+            Dim compilation = CompileWithCustomILSource(vbSource, ilSource, options:=TestOptions.ReleaseExe, expectedOutput:=
 "Derived1.P1_get" & vbCrLf &
 "Derived1.P1_set" & vbCrLf &
 "Derived1.P2_get" & vbCrLf &
@@ -6739,7 +6739,7 @@ End Class
                             For i As Integer = 0 To thisProperty.ParameterCount - 1
                                 Assert.True(overriddenProperty.Parameters(i).CustomModifiers.SequenceEqual(thisProperty.Parameters(i).CustomModifiers))
                                 Assert.Equal(overriddenProperty.Parameters(i).Type, thisProperty.Parameters(i).Type)
-                                Assert.Equal(overriddenProperty.Parameters(i).HasByRefBeforeCustomModifiers, thisProperty.Parameters(i).HasByRefBeforeCustomModifiers)
+                                Assert.Equal(overriddenProperty.Parameters(i).CountOfCustomModifiersPrecedingByRef, thisProperty.Parameters(i).CountOfCustomModifiersPrecedingByRef)
                             Next
                         End If
                     Next
@@ -6826,7 +6826,7 @@ BC31417: 'Friend Overrides Property Set r(Value As Object)' cannot override 'Fri
 
         <WorkItem(1067044, "DevDiv")>
         <Fact>
-        Sub Bug1067044()
+        Public Sub Bug1067044()
             Dim il = <![CDATA[
 .class public abstract auto ansi beforefieldinit C1
        extends [mscorlib]System.Object

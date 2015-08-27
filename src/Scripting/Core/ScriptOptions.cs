@@ -1,12 +1,11 @@
 // Copyright (c) Microsoft.  All Rights Reserved.  Licensed under the Apache License, Version 2.0.  See License.txt in the project root for license information.
 
-using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
-using System.IO;
 using System.Linq;
-using System.Runtime.InteropServices;
+using System.Reflection;
 using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.Collections;
 using Roslyn.Utilities;
 
 namespace Microsoft.CodeAnalysis.Scripting
@@ -14,20 +13,23 @@ namespace Microsoft.CodeAnalysis.Scripting
     /// <summary>
     /// Options for creating and running scripts.
     /// </summary>
-    public class ScriptOptions
+    public sealed class ScriptOptions
     {
         private readonly ImmutableArray<MetadataReference> _references;
         private readonly ImmutableArray<string> _namespaces;
         private readonly AssemblyReferenceResolver _referenceResolver;
-        private readonly bool _isCollectible;
         private readonly bool _isInteractive;
 
         public ScriptOptions()
             : this(ImmutableArray<MetadataReference>.Empty,
                   ImmutableArray<string>.Empty,
-                  new AssemblyReferenceResolver(GacFileResolver.Default, MetadataFileReferenceProvider.Default),
-                  isInteractive: true,
-                  isCollectible: false)
+                  new AssemblyReferenceResolver(
+                      new DesktopMetadataReferenceResolver(
+                          MetadataFileReferenceResolver.Default,
+                          null,
+                          GacFileResolver.Default),
+                      MetadataFileReferenceProvider.Default),
+                  isInteractive: true)
         {
         }
 
@@ -35,26 +37,20 @@ namespace Microsoft.CodeAnalysis.Scripting
 
         static ScriptOptions()
         {
-            var paths = ImmutableArray.Create(RuntimeEnvironment.GetRuntimeDirectory());
-
             Default = new ScriptOptions()
-                        .WithReferences(typeof(int).Assembly)
-                        .WithNamespaces("System")
-                        .WithSearchPaths(paths);
+                        .WithReferences(typeof(int).GetTypeInfo().Assembly);
         }
 
         private ScriptOptions(
             ImmutableArray<MetadataReference> references,
             ImmutableArray<string> namespaces,
             AssemblyReferenceResolver referenceResolver,
-            bool isInteractive,
-            bool isCollectible)
+            bool isInteractive)
         {
             _references = references;
             _namespaces = namespaces;
             _referenceResolver = referenceResolver;
             _isInteractive = isInteractive;
-            _isCollectible = isCollectible;
         }
 
         /// <summary>
@@ -117,35 +113,27 @@ namespace Microsoft.CodeAnalysis.Scripting
             get { return _isInteractive; }
         }
 
-        internal bool IsCollectible
-        {
-            get { return _isCollectible; }
-        }
-
         private ScriptOptions With(
             Optional<ImmutableArray<MetadataReference>> references = default(Optional<ImmutableArray<MetadataReference>>),
             Optional<ImmutableArray<string>> namespaces = default(Optional<ImmutableArray<string>>),
             Optional<AssemblyReferenceResolver> resolver = default(Optional<AssemblyReferenceResolver>),
-            Optional<bool> isInteractive = default(Optional<bool>),
-            Optional<bool> isCollectible = default(Optional<bool>))
+            Optional<bool> isInteractive = default(Optional<bool>))
         {
             var newReferences = references.HasValue ? references.Value : _references;
             var newNamespaces = namespaces.HasValue ? namespaces.Value : _namespaces;
             var newResolver = resolver.HasValue ? resolver.Value : _referenceResolver;
             var newIsInteractive = isInteractive.HasValue ? isInteractive.Value : _isInteractive;
-            var newIsCollectible = isCollectible.HasValue ? isCollectible.Value : _isCollectible;
 
             if (newReferences == _references &&
                 newNamespaces == _namespaces &&
                 newResolver == _referenceResolver &&
-                newIsInteractive == _isInteractive &&
-                newIsCollectible == _isCollectible)
+                newIsInteractive == _isInteractive)
             {
                 return this;
             }
             else
             {
-                return new ScriptOptions(newReferences, newNamespaces, newResolver, newIsInteractive, newIsCollectible);
+                return new ScriptOptions(newReferences, newNamespaces, newResolver, newIsInteractive);
             }
         }
 
@@ -184,7 +172,7 @@ namespace Microsoft.CodeAnalysis.Scripting
             }
             else
             {
-                return this.WithReferences(this.References.AddRange(references.Where(r => r != null && !this.References.Contains(r))));
+                return this.WithReferences(AddMissing(this.References, references));
             }
         }
 
@@ -207,7 +195,7 @@ namespace Microsoft.CodeAnalysis.Scripting
             }
             else
             {
-                return WithReferences(assemblies.Select(MetadataReference.CreateFromAssembly));
+                return WithReferences(assemblies.Select(MetadataReference.CreateFromAssemblyInternal));
             }
         }
 
@@ -230,7 +218,7 @@ namespace Microsoft.CodeAnalysis.Scripting
             }
             else
             {
-                return AddReferences(assemblies.Select(MetadataReference.CreateFromAssembly));
+                return AddReferences(assemblies.Select(MetadataReference.CreateFromAssemblyInternal));
             }
         }
 
@@ -335,7 +323,7 @@ namespace Microsoft.CodeAnalysis.Scripting
             }
             else
             {
-                return this.WithNamespaces(this.Namespaces.AddRange(namespaces.Where(n => n != null && !this.Namespaces.Contains(n))));
+                return this.WithNamespaces(AddMissing(this.Namespaces, namespaces));
             }
         }
 
@@ -359,25 +347,10 @@ namespace Microsoft.CodeAnalysis.Scripting
             else
             {
                 // TODO:
-                var gacResolver = _referenceResolver.PathResolver as GacFileResolver;
-                if (gacResolver != null)
-                {
-                    return With(resolver: new AssemblyReferenceResolver(
-                        new GacFileResolver(
-                            searchPaths,
-                            gacResolver.BaseDirectory,
-                            gacResolver.Architectures,
-                            gacResolver.PreferredCulture),
-                        _referenceResolver.Provider));
-                }
-                else
-                {
-                    return With(resolver: new AssemblyReferenceResolver(
-                        new MetadataFileReferenceResolver(
-                            searchPaths,
-                            _referenceResolver.PathResolver.BaseDirectory),
-                        _referenceResolver.Provider));
-                }
+                var resolver = new AssemblyReferenceResolver(
+                    _referenceResolver.PathResolver.WithSearchPaths(searchPaths.AsImmutableOrEmpty()),
+                    _referenceResolver.Provider);
+                return With(resolver: resolver);
             }
         }
 
@@ -408,7 +381,7 @@ namespace Microsoft.CodeAnalysis.Scripting
             }
             else
             {
-                return WithSearchPaths(this.SearchPaths.AddRange(searchPaths.Where(s => s != null && !this.SearchPaths.Contains(s))));
+                return WithSearchPaths(AddMissing(this.SearchPaths, searchPaths));
             }
         }
 
@@ -424,25 +397,10 @@ namespace Microsoft.CodeAnalysis.Scripting
             else
             {
                 // TODO:
-                var gacResolver = _referenceResolver.PathResolver as GacFileResolver;
-                if (gacResolver != null)
-                {
-                    return With(resolver: new AssemblyReferenceResolver(
-                        new GacFileResolver(
-                            _referenceResolver.PathResolver.SearchPaths,
-                            baseDirectory,
-                            gacResolver.Architectures,
-                            gacResolver.PreferredCulture),
-                        _referenceResolver.Provider));
-                }
-                else
-                {
-                    return With(resolver: new AssemblyReferenceResolver(
-                        new MetadataFileReferenceResolver(
-                            _referenceResolver.PathResolver.SearchPaths,
-                            baseDirectory),
-                        _referenceResolver.Provider));
-                }
+                var resolver = new AssemblyReferenceResolver(
+                    _referenceResolver.PathResolver.WithBaseDirectory(baseDirectory),
+                    _referenceResolver.Provider);
+                return With(resolver: resolver);
             }
         }
 
@@ -451,7 +409,7 @@ namespace Microsoft.CodeAnalysis.Scripting
         /// </summary>
         internal ScriptOptions WithReferenceResolver(MetadataFileReferenceResolver resolver)
         {
-            if (resolver == _referenceResolver.PathResolver)
+            if (resolver.Equals(_referenceResolver.PathResolver))
             {
                 return this;
             }
@@ -464,7 +422,7 @@ namespace Microsoft.CodeAnalysis.Scripting
         /// </summary>
         internal ScriptOptions WithReferenceProvider(MetadataFileReferenceProvider provider)
         {
-            if (provider == _referenceResolver.Provider)
+            if (provider.Equals(_referenceResolver.Provider))
             {
                 return this;
             }
@@ -481,9 +439,24 @@ namespace Microsoft.CodeAnalysis.Scripting
             return With(isInteractive: isInteractive);
         }
 
-        internal ScriptOptions WithIsCollectible(bool isCollectible)
+        private static ImmutableArray<T> AddMissing<T>(ImmutableArray<T> a, IEnumerable<T> b) where T : class
         {
-            return With(isCollectible: isCollectible);
+            var builder = ArrayBuilder<T>.GetInstance();
+            var set = PooledHashSet<T>.GetInstance();
+            foreach (var i in a)
+            {
+                set.Add(i);
+                builder.Add(i);
+            }
+            foreach (var i in b)
+            {
+                if ((i != null) && !set.Contains(i))
+                {
+                    builder.Add(i);
+                }
+            }
+            set.Free();
+            return builder.ToImmutableAndFree();
         }
     }
 }

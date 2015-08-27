@@ -191,7 +191,7 @@ Namespace Microsoft.CodeAnalysis.VisualBasic.Symbols
         ''' 
         ''' On the other hand it should be avoided that the method *always* goes through all
         ''' the dependencies for each symbol even though it may be definitely known that the symbol
-        ''' is added in one of the previous operatinos by *the same thread*. To serve this purpose 
+        ''' is added in one of the previous operations by *the same thread*. To serve this purpose 
         ''' the method uses 'allSymbols' collection to actually check whether or not the symbol 
         ''' is added to the collection. This makes possible to reuse the same collection in several 
         ''' consequent calls to AddReferencedSymbolWithDependents from the same thread; for example 
@@ -238,7 +238,7 @@ Namespace Microsoft.CodeAnalysis.VisualBasic.Symbols
                         Case MethodKind.Ordinary,
                              MethodKind.Constructor,
                              MethodKind.SharedConstructor
-                        ' OK
+                            ' OK
 
                         Case Else
                             Throw ExceptionUtilities.UnexpectedValue(methKind)
@@ -342,15 +342,15 @@ Namespace Microsoft.CodeAnalysis.VisualBasic.Symbols
                         ValidateMethod(DirectCast(member, MethodSymbol))
 
                     Case SymbolKind.NamedType
-                    ' Nested types are OK
+                        ' Nested types are OK
 
                     Case SymbolKind.Property
-                    ' Properties are OK if the accessors are OK, and accessors will be
-                    ' checked separately since those will also appear in GetMembers().
+                        ' Properties are OK if the accessors are OK, and accessors will be
+                        ' checked separately since those will also appear in GetMembers().
 
                     Case Else
                         ' No other symbol kinds are allowed
-                        Debug.Assert(False)
+                        Throw ExceptionUtilities.UnexpectedValue(member.Kind)
 
                 End Select
 

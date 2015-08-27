@@ -10,6 +10,7 @@ using Roslyn.Utilities;
 
 namespace Microsoft.CodeAnalysis
 {
+    using System.Reflection;
     using MetadataOrDiagnostic = System.Object;
 
     /// <summary>
@@ -122,7 +123,7 @@ namespace Microsoft.CodeAnalysis
         /// </summary>
         /// <param name="compilation">The compilation whose references are being resolved.</param>
         /// <param name="references">List where to store resolved references. References from #r directives will follow references passed to the compilation constructor.</param>
-        /// <param name="boundReferenceDirectiveMap">Maps #r values to successuflly resolved metadata references. Does not contain values that failed to resolve.</param>
+        /// <param name="boundReferenceDirectiveMap">Maps #r values to successfully resolved metadata references. Does not contain values that failed to resolve.</param>
         /// <param name="boundReferenceDirectives">Unique metadata references resolved from #r directives.</param>
         /// <param name="assemblies">List where to store information about resolved assemblies to.</param>
         /// <param name="modules">List where to store information about resolved modules to.</param>
@@ -146,7 +147,6 @@ namespace Microsoft.CodeAnalysis
             // References originating from #r directives precede references supplied as arguments of the compilation.
             int referenceCount = references.Length;
             int referenceDirectiveCount = (referenceDirectiveLocations != null ? referenceDirectiveLocations.Length : 0);
-            int externalReferenceCount = referenceCount - referenceDirectiveCount;
 
             var referenceMap = new ResolvedReference[referenceCount];
 
@@ -389,7 +389,7 @@ namespace Microsoft.CodeAnalysis
                 }
             }
 
-            Metadata newMetadata = null;
+            Metadata newMetadata;
             Diagnostic newDiagnostic = null;
             try
             {
@@ -617,7 +617,7 @@ namespace Microsoft.CodeAnalysis
             {
                 Debug.Assert(equivalent.Identity.IsStrongName);
 
-                // versions migth have been unified for a Framework assembly:
+                // versions might have been unified for a Framework assembly:
                 if (identity != equivalent.Identity)
                 {
                     // Dev12 C# reports an error
@@ -710,7 +710,7 @@ namespace Microsoft.CodeAnalysis
                 }
 
                 references = referencesBuilder.ToImmutable();
-                referenceDirectiveLocations = referenceDirectiveLocationsBuilder == null ? ImmutableArray<Location>.Empty : referenceDirectiveLocationsBuilder.ToImmutableAndFree();
+                referenceDirectiveLocations = referenceDirectiveLocationsBuilder?.ToImmutableAndFree() ?? ImmutableArray<Location>.Empty;
             }
             finally
             {
@@ -723,7 +723,7 @@ namespace Microsoft.CodeAnalysis
         /// <summary>
         /// For each given directive return a bound PE reference, or null if the binding fails.
         /// </summary>
-        private PortableExecutableReference ResolveReferenceDirective(string reference, Location location, TCompilation compilation)
+        private static PortableExecutableReference ResolveReferenceDirective(string reference, Location location, TCompilation compilation)
         {
             var tree = location.SourceTree;
             string basePath = (tree != null && tree.FilePath.Length > 0) ? tree.FilePath : null;
@@ -844,7 +844,33 @@ namespace Microsoft.CodeAnalysis
             {
                 for (int i = definitionOffset; i < definitions.Length; i++)
                 {
-                    if (IsWindowsRuntime(definitions[i]))
+                    if (definitions[i].Identity.IsWindowsRuntime())
+                    {
+                        return new AssemblyReferenceBinding(reference, i);
+                    }
+                }
+            }
+
+            // In the IDE it is possible the reference we're looking for is a
+            // compilation reference to a source assembly. However, if the reference
+            // is of ContentType WindowsRuntime then the compilation will never
+            // match since all C#/VB WindowsRuntime compilations output .winmdobjs,
+            // not .winmds, and the ContentType of a .winmdobj is Default.
+            // If this is the case, we want to ignore the ContentType mismatch and
+            // allow the compilation to match the reference.
+            if (reference.ContentType == AssemblyContentType.WindowsRuntime)
+            {
+                for (int i = definitionOffset; i < definitions.Length; i++)
+                {
+                    var definition = definitions[i].Identity;
+                    var sourceCompilation = definitions[i].SourceCompilation;
+                    if (definition.ContentType == AssemblyContentType.Default &&
+                        sourceCompilation?.Options.OutputKind == OutputKind.WindowsRuntimeMetadata &&
+                        AssemblyIdentityComparer.SimpleNameComparer.Equals(reference.Name, definition.Name) &&
+                        reference.Version.Equals(definition.Version) &&
+                        reference.IsRetargetable == definition.IsRetargetable &&
+                        AssemblyIdentityComparer.CultureComparer.Equals(reference.CultureName, definition.CultureName) &&
+                        AssemblyIdentity.KeysEqual(reference, definition))
                     {
                         return new AssemblyReferenceBinding(reference, i);
                     }
@@ -862,19 +888,6 @@ namespace Microsoft.CodeAnalysis
             }
 
             return new AssemblyReferenceBinding(reference);
-        }
-
-        private static bool IsWindowsRuntime(AssemblyData definition)
-        {
-            if (!definition.Identity.IsWindowsRuntime())
-            {
-                return false;
-            }
-            int majorVersion;
-            int minorVersion;
-            return definition.GetWinMdVersion(out majorVersion, out minorVersion) &&
-                (majorVersion == 1) &&
-                (minorVersion >= 4);
         }
     }
 }

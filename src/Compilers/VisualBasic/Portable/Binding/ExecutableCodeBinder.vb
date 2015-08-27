@@ -79,7 +79,7 @@ Namespace Microsoft.CodeAnalysis.VisualBasic
             End Get
         End Property
 
-        Private Shared s_emptyLabelMap As MultiDictionary(Of String, SourceLabelSymbol) = New MultiDictionary(Of String, SourceLabelSymbol)(0, IdentifierComparison.Comparer)
+        Private Shared ReadOnly s_emptyLabelMap As MultiDictionary(Of String, SourceLabelSymbol) = New MultiDictionary(Of String, SourceLabelSymbol)(0, IdentifierComparison.Comparer)
 
         Private Shared Function BuildLabelsMap(labels As ImmutableArray(Of SourceLabelSymbol)) As MultiDictionary(Of String, SourceLabelSymbol)
             If Not labels.IsEmpty Then
@@ -91,7 +91,7 @@ Namespace Microsoft.CodeAnalysis.VisualBasic
             Else
                 ' Return an empty map if there aren't any labels.
                 ' LookupLabelByNameToken and other methods assumes a non null map 
-                ' is returnd from the LabelMap property.
+                ' is returned from the LabelMap property.
                 Return s_emptyLabelMap
             End If
         End Function
@@ -121,7 +121,7 @@ Namespace Microsoft.CodeAnalysis.VisualBasic
 
                 Select Case labels.Count
                     Case 0
-                    ' Not found
+                        ' Not found
 
                     Case 1
                         lookupResult.SetFrom(SingleLookupResult.Good(labels.Single()))

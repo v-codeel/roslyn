@@ -11,9 +11,11 @@ using Roslyn.Utilities;
 
 namespace Microsoft.CodeAnalysis.CSharp.Formatting
 {
-    internal partial class CSharpTriviaFormatter : AbstractTriviaFormatter<SyntaxTrivia>
+    internal partial class CSharpTriviaFormatter : AbstractTriviaFormatter
     {
         private bool _succeeded = true;
+
+        private SyntaxTrivia _newLine;
 
         public CSharpTriviaFormatter(
             FormattingContext context,
@@ -54,17 +56,18 @@ namespace Microsoft.CodeAnalysis.CSharp.Formatting
 
         protected override SyntaxTrivia CreateWhitespace(string text)
         {
-            return SyntaxFactory.Whitespace(text, elastic: false);
+            return SyntaxFactory.Whitespace(text);
         }
 
         protected override SyntaxTrivia CreateEndOfLine()
         {
-            return SyntaxFactory.CarriageReturnLineFeed;
-        }
+            if (_newLine == default(SyntaxTrivia))
+            {
+                var text = this.Context.OptionSet.GetOption(FormattingOptions.NewLine, LanguageNames.CSharp);
+                _newLine = SyntaxFactory.EndOfLine(text);
+            }
 
-        protected override SyntaxTrivia Convert(SyntaxTrivia trivia)
-        {
-            return (SyntaxTrivia)trivia;
+            return _newLine;
         }
 
         protected override LineColumnRule GetLineColumnRuleBetween(SyntaxTrivia trivia1, LineColumnDelta existingWhitespaceBetween, bool implicitLineBreak, SyntaxTrivia trivia2)
@@ -133,13 +136,13 @@ namespace Microsoft.CodeAnalysis.CSharp.Formatting
                     return LineColumnRule.PreserveLinesWithGivenIndentation(lines: 0);
                 }
 
-                // comments after existing commet
+                // comments after existing comment
                 if (existingWhitespaceBetween.Lines == 0)
                 {
                     return LineColumnRule.PreserveLinesWithGivenIndentation(lines: 0);
                 }
 
-                return LineColumnRule.PreserveLinesWithFollowingPreceedingIndentation();
+                return LineColumnRule.PreserveLinesWithFollowingPrecedingIndentation();
             }
 
             if (trivia2.IsKind(SyntaxKind.SkippedTokensTrivia))
@@ -193,7 +196,8 @@ namespace Microsoft.CodeAnalysis.CSharp.Formatting
                     indentation,
                     indentationDelta,
                     this.OptionSet.GetOption(FormattingOptions.UseTabs, LanguageNames.CSharp),
-                    this.OptionSet.GetOption(FormattingOptions.TabSize, LanguageNames.CSharp));
+                    this.OptionSet.GetOption(FormattingOptions.TabSize, LanguageNames.CSharp),
+                    this.OptionSet.GetOption(FormattingOptions.NewLine, LanguageNames.CSharp));
 
                 var multilineCommentTrivia = SyntaxFactory.ParseLeadingTrivia(multiLineComment);
                 Contract.ThrowIfFalse(multilineCommentTrivia.Count == 1);
@@ -206,11 +210,9 @@ namespace Microsoft.CodeAnalysis.CSharp.Formatting
         }
 
         protected override LineColumnDelta Format(
-            LineColumn lineColumn, SyntaxTrivia commonTrivia, List<SyntaxTrivia> changes,
+            LineColumn lineColumn, SyntaxTrivia trivia, List<SyntaxTrivia> changes,
             CancellationToken cancellationToken)
         {
-            var trivia = (SyntaxTrivia)commonTrivia;
-
             if (trivia.HasStructure)
             {
                 return FormatStructuredTrivia(lineColumn, trivia, changes, cancellationToken);
@@ -228,10 +230,8 @@ namespace Microsoft.CodeAnalysis.CSharp.Formatting
         }
 
         protected override LineColumnDelta Format(
-            LineColumn lineColumn, SyntaxTrivia commonTrivia, List<TextChange> changes, CancellationToken cancellationToken)
+            LineColumn lineColumn, SyntaxTrivia trivia, List<TextChange> changes, CancellationToken cancellationToken)
         {
-            var trivia = (SyntaxTrivia)commonTrivia;
-
             if (trivia.HasStructure)
             {
                 return FormatStructuredTrivia(lineColumn, trivia, changes, cancellationToken);
@@ -244,7 +244,7 @@ namespace Microsoft.CodeAnalysis.CSharp.Formatting
                 return GetLineColumnDelta(lineColumn, newComment);
             }
 
-            return GetLineColumnDelta(lineColumn, commonTrivia);
+            return GetLineColumnDelta(lineColumn, trivia);
         }
 
         private SyntaxTrivia FormatDocumentComment(LineColumn lineColumn, SyntaxTrivia trivia)

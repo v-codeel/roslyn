@@ -2,7 +2,6 @@
 
 Imports System.IO
 Imports Microsoft.CodeAnalysis
-Imports ProprietaryTestResources = Microsoft.CodeAnalysis.Test.Resources.Proprietary
 Imports Microsoft.CodeAnalysis.Text
 Imports Roslyn.Test.Utilities
 
@@ -750,7 +749,7 @@ End Select
     Public Sub ParseFileOnBinaryFile()
         ' This is doing the same thing as ParseFile, but using a MemoryStream
         ' instead of FileStream (because I don't want to write a file to disk).
-        Using data As New MemoryStream(ProprietaryTestResources.NetFX.v4_0_30319.mscorlib)
+        Using data As New MemoryStream(TestResources.NetFX.v4_0_30319.mscorlib)
             Dim tree As SyntaxTree = VisualBasicSyntaxTree.ParseText(EncodedStringText.Create(data))
             tree.GetDiagnostics().VerifyErrorCodes(Diagnostic(ERRID.ERR_BinaryFile))
         End Using
@@ -916,6 +915,24 @@ End Enum
         <error id="30689"/>
         <error id="30184"/>
     </errors>)
+    End Sub
+
+    <WorkItem(2867, "https://github.com/dotnet/roslyn/issues/2867")>
+    <Fact>
+    Public Sub TestBinary()
+        ' use a fixed seed so the test Is reproducible
+        Dim random = New System.Random(12345)
+        Const n As Integer = 40 * 1000 * 1000 ' 40 million "character"s
+        Dim builder = New System.Text.StringBuilder(n + 10)
+        For i As Integer = 0 To n - 1
+            builder.Append(ChrW(random.Next(&HFFFF)))
+        Next
+
+        Dim source = builder.ToString()
+        Dim tree = VisualBasicSyntaxTree.ParseText(source)
+
+        Assert.Equal(source, tree.ToString())
+        Assert.Equal(Syntax.InternalSyntax.Scanner.BadTokenCountLimit, tree.GetDiagnostics().Where(Function(d) d.Code = ERRID.ERR_IllegalChar).Count())
     End Sub
 
 End Class

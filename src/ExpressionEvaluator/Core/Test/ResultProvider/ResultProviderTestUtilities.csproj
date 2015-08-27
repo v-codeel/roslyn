@@ -2,8 +2,7 @@
 <!-- Copyright (c) Microsoft.  All Rights Reserved.  Licensed under the Apache License, Version 2.0.  See License.txt in the project root for license information. -->
 <Project ToolsVersion="4.0" DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ImportGroup Label="Settings">
-    <Import Project="..\..\..\..\Tools\Microsoft.CodeAnalysis.Toolset.Open\Targets\VSL.Settings.targets" />
-    <Import Project="..\..\..\..\..\build\VSL.Settings.Closed.targets" />
+    <Import Project="..\..\..\..\..\build\Targets\VSL.Settings.targets" />
   </ImportGroup>
   <PropertyGroup>
     <NonShipping>true</NonShipping>
@@ -17,13 +16,15 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <UseCommonOutputDirectory>True</UseCommonOutputDirectory>
     <RestorePackages>true</RestorePackages>
+    <TargetFrameworkVersion>v4.5</TargetFrameworkVersion>
     <!-- Don't transitively copy output files, since everything builds to the same folder. -->
   </PropertyGroup>
   <ItemGroup Label="File References">
     <Reference Include="$(OutDir)Microsoft.VisualStudio.Debugger.Metadata.dll" />
-    <Reference Include="System.Collections.Immutable, Version=1.1.33.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a, processorArchitecture=MSIL">
+    <Reference Include="Microsoft.CSharp" />
+    <Reference Include="System.Collections.Immutable">
       <SpecificVersion>False</SpecificVersion>
-      <HintPath>..\..\..\..\..\packages\System.Collections.Immutable.1.1.33-beta\lib\portable-net45+win8+wp8+wpa81\System.Collections.Immutable.dll</HintPath>
+      <HintPath>..\..\..\..\..\packages\System.Collections.Immutable.$(SystemCollectionsImmutableVersion)\lib\portable-net45+win8+wp8+wpa81\System.Collections.Immutable.dll</HintPath>
     </Reference>
     <Reference Include="xunit">
       <HintPath>..\..\..\..\..\packages\xunit.1.9.2\lib\net20\xunit.dll</HintPath>
@@ -55,6 +56,9 @@
     <Compile Include="..\..\..\..\Compilers\Core\Portable\InternalUtilities\ExceptionUtilities.cs">
       <Link>Compiler\InternalUtilities\ExceptionUtilities.cs</Link>
     </Compile>
+    <Compile Include="..\..\..\..\Compilers\Core\Portable\InternalUtilities\ReflectionUtilities.cs">
+      <Link>Compiler\InternalUtilities\ReflectionUtilities.cs</Link>
+    </Compile>
     <Compile Include="..\..\..\..\Compilers\Core\SharedCollections\ObjectPool`1.cs">
       <Link>Compiler\InternalUtilities\ObjectPool`1.cs</Link>
     </Compile>
@@ -67,8 +71,11 @@
     <Compile Include="..\..\..\..\Compilers\Core\Portable\Symbols\WellKnownMemberNames.cs">
       <Link>Compiler\Symbols\WellKnownMemberNames.cs</Link>
     </Compile>
-    <Compile Include="..\..\Source\ExpressionCompiler\DateTimeUtilities.cs">
-      <Link>ExpressionCompiler\DateTimeUtilities.cs</Link>
+    <Compile Include="..\..\..\..\Test\PdbUtilities\Shared\DateTimeUtilities.cs">
+      <Link>DateTimeUtilities.cs</Link>
+    </Compile>
+    <Compile Include="..\..\Source\ExpressionCompiler\DynamicFlagsCustomTypeInfo.cs">
+      <Link>ExpressionCompiler\DynamicFlagsCustomTypeInfo.cs</Link>
     </Compile>
     <Compile Include="..\..\Source\ExpressionCompiler\ExpressionCompilerConstants.cs">
       <Link>ExpressionCompiler\ExpressionCompilerConstants.cs</Link>
@@ -76,7 +83,7 @@
     <Compile Include="..\..\Source\ExpressionCompiler\ExpressionEvaluatorFatalError.cs">
       <Link>ExpressionCompiler\ExpressionEvaluatorFatalError.cs</Link>
     </Compile>
-    <Compile Include="..\..\Source\ResultProvider\Resources.Designer.cs">
+    <Compile Include="..\..\Source\ResultProvider\Portable\Resources.Designer.cs">
       <Link>Resources.Designer.cs</Link>
       <AutoGen>True</AutoGen>
       <DesignTime>True</DesignTime>
@@ -84,6 +91,7 @@
     </Compile>
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="Debugger\Engine\DkmClrCustomTypeInfo.cs" />
     <Compile Include="Debugger\Engine\DkmCompilerId.cs" />
     <Compile Include="Debugger\Engine\DkmContinueCorruptingException.cs" />
     <Compile Include="Debugger\Engine\DkmEngineSettings.cs" />
@@ -138,6 +146,7 @@
     <Compile Include="Debugger\MemberInfo\ParameterInfoImpl.cs" />
     <Compile Include="Debugger\MemberInfo\PropertyInfoImpl.cs" />
     <Compile Include="Debugger\MemberInfo\TypeImpl.cs" />
+    <Compile Include="DynamicFlagsCustomTypeInfo_Factory.cs" />
     <Compile Include="ReflectionUtilities.cs" />
     <Compile Include="ResultProviderTestBase.cs" />
   </ItemGroup>
@@ -148,7 +157,7 @@
     <InternalsVisibleToTest Include="Roslyn.ExpressionEvaluator.VisualBasic.ResultProvider.UnitTests" />
   </ItemGroup>
   <ItemGroup>
-    <EmbeddedResource Include="..\..\Source\ResultProvider\Resources.resx">
+    <EmbeddedResource Include="..\..\Source\ResultProvider\Portable\Resources.resx">
       <Link>Resources.resx</Link>
       <Generator>ResXFileCodeGenerator</Generator>
       <LastGenOutput>Resources.Designer.cs</LastGenOutput>
@@ -160,9 +169,8 @@
   </ItemGroup>
   <Import Project="..\..\Source\ResultProvider\ResultProvider.projitems" Label="Shared" />
   <ImportGroup Label="Targets">
-    <Import Project="..\..\..\..\Tools\Microsoft.CodeAnalysis.Toolset.Open\Targets\VSL.Imports.targets" />
-    <Import Project="..\..\..\..\..\build\VSL.Imports.Closed.targets" />
-    <Import Project="..\..\..\..\..\build\Roslyn.Toolsets.Xunit.targets" />
+    <Import Project="..\..\..\..\..\build\Targets\VSL.Imports.targets" />
+    <Import Project="..\..\..\..\..\build\Targets\Roslyn.Toolsets.Xunit.targets" />
     <Import Project="$(SolutionDir)\.nuget\NuGet.targets" Condition="Exists('$(SolutionDir)\.nuget\NuGet.targets')" />
   </ImportGroup>
 </Project>

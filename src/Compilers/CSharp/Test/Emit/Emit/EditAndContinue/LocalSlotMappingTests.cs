@@ -1,4 +1,4 @@
-﻿// Copyright (c) Microsoft.  All Rights Reserved.  Licensed under the Apache License, Version 2.0.  See License.txt in the project root for license information.
+// Copyright (c) Microsoft.  All Rights Reserved.  Licensed under the Apache License, Version 2.0.  See License.txt in the project root for license information.
 
 using System;
 using System.Collections.Immutable;
@@ -206,32 +206,27 @@ public class C
         </encLocalSlotMap>
       </customDebugInfo>
       <sequencePoints>
-        <entry offset=""0x0"" startLine=""7"" startColumn=""5"" endLine=""7"" endColumn=""6"" document=""0"" />
-        <entry offset=""0x1"" startLine=""8"" startColumn=""14"" endLine=""8"" endColumn=""23"" document=""0"" />
-        <entry offset=""0x3"" hidden=""true"" document=""0"" />
-        <entry offset=""0x5"" startLine=""8"" startColumn=""37"" endLine=""8"" endColumn=""58"" document=""0"" />
-        <entry offset=""0xc"" startLine=""8"" startColumn=""32"" endLine=""8"" endColumn=""35"" document=""0"" />
-        <entry offset=""0x12"" startLine=""8"" startColumn=""25"" endLine=""8"" endColumn=""30"" document=""0"" />
-        <entry offset=""0x17"" hidden=""true"" document=""0"" />
-        <entry offset=""0x1a"" startLine=""9"" startColumn=""14"" endLine=""9"" endColumn=""23"" document=""0"" />
-        <entry offset=""0x1d"" hidden=""true"" document=""0"" />
-        <entry offset=""0x1f"" startLine=""9"" startColumn=""37"" endLine=""9"" endColumn=""58"" document=""0"" />
-        <entry offset=""0x26"" startLine=""9"" startColumn=""32"" endLine=""9"" endColumn=""35"" document=""0"" />
-        <entry offset=""0x2e"" startLine=""9"" startColumn=""25"" endLine=""9"" endColumn=""30"" document=""0"" />
-        <entry offset=""0x35"" hidden=""true"" document=""0"" />
-        <entry offset=""0x39"" startLine=""12"" startColumn=""14"" endLine=""12"" endColumn=""19"" document=""0"" />
-        <entry offset=""0x3b"" hidden=""true"" document=""0"" />
-        <entry offset=""0x3d"" startLine=""12"" startColumn=""33"" endLine=""12"" endColumn=""54"" document=""0"" />
-        <entry offset=""0x44"" startLine=""12"" startColumn=""28"" endLine=""12"" endColumn=""31"" document=""0"" />
-        <entry offset=""0x4a"" startLine=""12"" startColumn=""21"" endLine=""12"" endColumn=""26"" document=""0"" />
-        <entry offset=""0x50"" hidden=""true"" document=""0"" />
-        <entry offset=""0x54"" startLine=""13"" startColumn=""5"" endLine=""13"" endColumn=""6"" document=""0"" />
+        <entry offset=""0x0"" startLine=""7"" startColumn=""5"" endLine=""7"" endColumn=""6"" />
+        <entry offset=""0x1"" startLine=""8"" startColumn=""14"" endLine=""8"" endColumn=""23"" />
+        <entry offset=""0x3"" hidden=""true"" />
+        <entry offset=""0x5"" startLine=""8"" startColumn=""37"" endLine=""8"" endColumn=""58"" />
+        <entry offset=""0xc"" startLine=""8"" startColumn=""32"" endLine=""8"" endColumn=""35"" />
+        <entry offset=""0x12"" startLine=""8"" startColumn=""25"" endLine=""8"" endColumn=""30"" />
+        <entry offset=""0x17"" hidden=""true"" />
+        <entry offset=""0x1a"" startLine=""9"" startColumn=""14"" endLine=""9"" endColumn=""23"" />
+        <entry offset=""0x1d"" hidden=""true"" />
+        <entry offset=""0x1f"" startLine=""9"" startColumn=""37"" endLine=""9"" endColumn=""58"" />
+        <entry offset=""0x26"" startLine=""9"" startColumn=""32"" endLine=""9"" endColumn=""35"" />
+        <entry offset=""0x2e"" startLine=""9"" startColumn=""25"" endLine=""9"" endColumn=""30"" />
+        <entry offset=""0x35"" hidden=""true"" />
+        <entry offset=""0x39"" startLine=""12"" startColumn=""14"" endLine=""12"" endColumn=""19"" />
+        <entry offset=""0x3b"" hidden=""true"" />
+        <entry offset=""0x3d"" startLine=""12"" startColumn=""33"" endLine=""12"" endColumn=""54"" />
+        <entry offset=""0x44"" startLine=""12"" startColumn=""28"" endLine=""12"" endColumn=""31"" />
+        <entry offset=""0x4a"" startLine=""12"" startColumn=""21"" endLine=""12"" endColumn=""26"" />
+        <entry offset=""0x50"" hidden=""true"" />
+        <entry offset=""0x54"" startLine=""13"" startColumn=""5"" endLine=""13"" endColumn=""6"" />
       </sequencePoints>
-      <locals>
-        <local name=""j"" il_index=""0"" il_start=""0x0"" il_end=""0x55"" attributes=""0"" />
-        <local name=""i"" il_index=""1"" il_start=""0x1"" il_end=""0x1a"" attributes=""0"" />
-        <local name=""i"" il_index=""4"" il_start=""0x1a"" il_end=""0x39"" attributes=""0"" />
-      </locals>
       <scope startOffset=""0x0"" endOffset=""0x55"">
         <namespace name=""System"" />
         <local name=""j"" il_index=""0"" il_start=""0x0"" il_end=""0x55"" attributes=""0"" />
@@ -246,13 +241,13 @@ public class C
   </methods>
 </symbols>
 ");
-            var debugInfoProvider = v0.CreatePdbInfoProvider();
+            var symReader = v0.CreateSymReader();
 
             var testData0 = new CompilationTestData();
             var bytes0 = compilation0.EmitToArray(testData: testData0);
             var methodData0 = testData0.GetMethodData("C.M");
             var method0 = compilation0.GetMember<MethodSymbol>("C.M");
-            var generation0 = EmitBaseline.CreateInitialBaseline(ModuleMetadata.CreateFromImage(bytes0), debugInfoProvider.GetEncMethodDebugInfo);
+            var generation0 = EmitBaseline.CreateInitialBaseline(ModuleMetadata.CreateFromImage(bytes0), symReader.GetEncMethodDebugInfo);
 
             var method1 = compilation1.GetMember<MethodSymbol>("C.M");
             var diff1 = compilation1.EmitDifference(
@@ -330,8 +325,6 @@ public class C
   IL_005a:  ret
 }
 ");
-
-            debugInfoProvider.Dispose();
         }
 
         /// <summary>
@@ -369,18 +362,17 @@ public class C
         </encLocalSlotMap>
       </customDebugInfo>
       <sequencePoints>
-        <entry offset=""0x0"" startLine=""8"" startColumn=""5"" endLine=""8"" endColumn=""6"" document=""0"" />
-        <entry offset=""0x1"" startLine=""9"" startColumn=""9"" endLine=""9"" endColumn=""19"" document=""0"" />
-        <entry offset=""0x12"" startLine=""9"" startColumn=""20"" endLine=""9"" endColumn=""21"" document=""0"" />
-        <entry offset=""0x13"" startLine=""9"" startColumn=""22"" endLine=""9"" endColumn=""23"" document=""0"" />
-        <entry offset=""0x16"" hidden=""true"" document=""0"" />
-        <entry offset=""0x21"" startLine=""10"" startColumn=""9"" endLine=""10"" endColumn=""20"" document=""0"" />
-        <entry offset=""0x27"" startLine=""10"" startColumn=""21"" endLine=""10"" endColumn=""22"" document=""0"" />
-        <entry offset=""0x28"" startLine=""10"" startColumn=""23"" endLine=""10"" endColumn=""24"" document=""0"" />
-        <entry offset=""0x2b"" hidden=""true"" document=""0"" />
-        <entry offset=""0x36"" startLine=""11"" startColumn=""5"" endLine=""11"" endColumn=""6"" document=""0"" />
+        <entry offset=""0x0"" startLine=""8"" startColumn=""5"" endLine=""8"" endColumn=""6"" />
+        <entry offset=""0x1"" startLine=""9"" startColumn=""9"" endLine=""9"" endColumn=""19"" />
+        <entry offset=""0x12"" startLine=""9"" startColumn=""20"" endLine=""9"" endColumn=""21"" />
+        <entry offset=""0x13"" startLine=""9"" startColumn=""22"" endLine=""9"" endColumn=""23"" />
+        <entry offset=""0x16"" hidden=""true"" />
+        <entry offset=""0x21"" startLine=""10"" startColumn=""9"" endLine=""10"" endColumn=""20"" />
+        <entry offset=""0x27"" startLine=""10"" startColumn=""21"" endLine=""10"" endColumn=""22"" />
+        <entry offset=""0x28"" startLine=""10"" startColumn=""23"" endLine=""10"" endColumn=""24"" />
+        <entry offset=""0x2b"" hidden=""true"" />
+        <entry offset=""0x36"" startLine=""11"" startColumn=""5"" endLine=""11"" endColumn=""6"" />
       </sequencePoints>
-      <locals />
     </method>
   </methods>
 </symbols>
@@ -393,15 +385,14 @@ public class C
         <forward declaringType=""C"" methodName=""F"" />
       </customDebugInfo>
       <sequencePoints>
-        <entry offset=""0x0"" startLine=""9"" startColumn=""9"" endLine=""9"" endColumn=""19"" document=""0"" />
-        <entry offset=""0x10"" startLine=""9"" startColumn=""22"" endLine=""9"" endColumn=""23"" document=""0"" />
-        <entry offset=""0x12"" hidden=""true"" document=""0"" />
-        <entry offset=""0x1c"" startLine=""10"" startColumn=""9"" endLine=""10"" endColumn=""20"" document=""0"" />
-        <entry offset=""0x22"" startLine=""10"" startColumn=""23"" endLine=""10"" endColumn=""24"" document=""0"" />
-        <entry offset=""0x24"" hidden=""true"" document=""0"" />
-        <entry offset=""0x2e"" startLine=""11"" startColumn=""5"" endLine=""11"" endColumn=""6"" document=""0"" />
+        <entry offset=""0x0"" startLine=""9"" startColumn=""9"" endLine=""9"" endColumn=""19"" />
+        <entry offset=""0x10"" startLine=""9"" startColumn=""22"" endLine=""9"" endColumn=""23"" />
+        <entry offset=""0x12"" hidden=""true"" />
+        <entry offset=""0x1c"" startLine=""10"" startColumn=""9"" endLine=""10"" endColumn=""20"" />
+        <entry offset=""0x22"" startLine=""10"" startColumn=""23"" endLine=""10"" endColumn=""24"" />
+        <entry offset=""0x24"" hidden=""true"" />
+        <entry offset=""0x2e"" startLine=""11"" startColumn=""5"" endLine=""11"" endColumn=""6"" />
       </sequencePoints>
-      <locals />
     </method>
   </methods>
 </symbols>
@@ -2236,16 +2227,15 @@ class C
         </encLocalSlotMap>
       </customDebugInfo>
       <sequencePoints>
-        <entry offset=""0x0"" startLine=""6"" startColumn=""5"" endLine=""6"" endColumn=""6"" document=""0"" />
-        <entry offset=""0x1"" startLine=""7"" startColumn=""9"" endLine=""7"" endColumn=""21"" document=""0"" />
-        <entry offset=""0x7"" hidden=""true"" document=""0"" />
-        <entry offset=""0x13"" startLine=""9"" startColumn=""21"" endLine=""9"" endColumn=""49"" document=""0"" />
-        <entry offset=""0x1a"" startLine=""9"" startColumn=""50"" endLine=""9"" endColumn=""56"" document=""0"" />
-        <entry offset=""0x1c"" startLine=""10"" startColumn=""21"" endLine=""10"" endColumn=""49"" document=""0"" />
-        <entry offset=""0x23"" startLine=""10"" startColumn=""50"" endLine=""10"" endColumn=""56"" document=""0"" />
-        <entry offset=""0x25"" startLine=""12"" startColumn=""5"" endLine=""12"" endColumn=""6"" document=""0"" />
+        <entry offset=""0x0"" startLine=""6"" startColumn=""5"" endLine=""6"" endColumn=""6"" />
+        <entry offset=""0x1"" startLine=""7"" startColumn=""9"" endLine=""7"" endColumn=""21"" />
+        <entry offset=""0x7"" hidden=""true"" />
+        <entry offset=""0x13"" startLine=""9"" startColumn=""21"" endLine=""9"" endColumn=""49"" />
+        <entry offset=""0x1a"" startLine=""9"" startColumn=""50"" endLine=""9"" endColumn=""56"" />
+        <entry offset=""0x1c"" startLine=""10"" startColumn=""21"" endLine=""10"" endColumn=""49"" />
+        <entry offset=""0x23"" startLine=""10"" startColumn=""50"" endLine=""10"" endColumn=""56"" />
+        <entry offset=""0x25"" startLine=""12"" startColumn=""5"" endLine=""12"" endColumn=""6"" />
       </sequencePoints>
-      <locals />
     </method>
   </methods>
 </symbols>");
@@ -2351,15 +2341,14 @@ class C
         </encLocalSlotMap>
       </customDebugInfo>
       <sequencePoints>
-        <entry offset=""0x0"" startLine=""7"" startColumn=""5"" endLine=""7"" endColumn=""6"" document=""0"" />
-        <entry offset=""0x1"" startLine=""8"" startColumn=""9"" endLine=""8"" endColumn=""17"" document=""0"" />
-        <entry offset=""0x7"" hidden=""true"" document=""0"" />
-        <entry offset=""0xa"" startLine=""9"" startColumn=""9"" endLine=""9"" endColumn=""10"" document=""0"" />
-        <entry offset=""0xb"" startLine=""10"" startColumn=""13"" endLine=""10"" endColumn=""41"" document=""0"" />
-        <entry offset=""0x12"" startLine=""11"" startColumn=""9"" endLine=""11"" endColumn=""10"" document=""0"" />
-        <entry offset=""0x13"" startLine=""12"" startColumn=""5"" endLine=""12"" endColumn=""6"" document=""0"" />
+        <entry offset=""0x0"" startLine=""7"" startColumn=""5"" endLine=""7"" endColumn=""6"" />
+        <entry offset=""0x1"" startLine=""8"" startColumn=""9"" endLine=""8"" endColumn=""17"" />
+        <entry offset=""0x7"" hidden=""true"" />
+        <entry offset=""0xa"" startLine=""9"" startColumn=""9"" endLine=""9"" endColumn=""10"" />
+        <entry offset=""0xb"" startLine=""10"" startColumn=""13"" endLine=""10"" endColumn=""41"" />
+        <entry offset=""0x12"" startLine=""11"" startColumn=""9"" endLine=""11"" endColumn=""10"" />
+        <entry offset=""0x13"" startLine=""12"" startColumn=""5"" endLine=""12"" endColumn=""6"" />
       </sequencePoints>
-      <locals />
     </method>
   </methods>
 </symbols>");
@@ -2457,16 +2446,15 @@ class C
         </encLocalSlotMap>
       </customDebugInfo>
       <sequencePoints>
-        <entry offset=""0x0"" startLine=""7"" startColumn=""5"" endLine=""7"" endColumn=""6"" document=""0"" />
-        <entry offset=""0x1"" hidden=""true"" document=""0"" />
-        <entry offset=""0x3"" startLine=""9"" startColumn=""9"" endLine=""9"" endColumn=""10"" document=""0"" />
-        <entry offset=""0x4"" startLine=""10"" startColumn=""13"" endLine=""10"" endColumn=""41"" document=""0"" />
-        <entry offset=""0xb"" startLine=""11"" startColumn=""9"" endLine=""11"" endColumn=""10"" document=""0"" />
-        <entry offset=""0xc"" startLine=""8"" startColumn=""9"" endLine=""8"" endColumn=""20"" document=""0"" />
-        <entry offset=""0x12"" hidden=""true"" document=""0"" />
-        <entry offset=""0x15"" startLine=""12"" startColumn=""5"" endLine=""12"" endColumn=""6"" document=""0"" />
+        <entry offset=""0x0"" startLine=""7"" startColumn=""5"" endLine=""7"" endColumn=""6"" />
+        <entry offset=""0x1"" hidden=""true"" />
+        <entry offset=""0x3"" startLine=""9"" startColumn=""9"" endLine=""9"" endColumn=""10"" />
+        <entry offset=""0x4"" startLine=""10"" startColumn=""13"" endLine=""10"" endColumn=""41"" />
+        <entry offset=""0xb"" startLine=""11"" startColumn=""9"" endLine=""11"" endColumn=""10"" />
+        <entry offset=""0xc"" startLine=""8"" startColumn=""9"" endLine=""8"" endColumn=""20"" />
+        <entry offset=""0x12"" hidden=""true"" />
+        <entry offset=""0x15"" startLine=""12"" startColumn=""5"" endLine=""12"" endColumn=""6"" />
       </sequencePoints>
-      <locals />
     </method>
   </methods>
 </symbols>");
@@ -2565,15 +2553,14 @@ class C
         </encLocalSlotMap>
       </customDebugInfo>
       <sequencePoints>
-        <entry offset=""0x0"" startLine=""7"" startColumn=""5"" endLine=""7"" endColumn=""6"" document=""0"" />
-        <entry offset=""0x1"" startLine=""9"" startColumn=""9"" endLine=""9"" endColumn=""10"" document=""0"" />
-        <entry offset=""0x2"" startLine=""10"" startColumn=""13"" endLine=""10"" endColumn=""41"" document=""0"" />
-        <entry offset=""0x9"" startLine=""11"" startColumn=""9"" endLine=""11"" endColumn=""10"" document=""0"" />
-        <entry offset=""0xa"" startLine=""12"" startColumn=""9"" endLine=""12"" endColumn=""21"" document=""0"" />
-        <entry offset=""0x10"" hidden=""true"" document=""0"" />
-        <entry offset=""0x13"" startLine=""13"" startColumn=""5"" endLine=""13"" endColumn=""6"" document=""0"" />
+        <entry offset=""0x0"" startLine=""7"" startColumn=""5"" endLine=""7"" endColumn=""6"" />
+        <entry offset=""0x1"" startLine=""9"" startColumn=""9"" endLine=""9"" endColumn=""10"" />
+        <entry offset=""0x2"" startLine=""10"" startColumn=""13"" endLine=""10"" endColumn=""41"" />
+        <entry offset=""0x9"" startLine=""11"" startColumn=""9"" endLine=""11"" endColumn=""10"" />
+        <entry offset=""0xa"" startLine=""12"" startColumn=""9"" endLine=""12"" endColumn=""21"" />
+        <entry offset=""0x10"" hidden=""true"" />
+        <entry offset=""0x13"" startLine=""13"" startColumn=""5"" endLine=""13"" endColumn=""6"" />
       </sequencePoints>
-      <locals />
     </method>
   </methods>
 </symbols>");
@@ -2805,10 +2792,9 @@ class C
 
             v0.VerifyIL("C.<F>d__0.System.Collections.IEnumerator.MoveNext", @"
 {
-  // Code size      137 (0x89)
+  // Code size      131 (0x83)
   .maxstack  2
-  .locals init (int V_0,
-                bool V_1)
+  .locals init (int V_0)
   IL_0000:  ldarg.0
   IL_0001:  ldfld      ""int C.<F>d__0.<>1__state""
   IL_0006:  stloc.0
@@ -2819,65 +2805,61 @@ class C
   IL_000d:  ldc.i4.1
   IL_000e:  beq.s      IL_0014
   IL_0010:  br.s       IL_0016
-  IL_0012:  br.s       IL_001a
-  IL_0014:  br.s       IL_007e
+  IL_0012:  br.s       IL_0018
+  IL_0014:  br.s       IL_007a
   IL_0016:  ldc.i4.0
-  IL_0017:  stloc.1
-  IL_0018:  ldloc.1
-  IL_0019:  ret
-  IL_001a:  ldarg.0
-  IL_001b:  ldc.i4.m1
-  IL_001c:  stfld      ""int C.<F>d__0.<>1__state""
-  IL_0021:  nop
-  IL_0022:  ldarg.0
-  IL_0023:  ldarg.0
-  IL_0024:  ldfld      ""C C.<F>d__0.<>4__this""
-  IL_0029:  callvirt   ""System.Collections.Generic.IEnumerable<int> C.F()""
-  IL_002e:  stfld      ""System.Collections.Generic.IEnumerable<int> C.<F>d__0.<>s__1""
-  IL_0033:  ldarg.0
-  IL_0034:  ldc.i4.0
-  IL_0035:  stfld      ""bool C.<F>d__0.<>s__2""
+  IL_0017:  ret
+  IL_0018:  ldarg.0
+  IL_0019:  ldc.i4.m1
+  IL_001a:  stfld      ""int C.<F>d__0.<>1__state""
+  IL_001f:  nop
+  IL_0020:  ldarg.0
+  IL_0021:  ldarg.0
+  IL_0022:  ldfld      ""C C.<F>d__0.<>4__this""
+  IL_0027:  callvirt   ""System.Collections.Generic.IEnumerable<int> C.F()""
+  IL_002c:  stfld      ""System.Collections.Generic.IEnumerable<int> C.<F>d__0.<>s__1""
+  IL_0031:  ldarg.0
+  IL_0032:  ldc.i4.0
+  IL_0033:  stfld      ""bool C.<F>d__0.<>s__2""
   .try
   {
-    IL_003a:  ldarg.0
-    IL_003b:  ldfld      ""System.Collections.Generic.IEnumerable<int> C.<F>d__0.<>s__1""
-    IL_0040:  ldarg.0
-    IL_0041:  ldflda     ""bool C.<F>d__0.<>s__2""
-    IL_0046:  call       ""void System.Threading.Monitor.Enter(object, ref bool)""
+    IL_0038:  ldarg.0
+    IL_0039:  ldfld      ""System.Collections.Generic.IEnumerable<int> C.<F>d__0.<>s__1""
+    IL_003e:  ldarg.0
+    IL_003f:  ldflda     ""bool C.<F>d__0.<>s__2""
+    IL_0044:  call       ""void System.Threading.Monitor.Enter(object, ref bool)""
+    IL_0049:  nop
+    IL_004a:  nop
     IL_004b:  nop
-    IL_004c:  nop
-    IL_004d:  nop
-    IL_004e:  leave.s    IL_0065
+    IL_004c:  leave.s    IL_0063
   }
   finally
   {
-    IL_0050:  ldarg.0
-    IL_0051:  ldfld      ""bool C.<F>d__0.<>s__2""
-    IL_0056:  brfalse.s  IL_0064
-    IL_0058:  ldarg.0
-    IL_0059:  ldfld      ""System.Collections.Generic.IEnumerable<int> C.<F>d__0.<>s__1""
-    IL_005e:  call       ""void System.Threading.Monitor.Exit(object)""
-    IL_0063:  nop
-    IL_0064:  endfinally
+    IL_004e:  ldarg.0
+    IL_004f:  ldfld      ""bool C.<F>d__0.<>s__2""
+    IL_0054:  brfalse.s  IL_0062
+    IL_0056:  ldarg.0
+    IL_0057:  ldfld      ""System.Collections.Generic.IEnumerable<int> C.<F>d__0.<>s__1""
+    IL_005c:  call       ""void System.Threading.Monitor.Exit(object)""
+    IL_0061:  nop
+    IL_0062:  endfinally
   }
-  IL_0065:  ldarg.0
-  IL_0066:  ldnull
-  IL_0067:  stfld      ""System.Collections.Generic.IEnumerable<int> C.<F>d__0.<>s__1""
-  IL_006c:  ldarg.0
-  IL_006d:  ldc.i4.1
-  IL_006e:  stfld      ""int C.<F>d__0.<>2__current""
-  IL_0073:  ldarg.0
-  IL_0074:  ldc.i4.1
-  IL_0075:  stfld      ""int C.<F>d__0.<>1__state""
-  IL_007a:  ldc.i4.1
-  IL_007b:  stloc.1
-  IL_007c:  br.s       IL_0018
-  IL_007e:  ldarg.0
-  IL_007f:  ldc.i4.m1
-  IL_0080:  stfld      ""int C.<F>d__0.<>1__state""
-  IL_0085:  ldc.i4.0
-  IL_0086:  stloc.1
-  IL_0087:  br.s       IL_0018
+  IL_0063:  ldarg.0
+  IL_0064:  ldnull
+  IL_0065:  stfld      ""System.Collections.Generic.IEnumerable<int> C.<F>d__0.<>s__1""
+  IL_006a:  ldarg.0
+  IL_006b:  ldc.i4.1
+  IL_006c:  stfld      ""int C.<F>d__0.<>2__current""
+  IL_0071:  ldarg.0
+  IL_0072:  ldc.i4.1
+  IL_0073:  stfld      ""int C.<F>d__0.<>1__state""
+  IL_0078:  ldc.i4.1
+  IL_0079:  ret
+  IL_007a:  ldarg.0
+  IL_007b:  ldc.i4.m1
+  IL_007c:  stfld      ""int C.<F>d__0.<>1__state""
+  IL_0081:  ldc.i4.0
+  IL_0082:  ret
 }");
 
 #if TODO 
@@ -2978,7 +2960,7 @@ class C
     IL_0066:  callvirt   ""System.Threading.Tasks.Task<int> C.F()""
     IL_006b:  callvirt   ""System.Runtime.CompilerServices.TaskAwaiter<int> System.Threading.Tasks.Task<int>.GetAwaiter()""
     IL_0070:  stloc.2
-    IL_0071:  ldloca.s   V_2
+   ~IL_0071:  ldloca.s   V_2
     IL_0073:  call       ""bool System.Runtime.CompilerServices.TaskAwaiter<int>.IsCompleted.get""
     IL_0078:  brtrue.s   IL_00ba
     IL_007a:  ldarg.0

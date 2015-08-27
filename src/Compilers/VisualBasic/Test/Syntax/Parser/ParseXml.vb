@@ -1780,9 +1780,9 @@ End Module]]>)
 Dim x = <?xml version="1.0" standalone=''?><doc/>
 End Module
  ]]>,
- <erors>
+ <errors>
      <error id="31182"/>
- </erors>)
+ </errors>)
     End Sub
 
     <WorkItem(930757, "DevDiv/Personal")>
@@ -3513,6 +3513,46 @@ End Module
     End Sub
 
     <Fact()>
+    Public Sub XmlNameTokenPossibleKeywordKind()
+        Const sourceTemplate = "
+Module M
+    Dim x = <{0}:
+y a=""/>
+End Module
+"
+
+        Const squiggleTemplate = "<{0}:
+y a=""/>
+End Module
+"
+        Dim commonExpectedErrors =
+        {
+            Diagnostic(ERRID.ERR_ExpectedEndModule, "Module M"),
+            Diagnostic(ERRID.ERR_IllegalXmlWhiteSpace, "
+"),
+            Diagnostic(ERRID.ERR_ExpectedXmlName, "y"),
+            Diagnostic(ERRID.ERR_ExpectedQuote, ""),
+            Diagnostic(ERRID.ERR_ExpectedLT, ""),
+            Diagnostic(ERRID.ERR_ExpectedGreater, "")
+        }
+
+        Dim tree1 = Parse(String.Format(sourceTemplate, "e"))
+        tree1.GetDiagnostics().Verify(commonExpectedErrors.Concat({Diagnostic(ERRID.ERR_MissingXmlEndTag, String.Format(squiggleTemplate, "e"))}).ToArray())
+
+        Dim tree2 = Parse(String.Format(sourceTemplate, "ee"))
+        tree2.GetDiagnostics().Verify(commonExpectedErrors.Concat({Diagnostic(ERRID.ERR_MissingXmlEndTag, String.Format(squiggleTemplate, "ee"))}).ToArray())
+
+        Dim getPossibleKeywordKind = Function(x As XmlNameSyntax) DirectCast(x.Green, InternalSyntax.XmlNameSyntax).LocalName.PossibleKeywordKind
+
+        Dim kinds1 = tree1.GetRoot().DescendantNodes().OfType(Of XmlNameSyntax).Select(getPossibleKeywordKind)
+        Assert.NotEmpty(kinds1)
+        AssertEx.All(kinds1, Function(k) k = SyntaxKind.XmlNameToken)
+
+        Dim kinds2 = tree2.GetRoot().DescendantNodes().OfType(Of XmlNameSyntax).Select(getPossibleKeywordKind)
+        Assert.Equal(kinds1, kinds2)
+    End Sub
+
+    <Fact()>
     Public Sub TransitionFromXmlToVB()
         ParseAndVerify(<![CDATA[
 Module M
@@ -4427,14 +4467,14 @@ End Module]]>.Value.Replace("~"c, FULLWIDTH_COLON))
         Dim source = "
 Imports <xmlns = ""http://xml"">
 "
-        CreateCompilationWithMscorlib({source}, compOptions:=TestOptions.ReleaseDll).VerifyDiagnostics(
+        CreateCompilationWithMscorlib({source}, options:=TestOptions.ReleaseDll).VerifyDiagnostics(
             Diagnostic(ERRID.HDN_UnusedImportStatement, "Imports <xmlns = ""http://xml"">").WithLocation(2, 1))
     End Sub
 
     <WorkItem(969980)>
     <Fact(Skip:="969980")>
     Public Sub UnaliasedXmlImport_Project()
-        CreateCompilationWithMscorlib({""}, compOptions:=TestOptions.ReleaseDll.WithGlobalImports(GlobalImport.Parse("<xmlns = ""http://xml"">"))).VerifyDiagnostics()
+        CreateCompilationWithMscorlib({""}, options:=TestOptions.ReleaseDll.WithGlobalImports(GlobalImport.Parse("<xmlns = ""http://xml"">"))).VerifyDiagnostics()
     End Sub
 
     <WorkItem(1042696)>

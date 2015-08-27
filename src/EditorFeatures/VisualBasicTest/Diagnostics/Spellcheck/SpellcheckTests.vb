@@ -4,7 +4,7 @@ Imports Microsoft.CodeAnalysis.CodeFixes
 Imports Microsoft.CodeAnalysis.Diagnostics
 Imports Microsoft.CodeAnalysis.Editor.UnitTests.Extensions
 Imports Microsoft.CodeAnalysis.VisualBasic.CodeFixes.Spellcheck
-Imports Microsoft.CodeAnalysis.VisualBasic.Diagnostics.AddImport
+Imports Microsoft.CodeAnalysis.VisualBasic.Diagnostics
 
 Namespace Microsoft.CodeAnalysis.Editor.VisualBasic.UnitTests.Diagnostics.Spellcheck
     Public Class SpellcheckTests
@@ -15,7 +15,7 @@ Namespace Microsoft.CodeAnalysis.Editor.VisualBasic.UnitTests.Diagnostics.Spellc
         End Function
 
         <Fact, Trait(Traits.Feature, Traits.Features.CodeActionsSpellcheck)>
-        Sub NoSpellcheckForIfOnly2Characters()
+        Public Sub NoSpellcheckForIfOnly2Characters()
             Dim text = <File>Class Foo
     Sub Bar()
         Dim a = new [|Fo|]
@@ -25,7 +25,7 @@ End Class</File>
         End Sub
 
         <Fact, Trait(Traits.Feature, Traits.Features.CodeActionsSpellcheck)>
-        Sub AfterNewExpression()
+        Public Sub AfterNewExpression()
             Dim text = <File>Class Foo
     Sub Bar()
         Dim a = new [|Fooa|].ToString()
@@ -35,36 +35,45 @@ End Class</File>
         End Sub
 
         <Fact, Trait(Traits.Feature, Traits.Features.CodeActionsSpellcheck)>
-        Sub InAsClause()
+        Public Sub InAsClause()
             Dim text = <File>Class Foo
     Sub Bar()
         Dim a as [|Foa|]
     End Sub
 End Class</File>
-            TestExactActionSetOffered(text.NormalizedValue, {String.Format(VBFeaturesResources.ChangeTo, "Foa", "Foo"), String.Format(VBFeaturesResources.ChangeTo, "Foa", "Global"), String.Format(VBFeaturesResources.ChangeTo, "Foa", "Char")})
+            TestExactActionSetOffered(text.NormalizedValue,
+                {String.Format(VBFeaturesResources.ChangeTo, "Foa", "Foo"),
+                 String.Format(VBFeaturesResources.ChangeTo, "Foa", "Char"),
+                 String.Format(VBFeaturesResources.ChangeTo, "Foa", "Global")})
         End Sub
 
         <Fact, Trait(Traits.Feature, Traits.Features.CodeActionsSpellcheck)>
-        Sub InSimpleAsClause()
+        Public Sub InSimpleAsClause()
             Dim text = <File>Class Foo
     Sub Bar()
         Dim a as [|Foa|]
     End Sub
 End Class</File>
-            TestExactActionSetOffered(text.NormalizedValue, {String.Format(VBFeaturesResources.ChangeTo, "Foa", "Foo"), String.Format(VBFeaturesResources.ChangeTo, "Foa", "Global"), String.Format(VBFeaturesResources.ChangeTo, "Foa", "Char")})
+            TestExactActionSetOffered(text.NormalizedValue,
+                {String.Format(VBFeaturesResources.ChangeTo, "Foa", "Foo"),
+                 String.Format(VBFeaturesResources.ChangeTo, "Foa", "Char"),
+                 String.Format(VBFeaturesResources.ChangeTo, "Foa", "Global")})
         End Sub
 
         <Fact, Trait(Traits.Feature, Traits.Features.CodeActionsSpellcheck)>
-        Sub InFunc()
+        Public Sub InFunc()
             Dim text = <File>Class Foo
     Sub Bar(a as Func(Of [|Foa|]))
     End Sub
 End Class</File>
-            TestExactActionSetOffered(text.NormalizedValue, {String.Format(VBFeaturesResources.ChangeTo, "Foa", "Foo"), String.Format(VBFeaturesResources.ChangeTo, "Foa", "Global"), String.Format(VBFeaturesResources.ChangeTo, "Foa", "Char")})
+            TestExactActionSetOffered(text.NormalizedValue,
+                {String.Format(VBFeaturesResources.ChangeTo, "Foa", "Foo"),
+                String.Format(VBFeaturesResources.ChangeTo, "Foa", "Char"),
+                String.Format(VBFeaturesResources.ChangeTo, "Foa", "Global")})
         End Sub
 
         <Fact, Trait(Traits.Feature, Traits.Features.CodeActionsSpellcheck)>
-        Sub CorrectIdentifier()
+        Public Sub CorrectIdentifier()
             Dim text = <File>Module Program
     Sub Main(args As String())
         Dim zzz = 2
@@ -76,7 +85,7 @@ End Module</File>
 
         <Fact, Trait(Traits.Feature, Traits.Features.CodeActionsSpellcheck)>
         <WorkItem(1065708)>
-        Sub InTypeOfIsExpression()
+        Public Sub InTypeOfIsExpression()
             Dim text = <File>Imports System
 Public Class Class1
     Sub F()
@@ -89,7 +98,7 @@ End Class</File>
 
         <Fact, Trait(Traits.Feature, Traits.Features.CodeActionsSpellcheck)>
         <WorkItem(1065708)>
-        Sub InTypeOfIsNotExpression()
+        Public Sub InTypeOfIsNotExpression()
             Dim text = <File>Imports System
 Public Class Class1
     Sub F()
@@ -101,7 +110,7 @@ End Class</File>
         End Sub
 
         <Fact, Trait(Traits.Feature, Traits.Features.CodeActionsSpellcheck)>
-        Sub InvokeCorrectIdentifier()
+        Public Sub InvokeCorrectIdentifier()
             Dim text = <File>Module Program
     Sub Main(args As String())
         Dim zzz = 2
@@ -120,7 +129,7 @@ End Module</File>
         End Sub
 
         <Fact, Trait(Traits.Feature, Traits.Features.CodeActionsSpellcheck)>
-        Sub AfterDot()
+        Public Sub AfterDot()
             Dim text = <File>Module Program
     Sub Main(args As String())
         Program.[|Mair|]
@@ -137,7 +146,7 @@ End Module</File>
         End Sub
 
         <Fact, Trait(Traits.Feature, Traits.Features.CodeActionsSpellcheck)>
-        Sub NotInaccessibleProperty()
+        Public Sub NotInaccessibleProperty()
             Dim text = <File>Module Program
     Sub Main(args As String())
         Dim z = New c().[|membr|]
@@ -156,7 +165,7 @@ End Class</File>
         End Sub
 
         <Fact, Trait(Traits.Feature, Traits.Features.CodeActionsSpellcheck)>
-        Sub GenericName1()
+        Public Sub GenericName1()
             Dim text = <File>Class Foo(Of T)
     Dim x As [|Foo2(Of T)|]
 End Class</File>
@@ -169,7 +178,7 @@ End Class</File>
         End Sub
 
         <Fact, Trait(Traits.Feature, Traits.Features.CodeActionsSpellcheck)>
-        Sub GenericName2()
+        Public Sub GenericName2()
             Dim text = <File>Class Foo(Of T)
     Dim x As [|Foo2|]
 End Class</File>
@@ -182,7 +191,7 @@ End Class</File>
         End Sub
 
         <Fact, Trait(Traits.Feature, Traits.Features.CodeActionsSpellcheck)>
-        Sub QualifiedName1()
+        Public Sub QualifiedName1()
             Dim text = <File>Module Program
     Dim x As New [|Foo2.Bar|]
 End Module
@@ -207,7 +216,7 @@ End Class</File>
         End Sub
 
         <Fact, Trait(Traits.Feature, Traits.Features.CodeActionsSpellcheck)>
-        Sub QualifiedName2()
+        Public Sub QualifiedName2()
             Dim text = <File>Module Program
     Dim x As New [|Foo.Ba2|]
 End Module
@@ -232,7 +241,7 @@ End Class</File>
         End Sub
 
         <Fact, Trait(Traits.Feature, Traits.Features.CodeActionsSpellcheck)>
-        Sub MiddleOfDottedExpression()
+        Public Sub MiddleOfDottedExpression()
             Dim text = <File>Module Program
     Sub Main(args As String())
         Dim z = New c().[|membr|].ToString()
@@ -266,7 +275,7 @@ End Class</File>
 
         <WorkItem(547161)>
         <Fact, Trait(Traits.Feature, Traits.Features.CodeActionsSpellcheck)>
-        Sub NotForOverloadResolutionFailure()
+        Public Sub NotForOverloadResolutionFailure()
             Dim text = <File>Module Program
     Sub Main(args As String())
 
@@ -285,7 +294,7 @@ End Module</File>
 
         <WorkItem(547169)>
         <Fact, Trait(Traits.Feature, Traits.Features.CodeActionsSpellcheck)>
-        Sub HandlePredefinedTypeKeywordCorrectly()
+        Public Sub HandlePredefinedTypeKeywordCorrectly()
             Dim text = <File>
 Imports System
 Imports System.Collections.Generic
@@ -313,8 +322,8 @@ End Module</File>
         End Sub
 
         <WorkItem(547166)>
-<Fact, Trait(Traits.Feature, Traits.Features.CodeActionsSpellcheck)>
-        Sub KeepEscapedIdentifiersEscaped()
+        <Fact, Trait(Traits.Feature, Traits.Features.CodeActionsSpellcheck)>
+        Public Sub KeepEscapedIdentifiersEscaped()
             Dim text = <File>
 Module Program
     Sub Main(args As String())
@@ -341,8 +350,8 @@ End Module</File>
         End Sub
 
         <WorkItem(547166)>
-<Fact, Trait(Traits.Feature, Traits.Features.CodeActionsSpellcheck)>
-        Sub NoDuplicateCorrections()
+        <Fact, Trait(Traits.Feature, Traits.Features.CodeActionsSpellcheck)>
+        Public Sub NoDuplicateCorrections()
             Dim text = <File>
 Module Program
     Sub Main(args As String())
@@ -370,12 +379,12 @@ End Module</File>
         End Sub
 
         <Fact, Trait(Traits.Feature, Traits.Features.CodeActionsSpellcheck)>
-        Sub SuggestEscapedPredefinedTypes()
+        Public Sub SuggestEscapedPredefinedTypes()
             Dim text = <File>
 Imports System
 Imports System.Collections.Generic
 Imports System.Linq
-                           
+
 Module Program
     Class [Integer]
     End Class
@@ -389,13 +398,13 @@ End Module</File>
 Imports System
 Imports System.Collections.Generic
 Imports System.Linq
-                           
+
 Module Program
     Class [Integer]
     End Class
 
     Sub Main(args As String())
-        Dim x as Integer
+        Dim x as [Integer]
     End Sub
 End Module</File>
 
@@ -403,13 +412,13 @@ End Module</File>
 Imports System
 Imports System.Collections.Generic
 Imports System.Linq
-                           
+
 Module Program
     Class [Integer]
     End Class
 
     Sub Main(args As String())
-        Dim x as [Integer]
+        Dim x as Integer
     End Sub
 End Module</File>
 
@@ -420,7 +429,7 @@ End Module</File>
 
         <WorkItem(775448)>
         <Fact, Trait(Traits.Feature, Traits.Features.CodeActionsSpellcheck)>
-        Sub ShouldTriggerOnBC32045()
+        Public Sub ShouldTriggerOnBC32045()
             ' BC32045: 'A' has no type parameters and so cannot have type arguments.
 
             Dim text = <File>
@@ -467,7 +476,7 @@ index:=0)
 
             Friend Overrides Function CreateDiagnosticProviderAndFixer(workspace As Workspace) As Tuple(Of DiagnosticAnalyzer, CodeFixProvider)
                 Return Tuple.Create(Of DiagnosticAnalyzer, CodeFixProvider)(
-                    New VisualBasicAddImportDiagnosticAnalyzer(),
+                    New VisualBasicUnboundIdentifiersDiagnosticAnalyzer(),
                     New SpellcheckCodeFixProvider())
             End Function
 

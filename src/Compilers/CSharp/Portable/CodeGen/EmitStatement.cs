@@ -264,7 +264,7 @@ namespace Microsoft.CodeAnalysis.CSharp.CodeGen
         };
 
         /// <summary>
-        /// Produces opcode for a jump that corresponds to given opearation and sense.
+        /// Produces opcode for a jump that corresponds to given operation and sense.
         /// Also produces a reverse opcode - opcode for the same condition with inverted sense.
         /// </summary>
         private static ILOpCode CodeForJump(BoundBinaryOperator op, bool sense, out ILOpCode revOpCode)
@@ -418,17 +418,18 @@ namespace Microsoft.CodeAnalysis.CSharp.CodeGen
                     // then it is regular binary expression - Or, And, Xor ...
                     goto default;
 
-                case BoundKind.ConditionalAccess:
+                case BoundKind.LoweredConditionalAccess:
                     {
-                        var ca = (BoundConditionalAccess)condition;
+                        var ca = (BoundLoweredConditionalAccess)condition;
                         var receiver = ca.Receiver;
                         var receiverType = receiver.Type;
 
                         // we need a copy if we deal with nonlocal value (to capture the value)
                         // or if we deal with stack local (reads are destructive)
                         var complexCase = !receiverType.IsReferenceType ||
-                                          LocalRewriter.IntroducingReadCanBeObservable(receiver, localsMayBeAssignedOrCaptured: false) ||
-                                          (receiver.Kind == BoundKind.Local && IsStackLocal(((BoundLocal)receiver).LocalSymbol));
+                                          LocalRewriter.CanChangeValueBetweenReads(receiver, localsMayBeAssignedOrCaptured: false) ||
+                                          (receiver.Kind == BoundKind.Local && IsStackLocal(((BoundLocal)receiver).LocalSymbol)) ||
+                                          (ca.WhenNullOpt?.IsDefaultValue() == false);
 
                         if (complexCase)
                         {
@@ -445,7 +446,7 @@ namespace Microsoft.CodeAnalysis.CSharp.CodeGen
 
                             EmitCondBranch(receiver, ref fallThrough, sense: false);
                             EmitReceiverRef(receiver, isAccessConstrained: false);
-                            EmitCondBranch(ca.AccessExpression, ref dest, sense: true);
+                            EmitCondBranch(ca.WhenNotNull, ref dest, sense: true);
 
                             if (fallThrough != null)
                             {
@@ -458,7 +459,7 @@ namespace Microsoft.CodeAnalysis.CSharp.CodeGen
                             // gotoif(!receiver.Access) labDest
                             EmitCondBranch(receiver, ref dest, sense: false);
                             EmitReceiverRef(receiver, isAccessConstrained: false);
-                            condition = ca.AccessExpression;
+                            condition = ca.WhenNotNull;
                             goto oneMoreTime;
                         }
                     }
@@ -481,7 +482,7 @@ namespace Microsoft.CodeAnalysis.CSharp.CodeGen
                     Debug.Assert((object)operand.Type != null);
                     if (!operand.Type.IsVerifierReference())
                     {
-                        // box the operand for isint if it is not a verifier reference
+                        // box the operand for isinst if it is not a verifier reference
                         EmitBox(operand.Type, operand.Syntax);
                     }
                     _builder.EmitOpCode(ILOpCode.Isinst);
@@ -517,7 +518,9 @@ namespace Microsoft.CodeAnalysis.CSharp.CodeGen
             DefineLocals(sequence);
             EmitSideEffects(sequence);
             EmitCondBranch(sequence.Value, ref dest, sense);
-            FreeLocals(sequence);
+
+            // sequence is used as a value, can release all locals
+            FreeLocals(sequence, doNotRelease: null);
         }
 
         private void EmitLabelStatement(BoundLabelStatement boundLabelStatement)
@@ -609,7 +612,19 @@ namespace Microsoft.CodeAnalysis.CSharp.CodeGen
         // debuggable code. This function is a stub for the logic that decides that.
         private bool ShouldUseIndirectReturn()
         {
-            return _optimizations == OptimizationLevel.Debug || _builder.InExceptionHandler;
+            // If the method/lambda body is a block we define a sequence point for the closing brace of the body
+            // and associate it with the ret instruction. If there is a return statement we need to store the value 
+            // to a long-lived synthesized local since a sequence point requires an empty evaluation stack.
+            //
+            // The emitted pattern is:
+            //   <evaluate return statement expression>
+            //   stloc $ReturnValue
+            //   ldloc  $ReturnValue // sequence point
+            //   ret
+            //
+            // Do not emit this pattern if the method doesn't include user code or doesn't have a block body.
+            return _optimizations == OptimizationLevel.Debug && _method.GenerateDebugInfo && _methodBodySyntaxOpt?.IsKind(SyntaxKind.Block) == true ||
+                   _builder.InExceptionHandler;
         }
 
         // Compiler generated return mapped to a block is very likely the synthetic return
@@ -625,11 +640,13 @@ namespace Microsoft.CodeAnalysis.CSharp.CodeGen
 
         private void EmitReturnStatement(BoundReturnStatement boundReturnStatement)
         {
-            this.EmitExpression(boundReturnStatement.ExpressionOpt, true);
+            var expressionOpt = boundReturnStatement.ExpressionOpt;
+
+            this.EmitExpression(expressionOpt, used: true);
 
             if (ShouldUseIndirectReturn())
             {
-                if (boundReturnStatement.ExpressionOpt != null)
+                if (expressionOpt != null)
                 {
                     _builder.EmitLocalStore(LazyReturnTemp);
                 }
@@ -652,7 +669,7 @@ namespace Microsoft.CodeAnalysis.CSharp.CodeGen
             {
                 if (_indirectReturnState == IndirectReturnState.Needed && CanHandleReturnLabel(boundReturnStatement))
                 {
-                    if (boundReturnStatement.ExpressionOpt != null)
+                    if (expressionOpt != null)
                     {
                         _builder.EmitLocalStore(LazyReturnTemp);
                     }
@@ -661,7 +678,19 @@ namespace Microsoft.CodeAnalysis.CSharp.CodeGen
                 }
                 else
                 {
-                    _builder.EmitRet(boundReturnStatement.ExpressionOpt == null);
+                    if (expressionOpt != null)
+                    {
+                        // Ensure the return type has been translated. (Necessary
+                        // for cases of untranslated anonymous types.)
+                        var returnType = expressionOpt.Type;
+                        var byRefType = returnType as ByRefReturnErrorTypeSymbol;
+                        if ((object)byRefType != null)
+                        {
+                            returnType = byRefType.ReferencedType;
+                        }
+                        _module.Translate(returnType, boundReturnStatement.Syntax, _diagnostics);
+                    }
+                    _builder.EmitRet(expressionOpt == null);
                 }
             }
         }
@@ -782,9 +811,6 @@ namespace Microsoft.CodeAnalysis.CSharp.CodeGen
         {
             object typeCheckFailedLabel = null;
 
-            var exceptionType = ((object)catchBlock.ExceptionTypeOpt != null) ?
-                _module.Translate(catchBlock.ExceptionTypeOpt, catchBlock.Syntax, _diagnostics) :
-                _module.GetSpecialType(SpecialType.System_Object, catchBlock.Syntax, _diagnostics);
 
             _builder.AdjustStack(1); // Account for exception on the stack.
 
@@ -793,6 +819,10 @@ namespace Microsoft.CodeAnalysis.CSharp.CodeGen
             // converts to what we want.
             if (catchBlock.ExceptionFilterOpt == null)
             {
+                var exceptionType = ((object)catchBlock.ExceptionTypeOpt != null) ?
+                    _module.Translate(catchBlock.ExceptionTypeOpt, catchBlock.Syntax, _diagnostics) :
+                    _module.GetSpecialType(SpecialType.System_Object, catchBlock.Syntax, _diagnostics);
+
                 _builder.OpenLocalScope(ScopeType.Catch, exceptionType);
 
                 if (catchBlock.IsSynthesizedAsyncCatchAll)
@@ -837,13 +867,22 @@ namespace Microsoft.CodeAnalysis.CSharp.CodeGen
                 var typeCheckPassedLabel = new object();
                 typeCheckFailedLabel = new object();
 
-                _builder.EmitOpCode(ILOpCode.Isinst);
-                _builder.EmitToken(exceptionType, catchBlock.Syntax, _diagnostics);
-                _builder.EmitOpCode(ILOpCode.Dup);
-                _builder.EmitBranch(ILOpCode.Brtrue, typeCheckPassedLabel);
-                _builder.EmitOpCode(ILOpCode.Pop);
-                _builder.EmitIntConstant(0);
-                _builder.EmitBranch(ILOpCode.Br, typeCheckFailedLabel);
+                if ((object)catchBlock.ExceptionTypeOpt != null)
+                {
+                    var exceptionType = _module.Translate(catchBlock.ExceptionTypeOpt, catchBlock.Syntax, _diagnostics);
+
+                    _builder.EmitOpCode(ILOpCode.Isinst);
+                    _builder.EmitToken(exceptionType, catchBlock.Syntax, _diagnostics);
+                    _builder.EmitOpCode(ILOpCode.Dup);
+                    _builder.EmitBranch(ILOpCode.Brtrue, typeCheckPassedLabel);
+                    _builder.EmitOpCode(ILOpCode.Pop);
+                    _builder.EmitIntConstant(0);
+                    _builder.EmitBranch(ILOpCode.Br, typeCheckFailedLabel);
+                }
+                else
+                {
+                    // no formal exception type means we always pass the check
+                }
 
                 _builder.MarkLabel(typeCheckPassedLabel);
             }
@@ -860,7 +899,7 @@ namespace Microsoft.CodeAnalysis.CSharp.CodeGen
             {
                 // here we have our exception on the stack in a form of a reference type (O)
                 // it means that we have to "unbox" it before storing to the local 
-                // if exception's type is a generic type prameter.
+                // if exception's type is a generic type parameter.
                 if (!exceptionSourceOpt.Type.IsVerifierReference())
                 {
                     Debug.Assert(exceptionSourceOpt.Type.IsTypeParameter()); // only expecting type parameters
@@ -1100,7 +1139,7 @@ namespace Microsoft.CodeAnalysis.CSharp.CodeGen
 
             if (sequence != null)
             {
-                FreeLocals(sequence);
+                FreeLocals(sequence, doNotRelease: null);
             }
         }
 
@@ -1434,7 +1473,7 @@ namespace Microsoft.CodeAnalysis.CSharp.CodeGen
         /// <summary>
         /// Allocates a temp without identity.
         /// </summary>
-        private LocalDefinition AllocateTemp(TypeSymbol type, CSharpSyntaxNode syntaxNode)
+        private LocalDefinition AllocateTemp(TypeSymbol type, SyntaxNode syntaxNode)
         {
             return _builder.LocalSlotManager.AllocateSlot(
                 _module.Translate(type, syntaxNode, _diagnostics),

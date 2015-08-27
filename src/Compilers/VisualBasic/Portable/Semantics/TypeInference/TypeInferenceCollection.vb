@@ -108,7 +108,7 @@ Namespace Microsoft.CodeAnalysis.VisualBasic
             ' e.g. T:{Tiger+, Mammal-, Animal-},
             ' candidate "Tiger":  ID, Widening, Widening  <-- a strict candidate
             ' candidate "Mammal": Widening, ID, Widening  <-- a strict candidate; also the unique widest one
-            ' candidate "Animal": Widening, Narowing, ID  <-- an unstrict candidate
+            ' candidate "Animal": Widening, Narrowing, ID  <-- an unstrict candidate
             ' 
             resultList.Clear()
 
@@ -294,7 +294,7 @@ Namespace Microsoft.CodeAnalysis.VisualBasic
                 If lastNonArrayLiteral > -1 Then
                     resultList.Clip(lastNonArrayLiteral + 1)
                 Else
-                    ' All candidates are array literals convertable to each other,
+                    ' All candidates are array literals convertible to each other,
                     ' Let's infer element type across all of them.
 
                     ' Trivial case - all types are the same
@@ -446,7 +446,7 @@ Namespace Microsoft.CodeAnalysis.VisualBasic
                     conversion = Conversions.ClassifyConversion(arrayLiteral, candidate, arrayLiteral.Binder, useSiteDiagnostics).Key
                     If Conversions.IsWideningConversion(conversion) Then
                         If IsSameTypeIgnoringCustomModifiers(arrayLiteralType, candidate) Then
-                            ' ClassifyConversion returns widening for identity.  For hint satisafaction it should be promoted to Identity
+                            ' ClassifyConversion returns widening for identity.  For hint satisfaction it should be promoted to Identity
                             conversion = ConversionKind.Identity
                         ElseIf (conversion And ConversionKind.InvolvesNarrowingFromNumericConstant) <> 0 Then
                             ' ClassifyConversion returns Widening with InvolvesNarrowingFromNumericConstant for {1L, 2L} and {1, 2}.

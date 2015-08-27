@@ -467,7 +467,7 @@ namespace Microsoft.CodeAnalysis {
         }
         
         /// <summary>
-        ///   Looks up a localized string similar to Destination type must be a {0}..
+        ///   Looks up a localized string similar to Destination type must be a {0}, but given one is {1}..
         /// </summary>
         internal static string InvalidDestinationNode {
             get {
@@ -476,7 +476,7 @@ namespace Microsoft.CodeAnalysis {
         }
         
         /// <summary>
-        ///   Looks up a localized string similar to Destination type must be a {0} or a {1}..
+        ///   Looks up a localized string similar to Destination type must be a {0} or a {1}, but given one is {2}..
         /// </summary>
         internal static string InvalidDestinationNode2 {
             get {
@@ -485,7 +485,7 @@ namespace Microsoft.CodeAnalysis {
         }
         
         /// <summary>
-        ///   Looks up a localized string similar to Destination type must be a {0}, {1} or {2}..
+        ///   Looks up a localized string similar to Destination type must be a {0}, {1} or {2}, but given one is {3}..
         /// </summary>
         internal static string InvalidDestinationNode3 {
             get {
@@ -868,15 +868,6 @@ namespace Microsoft.CodeAnalysis {
         internal static string RemovedHeader {
             get {
                 return ResourceManager.GetString("RemovedHeader", resourceCulture);
-            }
-        }
-        
-        /// <summary>
-        ///   Looks up a localized string similar to Remove Unnecessary Imports/Usings..
-        /// </summary>
-        internal static string RemoveUnnecessaryImportsOrUsings {
-            get {
-                return ResourceManager.GetString("RemoveUnnecessaryImportsOrUsings", resourceCulture);
             }
         }
         

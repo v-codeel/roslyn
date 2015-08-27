@@ -293,7 +293,12 @@ Namespace Microsoft.CodeAnalysis.VisualBasic.Symbols
         ''' !!! Only code implementing construction of generic types is allowed to call this method !!!
         ''' !!! All other code should use Construct methods.                                        !!! 
         ''' </summary>
-        Friend MustOverride Function InternalSubstituteTypeParameters(substitution As TypeSubstitution) As TypeSymbol
+        Friend MustOverride Function InternalSubstituteTypeParameters(substitution As TypeSubstitution) As TypeWithModifiers
+
+        <Obsolete("Use TypeWithModifiers.Is method.", True)>
+        Friend Overloads Function Equals(other As TypeWithModifiers) As Boolean
+            Return other.Is(Me)
+        End Function
 
         ''' <summary>
         ''' Lookup an immediately nested type referenced from metadata, names should be
@@ -429,7 +434,7 @@ Done:
             End Get
         End Property
 
-        Private ReadOnly Property IypeSymbol_BaseType As INamedTypeSymbol Implements ITypeSymbol.BaseType
+        Private ReadOnly Property ITypeSymbol_BaseType As INamedTypeSymbol Implements ITypeSymbol.BaseType
             Get
                 Return Me.BaseTypeNoUseSiteDiagnostics
             End Get
@@ -470,7 +475,7 @@ Done:
         Public Function FindImplementationForInterfaceMember(interfaceMember As Symbol) As Symbol
             ' This layer handles caching, ComputeImplementationForInterfaceMember does the work.
             If interfaceMember Is Nothing Then
-                Throw New ArgumentNullException("interfaceMember")
+                Throw New ArgumentNullException(NameOf(interfaceMember))
             End If
 
             If Not interfaceMember.ContainingType.IsInterfaceType() OrElse

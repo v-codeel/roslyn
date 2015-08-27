@@ -6,7 +6,6 @@ using System.Diagnostics;
 using System.Text;
 using Microsoft.CodeAnalysis.Collections;
 using Microsoft.CodeAnalysis.ExpressionEvaluator;
-using Microsoft.VisualStudio.Debugger.Evaluation.ClrCompilation;
 using Roslyn.Utilities;
 using Type = Microsoft.VisualStudio.Debugger.Metadata.Type;
 
@@ -18,9 +17,12 @@ namespace Microsoft.CodeAnalysis.CSharp.ExpressionEvaluator
         {
             if (typeToDisplayOpt != null)
             {
-                AppendQualifiedTypeName(builder, typeToDisplayOpt, escapeKeywordIdentifiers: true);
+                // We're showing the type of a value, so "dynamic" does not apply.
+                bool unused;
+                int index = 0;
+                AppendQualifiedTypeName(builder, typeToDisplayOpt, default(DynamicFlagsCustomTypeInfo), ref index, escapeKeywordIdentifiers: true, sawInvalidIdentifier: out unused);
                 builder.Append('.');
-                AppendIdentifierEscapingPotentialKeywords(builder, name);
+                AppendIdentifierEscapingPotentialKeywords(builder, name, sawInvalidIdentifier: out unused);
             }
             else
             {
@@ -44,7 +46,9 @@ namespace Microsoft.CodeAnalysis.CSharp.ExpressionEvaluator
             var builder = pooled.Builder;
             builder.Append('{');
 
-            builder.Append(GetTypeName(lmrType)); // NOTE: call our impl directly, since we're coupled anyway.
+            // We're showing the type of a value, so "dynamic" does not apply.
+            bool unused;
+            builder.Append(GetTypeName(new TypeAndCustomInfo(lmrType), escapeKeywordIdentifiers: false, sawInvalidIdentifier: out unused)); // NOTE: call our impl directly, since we're coupled anyway.
 
             var numSizes = sizes.Count;
 

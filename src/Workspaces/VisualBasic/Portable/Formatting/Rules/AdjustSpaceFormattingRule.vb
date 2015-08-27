@@ -197,64 +197,26 @@ Namespace Microsoft.CodeAnalysis.VisualBasic.Formatting
                 Return CreateAdjustSpacesOperation(1, AdjustSpacesOption.ForceSpacesIfOnSingleLine)
             End If
 
-
             ' ? . [conditional access operator]
             If previousToken.Kind = SyntaxKind.QuestionToken AndAlso currentToken.Kind = SyntaxKind.DotToken AndAlso
-                previousToken.Parent.IsKind(SyntaxKind.ConditionalAccessExpression) Then
+               previousToken.Parent.IsKind(SyntaxKind.ConditionalAccessExpression) Then
                 Return CreateAdjustSpacesOperation(0, AdjustSpacesOption.ForceSpacesIfOnSingleLine)
             End If
 
-            ' identifier ? [conditional access operator]
-            If previousToken.Kind = SyntaxKind.IdentifierToken AndAlso currentToken.Kind = SyntaxKind.QuestionToken AndAlso
-                    currentToken.Parent.Kind = SyntaxKind.ConditionalAccessExpression Then
-
-                Return CreateAdjustSpacesOperation(0, AdjustSpacesOption.ForceSpacesIfOnSingleLine)
-            End If
-
-            ' Me ? [conditional access operator]
-            If previousToken.Kind = SyntaxKind.MeKeyword AndAlso currentToken.Kind = SyntaxKind.QuestionToken AndAlso
-                    currentToken.Parent.Kind = SyntaxKind.ConditionalAccessExpression Then
-
-                Return CreateAdjustSpacesOperation(0, AdjustSpacesOption.ForceSpacesIfOnSingleLine)
-            End If
-
-            ' MyBase ? [conditional access operator]
-            If previousToken.Kind = SyntaxKind.MyBaseKeyword AndAlso currentToken.Kind = SyntaxKind.QuestionToken AndAlso
-                    currentToken.Parent.Kind = SyntaxKind.ConditionalAccessExpression Then
-
-                Return CreateAdjustSpacesOperation(0, AdjustSpacesOption.ForceSpacesIfOnSingleLine)
-            End If
-
-            ' MyClass ? [conditional access operator]
-            If previousToken.Kind = SyntaxKind.MyClassExpression AndAlso currentToken.Kind = SyntaxKind.QuestionToken AndAlso
-                    currentToken.Parent.Kind = SyntaxKind.ConditionalAccessExpression Then
-
-                Return CreateAdjustSpacesOperation(0, AdjustSpacesOption.ForceSpacesIfOnSingleLine)
-            End If
-
-            ' } ? [conditional access operator after initializer]
-            If previousToken.Kind = SyntaxKind.CloseBraceToken AndAlso currentToken.Kind = SyntaxKind.QuestionToken AndAlso
-                    currentToken.Parent.Kind = SyntaxKind.ConditionalAccessExpression Then
-
-                Return CreateAdjustSpacesOperation(0, AdjustSpacesOption.ForceSpacesIfOnSingleLine)
-            End If
-
-            ' " ? [conditional access operator after string literal]
-            If previousToken.Kind = SyntaxKind.StringLiteralToken AndAlso currentToken.Kind = SyntaxKind.QuestionToken AndAlso
-                    currentToken.Parent.Kind = SyntaxKind.ConditionalAccessExpression Then
-
-                Return CreateAdjustSpacesOperation(0, AdjustSpacesOption.ForceSpacesIfOnSingleLine)
-            End If
-
-            ' ) ? [conditional access off invocation]
-            If previousToken.Kind = SyntaxKind.CloseParenToken AndAlso currentToken.Kind = SyntaxKind.QuestionToken AndAlso
-                    currentToken.Parent.Kind = SyntaxKind.ConditionalAccessExpression Then
-
+            ' * ?
+            If currentToken.Kind = SyntaxKind.QuestionToken AndAlso
+               currentToken.Parent.Kind = SyntaxKind.ConditionalAccessExpression Then
                 Return CreateAdjustSpacesOperation(0, AdjustSpacesOption.ForceSpacesIfOnSingleLine)
             End If
 
             ' * [member access dot without expression]
             If previousToken.Kind <> SyntaxKind.OpenParenToken AndAlso FormattingHelpers.IsMemberAccessDotWithoutExpression(currentToken) Then
+
+                ' label:     .X
+                If previousToken.Kind = SyntaxKind.ColonToken AndAlso TypeOf previousToken.Parent Is LabelStatementSyntax Then
+                    Return FormattingOperations.CreateAdjustSpacesOperation(1, AdjustSpacesOption.DynamicSpaceToIndentationIfOnSingleLine)
+                End If
+
                 Return CreateAdjustSpacesOperation(1, AdjustSpacesOption.ForceSpacesIfOnSingleLine)
             End If
 
@@ -303,7 +265,7 @@ Namespace Microsoft.CodeAnalysis.VisualBasic.Formatting
 
                 Case SyntaxKind.DotToken
                     Dim space = If(previousToken.Kind = SyntaxKind.CallKeyword OrElse
-                                   previousToken.Kind = SyntaxKind.KeyKeyword, 1, 0)
+                               previousToken.Kind = SyntaxKind.KeyKeyword, 1, 0)
                     Return CreateAdjustSpacesOperation(space, AdjustSpacesOption.ForceSpacesIfOnSingleLine)
             End Select
 

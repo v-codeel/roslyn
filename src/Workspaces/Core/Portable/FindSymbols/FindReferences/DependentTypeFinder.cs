@@ -59,7 +59,7 @@ namespace Microsoft.CodeAnalysis.FindSymbols
         /// A predicate for determining if one interface derives from another. Static to avoid unnecessary allocations.
         /// </summary>
         private static readonly Func<INamedTypeSymbol, INamedTypeSymbol, bool> s_findDerivedInterfacesPredicate =
-            (t1, t2) => t1.TypeKind == TypeKind.Interface && t1.OriginalDefinition.AllInterfaces.Distinct(SymbolEquivalenceComparer.Instance).Contains(t2);
+            (t1, t2) => t1.TypeKind == TypeKind.Interface && t1.OriginalDefinition.AllInterfaces.Contains(t2);
 
         /// <summary>
         /// For a given <see cref="Compilation"/>, maps from an interface (from the compilation or one of its dependencies)
@@ -160,6 +160,45 @@ namespace Microsoft.CodeAnalysis.FindSymbols
                     projects,
                     s_findImplementingInterfacesPredicate,
                     s_implementingInterfacesCache,
+                    cancellationToken);
+            }
+
+            return SpecializedTasks.EmptyEnumerable<INamedTypeSymbol>();
+        }
+
+        public static Task<IEnumerable<INamedTypeSymbol>> GetTypesImmediatelyDerivedFromClassesAsync(
+            INamedTypeSymbol type,
+            Solution solution,
+            CancellationToken cancellationToken)
+        {
+            if (type != null && type.TypeKind == TypeKind.Class)
+            {
+                return GetDependentTypesAsync(
+                    type,
+                    solution,
+                    null,
+                    (t1, t2) => t1.BaseType == t2,
+                    s_derivedClassesCache,
+                    cancellationToken);
+            }
+
+            return SpecializedTasks.EmptyEnumerable<INamedTypeSymbol>();
+        }
+
+        public static Task<IEnumerable<INamedTypeSymbol>> GetTypesImmediatelyDerivedFromInterfacesAsync(
+            INamedTypeSymbol type,
+            Solution solution,
+            CancellationToken cancellationToken)
+        {
+            if (type != null && type.TypeKind == TypeKind.Interface)
+            {
+                type = type.OriginalDefinition;
+                return GetDependentTypesAsync(
+                    type,
+                    solution,
+                    null,
+                    (i1, i2) => i1.Interfaces.Contains(i2),
+                    s_derivedInterfacesCache,
                     cancellationToken);
             }
 

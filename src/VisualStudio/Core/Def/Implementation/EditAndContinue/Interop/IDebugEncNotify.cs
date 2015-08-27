@@ -14,7 +14,7 @@ namespace Microsoft.VisualStudio.LanguageServices.Implementation.EditAndContinue
         // is not available as soon as it can be determined rather than waiting for a call from the package.
         void __NotifyEncIsUnavailable(/*EncUnavailableReason reason,bool fEditWasApplied*/);
 
-        // This method allows the Lang Serice to Notify the package that the Current Statement 
+        // This method allows the Lang Service to Notify the package that the Current Statement 
         // must be updated due to an edit.
         void NotifyEncUpdateCurrentStatement();
 
@@ -23,7 +23,7 @@ namespace Microsoft.VisualStudio.LanguageServices.Implementation.EditAndContinue
         void NotifyEncEditAttemptedAtInvalidStopState();
 
         // This allows the Lang Service or project to tell the package that it prevented
-        // an edit from occuring.
+        // an edit from occurring.
         // The package is responsible for asking the ENC manager why ENC would not be 
         // allowed at this point.
         void NotifyEncEditDisallowedByProject([MarshalAs(UnmanagedType.IUnknown)]object pProject);

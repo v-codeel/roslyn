@@ -15,8 +15,8 @@ namespace Microsoft.VisualStudio.LanguageServices.Implementation.Options
         private bool _isChecked;
         private string _groupName;
 
-        public string Description { get; private set; }
-        public string GroupName { get; private set; }
+        public string Description { get; }
+        public string GroupName { get; }
 
         public bool IsChecked
         {
@@ -28,7 +28,11 @@ namespace Microsoft.VisualStudio.LanguageServices.Implementation.Options
             set
             {
                 SetProperty(ref _isChecked, value);
-                SetOptionAndUpdatePreview(_info, Preview);
+
+                if (_isChecked)
+                {
+                    SetOptionAndUpdatePreview(_info, Preview);
+                }
             }
         }
 

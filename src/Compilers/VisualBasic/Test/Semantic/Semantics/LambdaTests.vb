@@ -445,7 +445,7 @@ Class Test1
 
     End Sub
 
-    Sub NotAConstrucstor()
+    Sub NotAConstructor()
         PassByRef(x)
 
         Dim y1 As System.Action(Of Integer) = Sub(v)
@@ -509,7 +509,7 @@ Class Test3
 
     End Sub
 
-    Sub NotAConstrucstor()
+    Sub NotAConstructor()
         PassByRef(x)
 
         Dim y1 As System.Action(Of Integer) = Sub(v)
@@ -1755,7 +1755,7 @@ End Module
         End Sub
 
         <Fact>
-        Public Sub FunctionValueOfLamdbdaDoesNotHavaAName()
+        Public Sub FunctionValueOfLambdaDoesNotHaveAName()
 
             Dim compilationDef =
 <compilation>

@@ -9,14 +9,12 @@ using System.Threading;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Extensions;
-using Microsoft.CodeAnalysis.CSharp.Rename;
+using Microsoft.CodeAnalysis.CSharp.Extensions.ContextQuery;
 using Microsoft.CodeAnalysis.CSharp.Symbols;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.CodeAnalysis.CSharp.Utilities;
-using Microsoft.CodeAnalysis.Rename.ConflictEngine;
 using Microsoft.CodeAnalysis.Shared.Extensions;
 using Microsoft.CodeAnalysis.Simplification;
-using Roslyn.Utilities;
 
 namespace Microsoft.CodeAnalysis.CSharp.Simplification
 {
@@ -52,7 +50,7 @@ namespace Microsoft.CodeAnalysis.CSharp.Simplification
             private readonly Func<SyntaxNode, bool> _expandInsideNode;
             private readonly CancellationToken _cancellationToken;
             private readonly SyntaxAnnotation _annotationForReplacedAliasIdentifier;
-            private bool _expandParameter;
+            private readonly bool _expandParameter;
 
             public Expander(
                 SemanticModel semanticModel,
@@ -161,10 +159,10 @@ namespace Microsoft.CodeAnalysis.CSharp.Simplification
                 {
                     var specAnalyzer = new SpeculationAnalyzer(node.Expression, newArgument.Expression, _semanticModel, _cancellationToken);
                     var speculativeSemanticModel = specAnalyzer.SpeculativeSemanticModel;
-                    var speculatedExpession = specAnalyzer.ReplacedExpression;
+                    var speculatedExpression = specAnalyzer.ReplacedExpression;
 
                     bool wasCastAdded;
-                    var newArgumentExpression = speculatedExpession.CastIfPossible(argumentType, speculatedExpession.SpanStart, speculativeSemanticModel, out wasCastAdded);
+                    var newArgumentExpression = speculatedExpression.CastIfPossible(argumentType, speculatedExpression.SpanStart, speculativeSemanticModel, out wasCastAdded);
                     if (wasCastAdded)
                     {
                         return newArgument.WithExpression(newArgumentExpression);
@@ -380,6 +378,30 @@ namespace Microsoft.CodeAnalysis.CSharp.Simplification
                             return replacement;
                         }
 
+                        if (replacement.IsKind(SyntaxKind.IdentifierName))
+                        {
+                            var identifierReplacement = (IdentifierNameSyntax)replacement;
+
+                            var newIdentifier = identifier.CopyAnnotationsTo(identifierReplacement.Identifier);
+
+                            if (_annotationForReplacedAliasIdentifier != null)
+                            {
+                                newIdentifier = newIdentifier.WithAdditionalAnnotations(_annotationForReplacedAliasIdentifier);
+                            }
+
+                            var aliasAnnotationInfo = AliasAnnotation.Create(aliasInfo.Name);
+
+                            newIdentifier = newIdentifier.WithAdditionalAnnotations(aliasAnnotationInfo);
+
+                            replacement = replacement.ReplaceToken(identifier, newIdentifier);
+
+                            replacement = newNode.CopyAnnotationsTo(replacement);
+
+                            replacement = AppendElasticTriviaIfNecessary(replacement, originalSimpleName);
+
+                            return replacement;
+                        }
+
                         throw new NotImplementedException();
                     }
                 }
@@ -425,7 +447,7 @@ namespace Microsoft.CodeAnalysis.CSharp.Simplification
                 ////
                 if (originalSimpleName.GetAncestor<AttributeSyntax>() != null)
                 {
-                    if (symbol.IsConstructor() && symbol.ContainingType.IsAttribute())
+                    if (symbol.IsConstructor() && symbol.ContainingType?.IsAttribute() == true)
                     {
                         symbol = symbol.ContainingType;
                         var name = symbol.Name;
@@ -507,7 +529,9 @@ namespace Microsoft.CodeAnalysis.CSharp.Simplification
                     symbol.Kind == SymbolKind.Field ||
                     symbol.Kind == SymbolKind.Property)
                 {
-                    if (symbol.IsStatic || originalSimpleName.IsParentKind(SyntaxKind.NameMemberCref))
+                    if (symbol.IsStatic ||
+                        originalSimpleName.IsParentKind(SyntaxKind.NameMemberCref) ||
+                        _semanticModel.SyntaxTree.IsNameOfContext(originalSimpleName.SpanStart, _semanticModel, _cancellationToken))
                     {
                         newNode = FullyQualifyIdentifierName(
                             symbol,
@@ -559,9 +583,8 @@ namespace Microsoft.CodeAnalysis.CSharp.Simplification
                     var leftTokens = expression.DescendantTokens();
                     List<SyntaxToken> candidateTokens = new List<SyntaxToken>();
 
-                    for (int i = 0; i < leftTokens.Count(); ++i)
+                    foreach (var candidateToken in leftTokens)
                     {
-                        var candidateToken = leftTokens.ElementAt(i);
                         if (candidateToken.Kind() == SyntaxKind.LessThanToken || candidateToken.Kind() == SyntaxKind.GreaterThanToken)
                         {
                             candidateTokens.Add(candidateToken);
@@ -763,7 +786,7 @@ namespace Microsoft.CodeAnalysis.CSharp.Simplification
 
                     displayParts = replaceNode
                         ? symbol.ToDisplayParts(s_typeNameFormatWithGenerics)
-                        : ((ISymbol)symbol.ContainingType ?? (ISymbol)symbol.ContainingNamespace).ToDisplayParts(s_typeNameFormatWithGenerics);
+                        : (symbol.ContainingType ?? (ISymbol)symbol.ContainingNamespace).ToDisplayParts(s_typeNameFormatWithGenerics);
 
                     rewrittenNode = TryAddTypeArgumentToIdentifierName(rewrittenNode, symbol);
 
@@ -886,12 +909,12 @@ namespace Microsoft.CodeAnalysis.CSharp.Simplification
             public override SyntaxNode VisitInvocationExpression(InvocationExpressionSyntax originalNode)
             {
                 var rewrittenNode = (InvocationExpressionSyntax)base.VisitInvocationExpression(originalNode);
-                if (originalNode.Expression.Kind() == SyntaxKind.SimpleMemberAccessExpression)
+                if (originalNode.Expression.IsKind(SyntaxKind.SimpleMemberAccessExpression))
                 {
                     var memberAccess = (MemberAccessExpressionSyntax)originalNode.Expression;
                     var targetSymbol = SimplificationHelpers.GetOriginalSymbolInfo(_semanticModel, memberAccess.Name);
 
-                    if (targetSymbol != null && targetSymbol.IsReducedExtension())
+                    if (targetSymbol != null && targetSymbol.IsReducedExtension() && memberAccess.Expression != null)
                     {
                         rewrittenNode = RewriteExtensionMethodInvocation(originalNode, rewrittenNode, ((MemberAccessExpressionSyntax)rewrittenNode.Expression).Expression, (IMethodSymbol)targetSymbol);
                     }
@@ -906,6 +929,15 @@ namespace Microsoft.CodeAnalysis.CSharp.Simplification
                 ExpressionSyntax thisExpression,
                 IMethodSymbol reducedExtensionMethod)
             {
+                var originalMemberAccess = (MemberAccessExpressionSyntax)originalNode.Expression;
+                if (originalMemberAccess.GetParentConditionalAccessExpression() != null)
+                {
+                    // Bail out on extension method invocations in conditional access expression.
+                    // Note that this is a temporary workaround for https://github.com/dotnet/roslyn/issues/2593.
+                    // Issue https://github.com/dotnet/roslyn/issues/3260 tracks fixing this workaround.
+                    return rewrittenNode;
+                }
+
                 var expression = RewriteExtensionMethodInvocation(rewrittenNode, thisExpression, reducedExtensionMethod, s_typeNameFormatWithoutGenerics);
 
                 // Let's rebind this and verify the original method is being called properly

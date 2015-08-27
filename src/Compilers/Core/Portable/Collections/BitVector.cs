@@ -12,7 +12,7 @@ namespace Microsoft.CodeAnalysis
     {
         // Cannot expose the following two field publicly because this structure is mutable
         // and might become not null/empty, unless we restrict access to it.
-        private static Word[] s_emptyArray = SpecializedCollections.EmptyArray<Word>();
+        private static readonly Word[] s_emptyArray = SpecializedCollections.EmptyArray<Word>();
         private static readonly BitVector s_nullValue = new BitVector(0, null, 0);
         private static readonly BitVector s_emptyValue = new BitVector(0, s_emptyArray, 0);
 
@@ -188,7 +188,7 @@ namespace Microsoft.CodeAnalysis
         }
 
         /// <summary>
-        /// Maky a copy of a bit array.
+        /// Make a copy of a bit array.
         /// </summary>
         /// <returns></returns>
         public BitVector Clone()

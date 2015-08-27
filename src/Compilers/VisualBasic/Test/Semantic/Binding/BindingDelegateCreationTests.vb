@@ -186,7 +186,7 @@ Module Program
 End Module
     </file>
 </compilation>
-            Dim ref = MetadataReference.CreateFromImage(TestResources.SymbolsTests.General.DelegatesWithoutInvoke.AsImmutableOrNull())
+            Dim ref = MetadataReference.CreateFromImage(TestResources.General.DelegatesWithoutInvoke.AsImmutableOrNull())
             Dim c1 = CompilationUtils.CreateCompilationWithMscorlibAndVBRuntime(source, {ref}, TestOptions.ReleaseExe)
             CompilationUtils.AssertTheseDiagnostics(c1,
 <errors>
@@ -721,10 +721,10 @@ BC36663: Option Strict On does not allow narrowing in implicit type conversions 
         End Sub
 
         <Fact>
-        Public Sub NoZeroArgumentRelaxationIfAmbigousMatchesExist()
+        Public Sub NoZeroArgumentRelaxationIfAmbiguousMatchesExist()
             For Each optionValue In {"Off"}
                 Dim source =
-    <compilation name="NoZeroArgumentRelaxationIfAmbigousMatchesExist">
+    <compilation>
         <file name="a.vb">
 Option strict <%= optionValue %>    
 Imports System
@@ -836,7 +836,7 @@ End Module
     </file>
     </compilation>
 
-                Dim ref = MetadataReference.CreateFromImage(TestResources.SymbolsTests.General.DelegateByRefParamArray.AsImmutableOrNull())
+                Dim ref = MetadataReference.CreateFromImage(TestResources.General.DelegateByRefParamArray.AsImmutableOrNull())
 
                 Dim c1 = CompilationUtils.CreateCompilationWithMscorlibAndVBRuntime(source, {ref}, TestOptions.ReleaseExe)
                 AssertTheseDiagnostics(c1,
@@ -1244,7 +1244,7 @@ End Class
         End Sub
 
         <Fact, WorkItem(17302)>
-        Sub InvalidDelegateRelaxationForSharednessMismatch()
+        Public Sub InvalidDelegateRelaxationForSharednessMismatch()
             Dim compilationDef = <compilation>
                                      <file name="a.vb"><![CDATA[
 Option Strict On
@@ -1273,7 +1273,7 @@ End Module
         End Sub
 
         <Fact, WorkItem(17302)>
-        Sub InvalidDelegateRelaxationForSharednessMismatch_2()
+        Public Sub InvalidDelegateRelaxationForSharednessMismatch_2()
             Dim compilationDef = <compilation>
                                      <file name="a.vb"><![CDATA[
 Option Strict On
@@ -1315,7 +1315,7 @@ BC30518: Overload resolution failed because no accessible 'Foo' can be called wi
         End Sub
 
         <Fact, WorkItem(17302)>
-        Sub InvalidDelegateRelaxationForMyClassMismatch()
+        Public Sub InvalidDelegateRelaxationForMyClassMismatch()
             Dim compilationDef = <compilation>
                                      <file name="a.vb"><![CDATA[
 Option Strict On

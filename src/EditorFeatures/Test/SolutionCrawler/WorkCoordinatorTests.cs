@@ -2,7 +2,7 @@
 
 using System;
 using System.Collections.Generic;
-using System.ComponentModel.Composition;
+using System.Composition;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -190,6 +190,40 @@ namespace Microsoft.CodeAnalysis.Editor.UnitTests.SolutionCrawler
                 var worker = ExecuteOperation(workspace, w => w.ChangeProject(project.Id, solution));
                 Assert.Equal(0, worker.SyntaxDocumentIds.Count);
                 Assert.Equal(1, worker.InvalidateDocumentIds.Count);
+            }
+        }
+
+        [Fact]
+        public void Project_AssemblyName_Change()
+        {
+            using (var workspace = new TestWorkspace(TestExportProvider.CreateExportProviderWithCSharpAndVisualBasic(), SolutionCrawler))
+            {
+                var solutionInfo = GetInitialSolutionInfo(workspace);
+                workspace.OnSolutionAdded(solutionInfo);
+                WaitWaiter(workspace.ExportProvider);
+
+                var project = workspace.CurrentSolution.Projects.First(p => p.Name == "P1").WithAssemblyName("newName");
+                var worker = ExecuteOperation(workspace, w => w.ChangeProject(project.Id, project.Solution));
+
+                Assert.Equal(5, worker.SyntaxDocumentIds.Count);
+                Assert.Equal(5, worker.DocumentIds.Count);
+            }
+        }
+
+        [Fact]
+        public void Project_AnalyzerOptions_Change()
+        {
+            using (var workspace = new TestWorkspace(TestExportProvider.CreateExportProviderWithCSharpAndVisualBasic(), SolutionCrawler))
+            {
+                var solutionInfo = GetInitialSolutionInfo(workspace);
+                workspace.OnSolutionAdded(solutionInfo);
+                WaitWaiter(workspace.ExportProvider);
+
+                var project = workspace.CurrentSolution.Projects.First(p => p.Name == "P1").AddAdditionalDocument("a1", SourceText.From("")).Project;
+                var worker = ExecuteOperation(workspace, w => w.ChangeProject(project.Id, project.Solution));
+
+                Assert.Equal(5, worker.SyntaxDocumentIds.Count);
+                Assert.Equal(5, worker.DocumentIds.Count);
             }
         }
 
@@ -808,8 +842,8 @@ End Class";
 
         private void WaitWaiter(ExportProvider provider)
         {
-            var workspasceWaiter = GetListeners(provider).First(l => l.Metadata.FeatureName == FeatureAttribute.Workspace).Value as IAsynchronousOperationWaiter;
-            workspasceWaiter.CreateWaitTask().PumpingWait();
+            var workspaceWaiter = GetListeners(provider).First(l => l.Metadata.FeatureName == FeatureAttribute.Workspace).Value as IAsynchronousOperationWaiter;
+            workspaceWaiter.CreateWaitTask().PumpingWait();
 
             var solutionCrawlerWaiter = GetListeners(provider).First(l => l.Metadata.FeatureName == FeatureAttribute.SolutionCrawler).Value as IAsynchronousOperationWaiter;
             solutionCrawlerWaiter.CreateWaitTask().PumpingWait();
@@ -878,11 +912,13 @@ End Class";
             return provider.GetExports<IAsynchronousOperationListener, FeatureMetadata>();
         }
 
+        [Shared]
         [Export(typeof(IAsynchronousOperationListener))]
         [Export(typeof(IAsynchronousOperationWaiter))]
         [Feature(FeatureAttribute.SolutionCrawler)]
         private class SolutionCrawlerWaiter : AsynchronousOperationListener { }
 
+        [Shared]
         [Export(typeof(IAsynchronousOperationListener))]
         [Export(typeof(IAsynchronousOperationWaiter))]
         [Feature(FeatureAttribute.Workspace)]
@@ -1000,6 +1036,11 @@ End Class";
                 return SpecializedTasks.EmptyTask;
             }
 
+            public Task DocumentCloseAsync(Document document, CancellationToken cancellationToken)
+            {
+                return SpecializedTasks.EmptyTask;
+            }
+
             public Task DocumentResetAsync(Document document, CancellationToken cancellationToken)
             {
                 return SpecializedTasks.EmptyTask;
@@ -1017,9 +1058,9 @@ End Class";
         {
             var sb = new StringBuilder();
 
-            var workspasceWaiter = GetListeners(provider).First(l => l.Metadata.FeatureName == FeatureAttribute.Workspace).Value as TestAsynchronousOperationListener;
+            var workspaceWaiter = GetListeners(provider).First(l => l.Metadata.FeatureName == FeatureAttribute.Workspace).Value as TestAsynchronousOperationListener;
             sb.AppendLine("workspace");
-            sb.AppendLine(workspasceWaiter.Trace());
+            sb.AppendLine(workspaceWaiter.Trace());
 
             var solutionCrawlerWaiter = GetListeners(provider).First(l => l.Metadata.FeatureName == FeatureAttribute.SolutionCrawler).Value as TestAsynchronousOperationListener;
             sb.AppendLine("solutionCrawler");

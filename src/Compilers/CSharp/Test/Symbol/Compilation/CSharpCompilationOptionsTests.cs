@@ -81,7 +81,7 @@ namespace Microsoft.CodeAnalysis.CSharp.UnitTests
             TestProperty((old, value) => old.WithExtendedCustomDebugInformation(value), opt => opt.ExtendedCustomDebugInformation, false);
 
             TestProperty((old, value) => old.WithXmlReferenceResolver(value), opt => opt.XmlReferenceResolver, new XmlFileResolver(null));
-            TestProperty((old, value) => old.WithMetadataReferenceResolver(value), opt => opt.MetadataReferenceResolver, new AssemblyReferenceResolver(new MetadataFileReferenceResolver(new string[0], null), new MetadataFileReferenceProvider()));
+            TestProperty((old, value) => old.WithMetadataReferenceResolver(value), opt => opt.MetadataReferenceResolver, new AssemblyReferenceResolver(MetadataFileReferenceResolver.Default, new MetadataFileReferenceProvider()));
             TestProperty((old, value) => old.WithAssemblyIdentityComparer(value), opt => opt.AssemblyIdentityComparer, new DesktopAssemblyIdentityComparer(new AssemblyPortabilityPolicy()));
             TestProperty((old, value) => old.WithStrongNameProvider(value), opt => opt.StrongNameProvider, new DesktopStrongNameProvider());
         }
@@ -347,46 +347,15 @@ namespace Microsoft.CodeAnalysis.CSharp.UnitTests
             bool extendedCustomDebugInformation = true;
             XmlReferenceResolver xmlReferenceResolver = new XmlFileResolver(null);
             SourceReferenceResolver sourceReferenceResolver = new SourceFileResolver(ImmutableArray<string>.Empty, null);
-            MetadataReferenceResolver metadataReferenceResolver = new AssemblyReferenceResolver(new MetadataFileReferenceResolver(ImmutableArray<string>.Empty, null), MetadataFileReferenceProvider.Default);
+            MetadataReferenceResolver metadataReferenceResolver = new AssemblyReferenceResolver(MetadataFileReferenceResolver.Default, MetadataFileReferenceProvider.Default);
             AssemblyIdentityComparer assemblyIdentityComparer = AssemblyIdentityComparer.Default;           // Currently uses reference equality
             StrongNameProvider strongNameProvider = new DesktopStrongNameProvider();
             MetadataImportOptions metadataImportOptions = 0;
-            ImmutableArray<string> features = ImmutableArray<string>.Empty;
             return new CSharpCompilationOptions(OutputKind.ConsoleApplication, moduleName, mainTypeName, scriptClassName, usings,
                 optimizationLevel, checkOverflow, allowUnsafe, cryptoKeyContainer, cryptoKeyFile, cryptoPublicKey, delaySign,
                 platform, generalDiagnosticOption, warningLevel, specificDiagnosticOptions,
                 concurrentBuild, extendedCustomDebugInformation, xmlReferenceResolver, sourceReferenceResolver, metadataReferenceResolver,
-                assemblyIdentityComparer, strongNameProvider, metadataImportOptions, features);
-        }
-
-        [Fact]
-        public void Serializability1()
-        {
-            VerifySerializability(new CSharpSerializableCompilationOptions(new CSharpCompilationOptions(
-                outputKind: OutputKind.WindowsApplication,
-                usings: new[] { "F", "G" },
-                generalDiagnosticOption: ReportDiagnostic.Hidden,
-                specificDiagnosticOptions: new[] { KeyValuePair.Create("CS0001", ReportDiagnostic.Suppress) })));
-        }
-
-        [Fact]
-        public void Serializability2()
-        {
-            var parseOptions = new CSharpParseOptions(LanguageVersion.CSharp3, DocumentationMode.Diagnose, SourceCodeKind.Interactive);
-            var compilationOptions = new CSharpCompilationOptions(
-                OutputKind.DynamicallyLinkedLibrary,
-                moduleName: "M",
-                optimizationLevel: OptimizationLevel.Release);
-            compilationOptions = compilationOptions.
-                WithConcurrentBuild(!compilationOptions.ConcurrentBuild).
-                WithExtendedCustomDebugInformation(!compilationOptions.ExtendedCustomDebugInformation);
-            var deserializedCompilationOptions = VerifySerializability(new CSharpSerializableCompilationOptions(compilationOptions)).Options;
-
-            Assert.Equal(compilationOptions.OutputKind, deserializedCompilationOptions.OutputKind);
-            Assert.Equal(compilationOptions.ModuleName, deserializedCompilationOptions.ModuleName);
-            Assert.Equal(compilationOptions.OptimizationLevel, deserializedCompilationOptions.OptimizationLevel);
-            Assert.Equal(compilationOptions.ConcurrentBuild, deserializedCompilationOptions.ConcurrentBuild);
-            Assert.Equal(compilationOptions.ExtendedCustomDebugInformation, deserializedCompilationOptions.ExtendedCustomDebugInformation);
+                assemblyIdentityComparer, strongNameProvider, metadataImportOptions);
         }
 
         [Fact]

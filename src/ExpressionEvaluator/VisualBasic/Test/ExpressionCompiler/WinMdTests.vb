@@ -7,6 +7,7 @@ Imports Microsoft.CodeAnalysis.ExpressionEvaluator
 Imports Microsoft.CodeAnalysis.Test.Utilities
 Imports Microsoft.CodeAnalysis.VisualBasic.Symbols.Metadata.PE
 Imports Microsoft.VisualStudio.Debugger.Evaluation
+Imports Roslyn.Test.PdbUtilities
 Imports Roslyn.Test.Utilities
 Imports Xunit
 Imports Resources = Microsoft.CodeAnalysis.ExpressionEvaluator.UnitTests.Resources
@@ -29,7 +30,7 @@ Namespace Microsoft.CodeAnalysis.VisualBasic.UnitTests
     Shared Sub M(f As Windows.Storage.StorageFolder, p As Windows.Foundation.Collections.PropertySet)
     End Sub
 End Class"
-            Dim comp = CreateCompilationWithMscorlib({source}, compOptions:=TestOptions.DebugDll, references:=WinRtRefs)
+            Dim comp = CreateCompilationWithMscorlib({source}, options:=TestOptions.DebugDll, references:=WinRtRefs)
             Dim runtimeAssemblies = ExpressionCompilerTestHelpers.GetRuntimeWinMds("Windows.Storage", "Windows.Foundation.Collections")
             Assert.True(runtimeAssemblies.Length >= 2)
             Dim exeBytes As Byte() = Nothing
@@ -42,10 +43,9 @@ End Class"
                 exeBytes,
                 New SymReader(pdbBytes))
             Dim context = CreateMethodContext(runtime, "C.M")
-            Dim resultProperties As ResultProperties = Nothing
             Dim errorMessage As String = Nothing
             Dim testData = New CompilationTestData()
-            context.CompileExpression("If(p Is Nothing, f, Nothing)", resultProperties, errorMessage, testData)
+            context.CompileExpression("If(p Is Nothing, f, Nothing)", errorMessage, testData)
             testData.GetMethodData("<>x.<>m0").VerifyIL(
 "{
   // Code size        7 (0x7)
@@ -121,10 +121,9 @@ End Class"
 End Class"
             Dim runtime = CreateRuntime(source, compileReferences, runtimeReferences)
             Dim context = CreateMethodContext(runtime, "C.M")
-            Dim resultProperties As ResultProperties = Nothing
             Dim errorMessage As String = Nothing
             Dim testData = New CompilationTestData()
-            context.CompileExpression("If(a, If(b, If(t, f)))", resultProperties, errorMessage, testData)
+            context.CompileExpression("If(a, If(b, If(t, f)))", errorMessage, testData)
             Assert.Null(errorMessage)
             testData.GetMethodData("<>x.<>m0").VerifyIL(
 "{
@@ -146,7 +145,7 @@ End Class"
   IL_0010:  ret
 }")
             testData = New CompilationTestData()
-            Dim result = context.CompileExpression("f", resultProperties, errorMessage, testData)
+            Dim result = context.CompileExpression("f", errorMessage, testData)
             Assert.Null(errorMessage)
             Dim methodData = testData.GetMethodData("<>x.<>m0")
             methodData.VerifyIL(
@@ -196,25 +195,21 @@ End Class"
                 source,
                 ImmutableArray.CreateRange(WinRtRefs),
                 ImmutableArray.Create(MscorlibRef).Concat(ExpressionCompilerTestHelpers.GetRuntimeWinMds("Windows.Storage", "Windows.Foundation.Collections")))
-            Dim context = CreateMethodContext(runtime, "C.M")
-            Dim resultProperties As ResultProperties = Nothing
-			Dim errorMessage As String = Nothing
-			Dim missingAssemblyIdentities As ImmutableArray(Of AssemblyIdentity) = Nothing
-			Dim testData = New CompilationTestData()
-			context.CompileExpression(
-				InspectionContextFactory.Empty.
-					Add("s", "Windows.Storage.StorageFolder, Windows.Storage, Version=255.255.255.255, Culture=neutral, PublicKeyToken=null, ContentType=WindowsRuntime").
-					Add("d", "Windows.Foundation.DateTime, Windows.Foundation, Version=255.255.255.255, Culture=neutral, PublicKeyToken=null, ContentType=WindowsRuntime"),
-				"If(DirectCast(s.Attributes, Object), d.UniversalTime)",
-				DkmEvaluationFlags.TreatAsExpression,
-				DiagnosticFormatter.Instance,
-				resultProperties,
-				errorMessage,
-				missingAssemblyIdentities,
-				EnsureEnglishUICulture.PreferredOrNull,
-				testData)
-			Assert.Empty(missingAssemblyIdentities)
-			testData.GetMethodData("<>x.<>m0").VerifyIL(
+            Dim context = CreateMethodContext(
+                runtime,
+                "C.M")
+            Dim aliases = ImmutableArray.Create(
+                VariableAlias("s", "Windows.Storage.StorageFolder, Windows.Storage, Version=255.255.255.255, Culture=neutral, PublicKeyToken=null, ContentType=WindowsRuntime"),
+                VariableAlias("d", "Windows.Foundation.DateTime, Windows.Foundation, Version=255.255.255.255, Culture=neutral, PublicKeyToken=null, ContentType=WindowsRuntime"))
+            Dim errorMessage As String = Nothing
+            Dim testData = New CompilationTestData()
+            context.CompileExpression(
+                "If(DirectCast(s.Attributes, Object), d.UniversalTime)",
+                DkmEvaluationFlags.TreatAsExpression,
+                aliases,
+                errorMessage,
+                testData)
+            testData.GetMethodData("<>x.<>m0").VerifyIL(
 "{
   // Code size       55 (0x37)
   .maxstack  2
@@ -242,7 +237,7 @@ End Class"
 
             Dim comp = CreateCompilationWithMscorlib(
                 {source},
-                compOptions:=TestOptions.DebugDll,
+                options:=TestOptions.DebugDll,
                 assemblyName:=ExpressionCompilerUtilities.GenerateUniqueName(),
                 references:=compileReferences)
             Dim exeBytes As Byte() = Nothing

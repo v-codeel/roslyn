@@ -16,6 +16,8 @@ using Microsoft.CodeAnalysis.CompilerServer;
 using static Microsoft.CodeAnalysis.BuildTasks.NativeMethods;
 using static Microsoft.CodeAnalysis.CompilerServer.BuildProtocolConstants;
 using static Microsoft.CodeAnalysis.CompilerServer.CompilerServerLogger;
+using Roslyn.Utilities;
+using System.Globalization;
 
 namespace Microsoft.CodeAnalysis.BuildTasks
 {
@@ -24,23 +26,11 @@ namespace Microsoft.CodeAnalysis.BuildTasks
     /// </summary>
     internal static class BuildClient
     {
-        private const string s_serverName = PipeName + ".exe";
+        private const string s_serverName = "VBCSCompiler.exe";
         // Spend up to 1s connecting to existing process (existing processes should be always responsive).
         private const int TimeOutMsExistingProcess = 1000;
         // Spend up to 20s connecting to a new process, to allow time for it to start.
-        private const int TimeOutMsNewProcess = 20000; 
-
-        /// <summary>
-        /// Try to get the directory this assembly is in.
-        /// </summary>
-        private static string GetExpectedServerExeDir()
-        {
-            var uri = new Uri(Assembly.GetExecutingAssembly().CodeBase);
-            string assemblyPath = uri.IsFile 
-                ? uri.LocalPath
-                : Assembly.GetCallingAssembly().Location;
-            return Path.GetDirectoryName(assemblyPath);
-        }
+        private const int TimeOutMsNewProcess = 20000;
 
         /// <summary>
         /// Run a compilation through the compiler server and print the output
@@ -49,73 +39,78 @@ namespace Microsoft.CodeAnalysis.BuildTasks
         /// </summary>
         public static int RunWithConsoleOutput(
             string[] args,
+            string clientDir,
+            string workingDir,
+            string sdkDir,
+            IAnalyzerAssemblyLoader analyzerLoader,
             RequestLanguage language,
-            Func<string[], int> fallbackCompiler)
+            Func<string, string, string[], IAnalyzerAssemblyLoader, int> fallbackCompiler)
         {
-            var errorMessage = CommandLineParser.CheckClientArgsForErrors(args);
+            args = args.Select(arg => arg.Trim()).ToArray();
 
-            if (errorMessage != null)
+            bool hasShared;
+            string keepAlive;
+            string errorMessage;
+            List<string> parsedArgs;
+            if (!CommandLineParser.TryParseClientArgs(
+                    args,
+                    out parsedArgs,
+                    out hasShared,
+                    out keepAlive,
+                    out errorMessage))
             {
                 Console.Out.WriteLine(errorMessage);
                 return CommonCompiler.Failed;
             }
 
-            var responseTask = TryRunServerCompilation(
-                language,
-                Environment.CurrentDirectory,
-                args,
-                default(CancellationToken),
-                libEnvVariable: Environment.GetEnvironmentVariable("LIB"));
-
-            responseTask.Wait();
-
-            int exitCode;
-            var response = responseTask.Result;
-            if (response != null)
+            if (hasShared)
             {
-                exitCode = HandleResponse(response);
-            }
-            else
-            {
-                exitCode = fallbackCompiler(args.Where(arg => !arg.StartsWith("/keepalive", StringComparison.Ordinal)).ToArray());
+                var responseTask = TryRunServerCompilation(
+                    language,
+                    clientDir,
+                    workingDir,
+                    parsedArgs,
+                    default(CancellationToken),
+                    keepAlive: keepAlive,
+                    libEnvVariable: Environment.GetEnvironmentVariable("LIB"));
+
+                var response = responseTask.Result;
+                if (response != null)
+                {
+                    return HandleResponse(response, clientDir, sdkDir, analyzerLoader, fallbackCompiler, parsedArgs);
+                }
             }
 
-            return exitCode;
+            return fallbackCompiler(clientDir, sdkDir, parsedArgs.ToArray(), analyzerLoader);
         }
 
-        private static int HandleResponse(BuildResponse response)
+        private static int HandleResponse(BuildResponse response, string clientDir, string sdkDir, IAnalyzerAssemblyLoader analyzerLoader, Func<string, string, string[], IAnalyzerAssemblyLoader, int> fallbackCompiler, List<string> parsedArgs)
         {
-            if (response.Type == BuildResponse.ResponseType.Completed)
+            switch (response.Type)
             {
-                var completedResponse = (CompletedBuildResponse)response;
-                var origEncoding = Console.OutputEncoding;
-                try
-                {
-                    if (completedResponse.Utf8Output && Console.IsOutputRedirected)
-                    {
-                        Console.OutputEncoding = Encoding.UTF8;
-                    }
-                    Console.Out.Write(completedResponse.Output);
-                    Console.Error.Write(completedResponse.ErrorOutput);
-                }
-                finally
-                {
-                    try
-                    {
-                        Console.OutputEncoding = origEncoding;
-                    }
-                    catch
-                    { // Try to reset the output encoding, ignore if we can't
-                    }
-                }
-                return completedResponse.ReturnCode;
-            }
-            else
-            {
-                Console.Error.WriteLine(CommandLineParser.MismatchedVersionErrorText);
-                return CommonCompiler.Failed;
+                case BuildResponse.ResponseType.MismatchedVersion:
+                    Console.Error.WriteLine(CommandLineParser.MismatchedVersionErrorText);
+                    return CommonCompiler.Failed;
+
+                case BuildResponse.ResponseType.Completed:
+                    var completedResponse = (CompletedBuildResponse)response;
+                    return ConsoleUtil.RunWithOutput(
+                        completedResponse.Utf8Output,
+                        (outWriter, errorWriter) =>
+                        {
+                            outWriter.Write(completedResponse.Output);
+                            errorWriter.Write(completedResponse.ErrorOutput);
+                            return completedResponse.ReturnCode;
+                        });
+
+                case BuildResponse.ResponseType.AnalyzerInconsistency:
+                    return fallbackCompiler(clientDir, sdkDir, parsedArgs.ToArray(), analyzerLoader);
+
+                default:
+                    throw new InvalidOperationException("Encountered unknown response type");
             }
         }
+
 
         /// <summary>
         /// Returns a Task with a null BuildResponse if no server
@@ -123,31 +118,33 @@ namespace Microsoft.CodeAnalysis.BuildTasks
         /// </summary>
         public static Task<BuildResponse> TryRunServerCompilation(
             RequestLanguage language,
+            string clientDir,
             string workingDir,
             IList<string> arguments,
             CancellationToken cancellationToken,
+            string keepAlive = null,
             string libEnvVariable = null)
         {
             try
             {
                 NamedPipeClientStream pipe;
 
-                var expectedServerExePath = Path.Combine(GetExpectedServerExeDir(), s_serverName);
-                var mutexName = expectedServerExePath.Replace('\\', '/');
+                if (clientDir == null)
+                    return Task.FromResult<BuildResponse>(null);
+
+                var pipeName = GetPipeName(clientDir);
                 bool holdsMutex;
                 using (var mutex = new Mutex(initiallyOwned: true,
-                                             name: mutexName,
+                                             name: pipeName,
                                              createdNew: out holdsMutex))
                 {
                     try
                     {
-
                         if (!holdsMutex)
                         {
                             try
                             {
-                                holdsMutex = mutex.WaitOne(TimeOutMsNewProcess,
-                                    exitContext: false);
+                                holdsMutex = mutex.WaitOne(TimeOutMsNewProcess);
                             }
                             catch (AbandonedMutexException)
                             {
@@ -157,18 +154,20 @@ namespace Microsoft.CodeAnalysis.BuildTasks
 
                         if (holdsMutex)
                         {
-                            var request = BuildRequest.Create(language, workingDir, arguments, libEnvVariable);
+                            var request = BuildRequest.Create(language, workingDir, arguments, keepAlive, libEnvVariable);
                             // Check for already running processes in case someone came in before us
-                            pipe = TryExistingProcesses(expectedServerExePath, cancellationToken);
-                            if (pipe != null)
+                            string availablePipeName;
+                            if (null != (pipe = TryAllProcesses(pipeName,
+                                                                TimeOutMsExistingProcess,
+                                                                cancellationToken,
+                                                                out availablePipeName)))
                             {
                                 return TryCompile(pipe, request, cancellationToken);
                             }
                             else
                             {
-                                int processId = TryCreateServerProcess(expectedServerExePath);
-                                if (processId != 0 &&
-                                    null != (pipe = TryConnectToProcess(processId,
+                                if (TryCreateServerProcess(clientDir, availablePipeName) &&
+                                    null != (pipe = TryConnectToProcess(availablePipeName,
                                                                         TimeOutMsNewProcess,
                                                                         cancellationToken)))
                                 {
@@ -192,7 +191,7 @@ namespace Microsoft.CodeAnalysis.BuildTasks
             // they are show-stoppers then they will crash the in-proc
             // compilation as well
             // TODO: Put in non-fatal Watson code so we still get info
-            // when things unexpectedely fail
+            // when things unexpectedly fail
             catch { }
             return Task.FromResult<BuildResponse>(null);
         }
@@ -221,7 +220,7 @@ namespace Microsoft.CodeAnalysis.BuildTasks
                     return null;
                 }
 
-                // Wait for the compilation and a monitor to dectect if the server disconnects
+                // Wait for the compilation and a monitor to detect if the server disconnects
                 var serverCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
 
                 Log("Begin reading response");
@@ -258,38 +257,9 @@ namespace Microsoft.CodeAnalysis.BuildTasks
         }
 
         /// <summary>
-        /// Tries to connect to existing servers on the system.
-        /// </summary>
-        /// <returns>
-        /// A <see cref="NamedPipeClientStream"/> on success, null on failure.
-        /// </returns>
-        private static NamedPipeClientStream TryExistingProcesses(
-            string expectedProcessPath,
-            CancellationToken cancellationToken)
-        {
-            Log("Trying existing processes.");
-            foreach (int processId in GetAllProcessIds(expectedProcessPath))
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-
-                var pipeStream = TryConnectToProcess(
-                    processId,
-                    TimeOutMsExistingProcess,
-                    cancellationToken);
-                if (pipeStream != null)
-                {
-                    Log("Found existing process");
-                    return pipeStream;
-                }
-            }
-
-            return null;
-        }
-
-        /// <summary>
         /// The IsConnected property on named pipes does not detect when the client has disconnected
         /// if we don't attempt any new I/O after the client disconnects. We start an async I/O here
-        /// which serves to check the pipe for disconnection. 
+        /// which serves to check the pipe for disconnection.
         ///
         /// This will return true if the pipe was disconnected.
         /// </summary>
@@ -297,7 +267,10 @@ namespace Microsoft.CodeAnalysis.BuildTasks
             NamedPipeClientStream pipeStream,
             CancellationToken cancellationToken)
         {
+            // Ignore this warning because the desktop projects don't target 4.6 yet
+#pragma warning disable RS0007 // Avoid zero-length array allocations.
             var buffer = new byte[0];
+#pragma warning restore RS0007 // Avoid zero-length array allocations.
 
             while (!cancellationToken.IsCancellationRequested && pipeStream.IsConnected)
             {
@@ -314,8 +287,8 @@ namespace Microsoft.CodeAnalysis.BuildTasks
                 catch (OperationCanceledException) { }
                 catch (Exception e)
                 {
-                    // It is okay for this call to fail.  Errors will be reflected in the 
-                    // IsConnected property which will be read on the next iteration of the 
+                    // It is okay for this call to fail.  Errors will be reflected in the
+                    // IsConnected property which will be read on the next iteration of the
                     LogException(e, "Error poking pipe");
                 }
             }
@@ -331,7 +304,7 @@ namespace Microsoft.CodeAnalysis.BuildTasks
         /// Size of the buffer coming in, chars written coming out.
         /// </param>
         [DllImport("Kernel32.dll", EntryPoint = "QueryFullProcessImageNameW", CharSet = CharSet.Unicode)]
-        static extern bool QueryFullProcessImageName(
+        private static extern bool QueryFullProcessImageName(
             IntPtr processHandle,
             int flags,
             StringBuilder exeNameBuffer,
@@ -340,73 +313,46 @@ namespace Microsoft.CodeAnalysis.BuildTasks
         private const int MAX_PATH_SIZE = 260;
 
         /// <summary>
-        /// Get all process IDs on the current machine that have executable names matching
-        /// the pipe name and started from the <paramref name="expectedPath" />.
+        /// Try all processes that start with the current pipe name and return
+        /// the connected pipe if one is found. Otherwise, return null.
+        /// <paramref name="newPipeName" /> will contain the next free pipe
+        /// name if no connection was made.
         /// </summary>
-        private static IEnumerable<int> GetAllProcessIds(string expectedPath)
+        private static NamedPipeClientStream TryAllProcesses(
+            string pipeName,
+            int timeoutMs,
+            CancellationToken cancellationToken,
+            out string newPipeName)
         {
-            // Get all the processes with the right base name.
-            var allProcesses = Process.GetProcessesByName(PipeName);
-            Log("Found {0} existing processes with matching base name", allProcesses.Length);
-
-            try
+            string basePipeName = pipeName;
+            for (int counter = 1; File.Exists($@"\\.\pipe\{pipeName}"); counter++)
             {
-                foreach (Process process in allProcesses)
+                NamedPipeClientStream pipe;
+                if (null != (pipe = TryConnectToProcess(pipeName, timeoutMs, cancellationToken)))
                 {
-                    int processId = 0;
-                    try
-                    {
-                        var exeNameBuffer = new StringBuilder(MAX_PATH_SIZE);
-                        int pathSize = MAX_PATH_SIZE;
-                        string fullFileName = null;
-
-                        if (QueryFullProcessImageName(process.Handle,
-                                                      0, // Win32 path format
-                                                      exeNameBuffer,
-                                                      ref pathSize))
-                        {
-                            fullFileName = exeNameBuffer.ToString();
-                            Log("Process file path: {0}", fullFileName);
-                        }
-
-                        if (string.Equals(fullFileName,
-                                          expectedPath,
-                                          StringComparison.OrdinalIgnoreCase))
-                        {
-                            processId = process.Id;
-                        }
-                    }
-                    // If any exception occurs (e.g., accessing the process handle
-                    // fails because the process is exiting), we should simply fail
-                    // to connect and let the loop fall through
-                    catch
-                    { }
-
-                    if (processId != 0)
-                        yield return processId;
+                    newPipeName = pipeName;
+                    return pipe;
                 }
+
+                // Append an integer counter to the pipe name
+                pipeName = basePipeName + "." + counter.ToString(CultureInfo.InvariantCulture);
             }
-            finally
-            {
-                foreach (var p in allProcesses)
-                {
-                    p.Dispose();
-                }
-            }
+            newPipeName = pipeName;
+            return null;
         }
 
         /// <summary>
-        /// Connect to the given process id and return a pipe.
+        /// Connect to the pipe for a given directory and return it.
         /// Throws on cancellation.
         /// </summary>
-        /// <param name="processId">Process id to try to connect to.</param>
+        /// <param name="pipeName">Name of the named pipe to connect to.</param>
         /// <param name="timeoutMs">Timeout to allow in connecting to process.</param>
         /// <param name="cancellationToken">Cancellation token to cancel connection to server.</param>
         /// <returns>
         /// An open <see cref="NamedPipeClientStream"/> to the server process or null on failure.
         /// </returns>
         private static NamedPipeClientStream TryConnectToProcess(
-            int processId,
+            string pipeName,
             int timeoutMs,
             CancellationToken cancellationToken)
         {
@@ -414,9 +360,8 @@ namespace Microsoft.CodeAnalysis.BuildTasks
             try
             {
                 // Machine-local named pipes are named "\\.\pipe\<pipename>".
-                // We use the pipe name followed by the process id.
+                // We use the SHA1 of the directory the compiler exes live in as the pipe name.
                 // The NamedPipeClientStream class handles the "\\.\pipe\" part for us.
-                string pipeName = PipeName + processId.ToString();
                 Log("Attempt to open named pipe '{0}'", pipeName);
 
                 pipeStream = new NamedPipeClientStream(".", pipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
@@ -429,10 +374,7 @@ namespace Microsoft.CodeAnalysis.BuildTasks
                 cancellationToken.ThrowIfCancellationRequested();
 
                 // Verify that we own the pipe.
-                SecurityIdentifier currentIdentity = WindowsIdentity.GetCurrent().Owner;
-                PipeSecurity remoteSecurity = pipeStream.GetAccessControl();
-                IdentityReference remoteOwner = remoteSecurity.GetOwner(typeof(SecurityIdentifier));
-                if (remoteOwner != currentIdentity)
+                if (!CheckPipeConnectionOwnership(pipeStream))
                 {
                     Log("Owner of named pipe is incorrect");
                     return null;
@@ -448,12 +390,18 @@ namespace Microsoft.CodeAnalysis.BuildTasks
         }
 
         /// <summary>
-        /// Create a new instance of the server process, returning its process ID.
-        /// Returns 0 on failure.
+        /// Create a new instance of the server process, returning true on success
+        /// and false otherwise.
         /// </summary>
-        private static int TryCreateServerProcess(string expectedPath)
+        private static bool TryCreateServerProcess(string clientDir, string pipeName)
         {
-            // As far as I can tell, there isn't a way to use the Process class to 
+            // The server should be in the same directory as the client
+            string expectedPath = Path.Combine(clientDir, s_serverName);
+
+            if (!File.Exists(expectedPath))
+                return false;
+
+            // As far as I can tell, there isn't a way to use the Process class to
             // create a process with no stdin/stdout/stderr, so we use P/Invoke.
             // This code was taken from MSBuild task starting code.
 
@@ -469,29 +417,82 @@ namespace Microsoft.CodeAnalysis.BuildTasks
 
             Log("Attempting to create process '{0}'", expectedPath);
 
+            var builder = new StringBuilder($@"""{expectedPath}"" ""-pipename:{pipeName}""");
+
             bool success = CreateProcess(
-                expectedPath,
-                null,            // command line
-                NullPtr,         // process attributes
-                NullPtr,         // thread attributes
-                false,           // don't inherit handles
-                dwCreationFlags,
-                NullPtr,         // inherit environment
-                Path.GetDirectoryName(expectedPath),    // current directory
-                ref startInfo,
-                out processInfo);
+                lpApplicationName: null,
+                lpCommandLine: builder,
+                lpProcessAttributes: NullPtr,
+                lpThreadAttributes: NullPtr,
+                bInheritHandles: false,
+                dwCreationFlags: dwCreationFlags,
+                lpEnvironment: NullPtr, // Inherit environment
+                lpCurrentDirectory: clientDir,
+                lpStartupInfo: ref startInfo,
+                lpProcessInformation: out processInfo);
 
             if (success)
             {
                 Log("Successfully created process with process id {0}", processInfo.dwProcessId);
                 CloseHandle(processInfo.hProcess);
                 CloseHandle(processInfo.hThread);
-                return processInfo.dwProcessId;
             }
             else
             {
                 Log("Failed to create process. GetLastError={0}", Marshal.GetLastWin32Error());
-                return 0;
+            }
+            return success;
+        }
+
+        /// <summary>
+        /// Check to ensure that the named pipe server we connected to is owned by the same
+        /// user.
+        /// </summary>
+        /// <remarks>
+        /// The type is embedded in assemblies that need to run cross platform.  While this particular
+        /// code will never be hit when running on non-Windows platforms it does need to work when
+        /// on Windows.  To facilitate that we use reflection to make the check here to enable it to
+        /// compile into our cross plat assemblies.
+        /// </remarks>
+        private static bool CheckPipeConnectionOwnership(NamedPipeClientStream pipeStream)
+        {
+            try
+            {
+                var assembly = typeof(object).GetTypeInfo().Assembly;
+
+                var currentIdentity = assembly
+                    .GetType("System.Security.Principal.WindowsIdentity")
+                    .GetTypeInfo()
+                    .GetDeclaredMethods("GetCurrent")
+                    .Single(x => x.GetParameters().Length == 0)
+                    .Invoke(null, null);
+
+                var currentOwner = assembly
+                    .GetType("System.Security.Principal.WindowsIdentity")
+                    .GetTypeInfo()
+                    .GetDeclaredProperty("Owner")
+                    .GetMethod
+                    .Invoke(currentIdentity, null);
+
+                var remotePipeSecurity = typeof(PipeStream)
+                    .GetTypeInfo()
+                    .GetDeclaredMethods("GetAccessControl")
+                    .Single(x => x.GetParameters().Length == 0)
+                    .Invoke(pipeStream, null);
+
+                var remoteOwner = assembly
+                    .GetType("System.Security.AccessControl.ObjectSecurity")
+                    .GetTypeInfo()
+                    .GetDeclaredMethods("GetOwner")
+                    .Single(x => x.GetParameters().Length == 1 && x.GetParameters()[0].ParameterType == typeof(Type))
+                    .Invoke(remotePipeSecurity, new[] { assembly.GetType("System.Security.Principal.SecurityIdentifier") });
+
+                return currentOwner.Equals(remoteOwner);
+            }
+            catch (Exception ex)
+            {
+                Log("Exception checking pipe connection: {0}", ex.Message);
+                return false;
             }
         }
     }

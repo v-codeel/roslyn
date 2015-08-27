@@ -12,9 +12,9 @@ Imports Microsoft.CodeAnalysis.VisualBasic.Syntax
 Namespace Microsoft.VisualStudio.LanguageServices.VisualBasic.Debugging
     ' TODO: Make this class static when we add that functionality to VB.
     Namespace DataTipInfoGetter
-        Module DataTipInfoGetterModule
+        Friend Module DataTipInfoGetterModule
             Friend Async Function GetInfoAsync(document As Document, position As Integer, cancellationToken As CancellationToken) As Task(Of DebugDataTipInfo)
-                Dim root = Await document.GetVisualBasicSyntaxRootAsync(cancellationToken).ConfigureAwait(False)
+                Dim root = Await document.GetSyntaxRootAsync(cancellationToken).ConfigureAwait(False)
                 Dim token = root.FindToken(position)
 
                 If token.IsKind(SyntaxKind.CommaToken) Then
@@ -38,33 +38,33 @@ Namespace Microsoft.VisualStudio.LanguageServices.VisualBasic.Debugging
                     Return Nothing
                 End If
 
+                Dim conditionalAccess As ExpressionSyntax = Nothing
                 If expression.IsRightSideOfDotOrBang() Then
-                    Dim parent = DirectCast(expression.Parent, ExpressionSyntax)
-                    Dim curr = parent
+                    expression = DirectCast(expression.Parent, ExpressionSyntax)
+
+                    Dim curr = expression
                     While True
-                        Dim conditionalAccess = curr.GetCorrespondingConditionalAccessExpression()
-                        If conditionalAccess Is Nothing Then
+                        curr = curr.GetCorrespondingConditionalAccessExpression()
+                        If curr Is Nothing Then
                             Exit While
                         End If
 
-                        curr = conditionalAccess
+                        conditionalAccess = curr
                     End While
+                End If
 
-                    If curr Is parent Then
-                        ' NB: parent.Span, not Span as below.
-                        Return New DebugDataTipInfo(parent.Span, text:=Nothing)
-                    End If
+                If expression.Parent.IsKind(SyntaxKind.InvocationExpression) Then
+                    expression = DirectCast(expression.Parent, ExpressionSyntax)
+                End If
 
-                    ' NOTE: There may not be an ExpressionSyntax corresponding to the range we want.
+                Dim span = expression.Span
+                If conditionalAccess IsNot Nothing Then
+                    ' There may not be an ExpressionSyntax corresponding to the range we want.
                     ' For example, for input a?.$$B?.C we want span [|a?.B|].C.
-                    Return New DebugDataTipInfo(TextSpan.FromBounds(curr.SpanStart, expression.Span.End), text:=Nothing)
+                    span = TextSpan.FromBounds(conditionalAccess.SpanStart, span.End)
                 End If
 
-                If expression.IsKind(SyntaxKind.InvocationExpression) Then
-                    expression = DirectCast(expression, InvocationExpressionSyntax).Expression
-                End If
-
-                Return New DebugDataTipInfo(expression.Span, text:=Nothing)
+                Return New DebugDataTipInfo(span, text:=Nothing)
             End Function
         End Module
     End Namespace

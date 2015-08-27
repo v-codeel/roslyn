@@ -24,17 +24,14 @@ Namespace Microsoft.CodeAnalysis.VisualBasic
                 Return New BoundLiteral(node.Syntax, ConstantValue.False, node.Type)
             End If
 
-            If operand.Kind = BoundKind.LoweredConditionalAccess Then
-                Dim conditional = DirectCast(operand, BoundLoweredConditionalAccess)
-
-                If HasNoValue(conditional.WhenNullOpt) Then
-                    Debug.Assert(Not HasNoValue(conditional.WhenNotNull))
-                    Return conditional.Update(conditional.ReceiverOrCondition,
-                                              conditional.CaptureReceiver,
-                                              conditional.PlaceholderId,
-                                              NullableValueOrDefault(conditional.WhenNotNull),
-                                              New BoundLiteral(node.Syntax, ConstantValue.False, node.Type),
-                                              node.Type)
+            Dim whenNotNull As BoundExpression = Nothing
+            Dim whenNull As BoundExpression = Nothing
+            If IsConditionalAccess(operand, whenNotNull, whenNull) Then
+                If HasNoValue(whenNull) Then
+                    Debug.Assert(Not HasNoValue(whenNotNull))
+                    Return UpdateConditionalAccess(operand,
+                                              NullableValueOrDefault(whenNotNull),
+                                              New BoundLiteral(node.Syntax, ConstantValue.False, node.Type))
                 End If
             End If
 
@@ -199,10 +196,10 @@ Namespace Microsoft.CodeAnalysis.VisualBasic
             '                    |                   |
             '                OPERAND
             '
-            ' Implicit unwraping conversion if present is always O? -> O 
+            ' Implicit unwrapping conversion if present is always O? -> O 
             ' It is encoded as a disparity between CALL argument type and parameter type of the call symbol.
             '
-            ' Implicit wrapping conversion of the resilt, if present, is always T -> T?
+            ' Implicit wrapping conversion of the result, if present, is always T -> T?
             '
             ' The rewrite is:
             '   If (OPERAND.HasValue, CALL(OPERAND), Null)

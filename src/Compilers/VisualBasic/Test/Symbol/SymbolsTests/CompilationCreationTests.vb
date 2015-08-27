@@ -11,7 +11,7 @@ Imports Microsoft.CodeAnalysis.VisualBasic.Symbols.Retargeting
 Imports Roslyn.Test.Utilities
 
 Namespace CompilationCreationTestHelpers
-    Module Helpers
+    Friend Module Helpers
         <Extension()>
         Friend Function BoundReferences(this As AssemblySymbol) As AssemblySymbol()
             Return (From m In this.Modules, ref In m.GetReferencedAssemblySymbols() Select ref).ToArray()
@@ -115,7 +115,7 @@ Namespace XYZ
 End Namespace
 </text>.Value)
 
-            Dim c1 = VisualBasicCompilation.Create("Test", {sourceTree}, DefaultReferences, TestOptions.ReleaseDll.WithRootNamespace("A.B.C"))
+            Dim c1 = VisualBasicCompilation.Create("Test", {sourceTree}, DefaultVbReferences, TestOptions.ReleaseDll.WithRootNamespace("A.B.C"))
 
             Dim root As NamespaceSymbol = c1.RootNamespace
             Assert.NotNull(root)
@@ -135,7 +135,7 @@ Namespace XYZ
 End Namespace
 </text>.Value)
 
-            Dim c1 = VisualBasicCompilation.Create("Test", {sourceTree}, DefaultReferences, TestOptions.ReleaseDll)
+            Dim c1 = VisualBasicCompilation.Create("Test", {sourceTree}, DefaultVbReferences, TestOptions.ReleaseDll)
 
             Dim root As NamespaceSymbol = c1.RootNamespace
             Assert.NotNull(root)
@@ -160,7 +160,7 @@ End Namespace
 
         <Fact()>
         Public Sub RootNamespace_NoFiles_UpdateCompilation()
-            Dim c1 = VisualBasicCompilation.Create("Test", references:=DefaultReferences, options:=TestOptions.ReleaseDll)
+            Dim c1 = VisualBasicCompilation.Create("Test", references:=DefaultVbReferences, options:=TestOptions.ReleaseDll)
 
             Dim root As NamespaceSymbol = c1.RootNamespace
             Assert.NotNull(root)

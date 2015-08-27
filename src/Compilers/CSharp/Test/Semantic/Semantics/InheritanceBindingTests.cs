@@ -5833,7 +5833,7 @@ class Class2 : I2 // Implicit implementation
         }
 
         [Fact]
-        public void TestExplicitImplSigntureMismatches()
+        public void TestExplicitImplSignatureMismatches()
         {
             // Tests: 
             // Mismatching ref / out in signature of implemented member
@@ -6673,7 +6673,7 @@ class Test
         public void TestErrorsOverridingGenericNestedClasses_HideTypeParameter()
         {
             // Tests:
-            // In signature / name of overriden member, use generic type whose open type (C<T>) matches signature
+            // In signature / name of overridden member, use generic type whose open type (C<T>) matches signature
             // in base class - but the closed type (C<string> / C<U>) does not match
 
             var source = @"
@@ -7231,13 +7231,10 @@ class Derived : Base, I
 }
 class Test
 {
-    public static void Main() { I i = new Derived(); i.Finalze(i.Finalize()); }
+    public static void Main() { I i = new Derived(); i.Finalize(i.Finalize()); }
 }";
 
-            CreateCompilationWithMscorlib(source).VerifyDiagnostics(
-                // (17,56): error CS1061: 'I' does not contain a definition for 'Finalze' and no extension method 'Finalze' accepting a first argument of type 'I' could be found (are you missing a using directive or an assembly reference?)
-                //     public static void Main() { I i = new Derived(); i.Finalze(i.Finalize()); }
-                Diagnostic(ErrorCode.ERR_NoSuchMemberOrExtension, "Finalze").WithArguments("I", "Finalze"));
+            CreateCompilationWithMscorlib(source).VerifyDiagnostics();
         }
 
         [WorkItem(542361, "DevDiv")]

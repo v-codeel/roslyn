@@ -5,6 +5,7 @@ using System.Diagnostics;
 using Microsoft.VisualStudio.Debugger;
 using Microsoft.VisualStudio.Debugger.Evaluation;
 using Microsoft.VisualStudio.Debugger.Evaluation.ClrCompilation;
+using Microsoft.VisualStudio.Debugger.Metadata;
 using Type = Microsoft.VisualStudio.Debugger.Metadata.Type;
 
 namespace Microsoft.CodeAnalysis.ExpressionEvaluator
@@ -12,6 +13,7 @@ namespace Microsoft.CodeAnalysis.ExpressionEvaluator
     internal enum ExpansionKind
     {
         Default,
+        DynamicView,
         Error,
         NativeView,
         NonPublicMembers,
@@ -19,7 +21,7 @@ namespace Microsoft.CodeAnalysis.ExpressionEvaluator
         RawView,
         ResultsView,
         StaticMembers,
-        TypeVariables
+        TypeVariable
     }
 
     /// <summary>
@@ -36,8 +38,8 @@ namespace Microsoft.CodeAnalysis.ExpressionEvaluator
     {
         public readonly ExpansionKind Kind;
         public readonly string Name;
-        public readonly Type TypeDeclaringMember;
-        public readonly Type DeclaredType;
+        public readonly TypeAndCustomInfo TypeDeclaringMemberAndInfo;
+        public readonly TypeAndCustomInfo DeclaredTypeAndInfo;
         public readonly EvalResultDataItem Parent;
         public readonly DkmClrValue Value;
         public readonly string DisplayValue; // overrides the "Value" text displayed for certain kinds of DataItems (errors, invalid pointer dereferences, etc)...not to be confused with DebuggerDisplayAttribute Value...
@@ -71,8 +73,8 @@ namespace Microsoft.CodeAnalysis.ExpressionEvaluator
                 ExpansionKind.Error,
                 inspectionContext: null,
                 name: name,
-                typeDeclaringMember: null,
-                declaredType: null,
+                typeDeclaringMemberAndInfo: default(TypeAndCustomInfo),
+                declaredTypeAndInfo: default(TypeAndCustomInfo),
                 parent: null,
                 value: null,
                 displayValue: errorMessage,
@@ -90,8 +92,8 @@ namespace Microsoft.CodeAnalysis.ExpressionEvaluator
         public EvalResultDataItem(
             ExpansionKind kind,
             string name,
-            Type typeDeclaringMember,
-            Type declaredType,
+            TypeAndCustomInfo typeDeclaringMemberAndInfo,
+            TypeAndCustomInfo declaredTypeAndInfo,
             EvalResultDataItem parent,
             DkmClrValue value,
             string displayValue,
@@ -111,8 +113,8 @@ namespace Microsoft.CodeAnalysis.ExpressionEvaluator
 
             this.Kind = kind;
             this.Name = name;
-            this.TypeDeclaringMember = typeDeclaringMember;
-            this.DeclaredType = declaredType;
+            this.TypeDeclaringMemberAndInfo = typeDeclaringMemberAndInfo;
+            this.DeclaredTypeAndInfo = declaredTypeAndInfo;
             this.Parent = parent;
             this.Value = value;
             this.DisplayValue = displayValue;
@@ -148,6 +150,12 @@ namespace Microsoft.CodeAnalysis.ExpressionEvaluator
             if (!value.IsError() && value.HasUnderlyingString(inspectionContext))
             {
                 resultFlags |= DkmEvaluationResultFlags.RawString;
+            }
+
+            // As in the old EE, we won't allow editing members of a DynamicView expansion.
+            if (type.IsDynamicProperty())
+            {
+                resultFlags |= DkmEvaluationResultFlags.ReadOnly;
             }
 
             return resultFlags;

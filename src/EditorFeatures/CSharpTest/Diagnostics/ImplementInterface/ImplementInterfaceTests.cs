@@ -3,12 +3,12 @@
 using System;
 using System.Linq;
 using Microsoft.CodeAnalysis.CodeFixes;
+using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.CodeFixes.ImplementInterface;
 using Microsoft.CodeAnalysis.Diagnostics;
 using Microsoft.CodeAnalysis.Editor.UnitTests.Workspaces;
 using Roslyn.Test.Utilities;
 using Xunit;
-using Microsoft.CodeAnalysis.CSharp;
 
 namespace Microsoft.CodeAnalysis.Editor.CSharp.UnitTests.Diagnostics.ImplementInterface
 {
@@ -108,7 +108,7 @@ namespace Microsoft.CodeAnalysis.Editor.CSharp.UnitTests.Diagnostics.ImplementIn
         }
 
         [Fact, Trait(Traits.Feature, Traits.Features.CodeActionsImplementInterface)]
-        public void TestImplementGenericTypeWithGenericMethodWithUnexpressableConstraint()
+        public void TestImplementGenericTypeWithGenericMethodWithUnexpressibleConstraint()
         {
             Test(
 @"interface IInterface1 < T > { void Method1 < U > ( T t , U u ) where U : T ; } class Class : [|IInterface1 < int >|] { } ",
@@ -138,6 +138,26 @@ index: 1);
             Test(
 @"interface IFoo { int this[int x] { get; set; } } class Foo : [|IFoo|] { IFoo f; }",
 @"interface IFoo { int this[int x] { get; set; } } class Foo : IFoo { IFoo f; public int this[int x] { get { return f[x]; } set { f[x] = value; } } }",
+index: 1);
+        }
+
+        [WorkItem(472, "https://github.com/dotnet/roslyn/issues/472")]
+        [Fact, Trait(Traits.Feature, Traits.Features.CodeActionsImplementInterface)]
+        public void TestImplementThroughFieldMemberRemoveUnnecessaryCast()
+        {
+            Test(
+@"using System.Collections; sealed class X : [|IComparer|] { X x; }",
+@"using System.Collections; sealed class X : IComparer { X x; public int Compare(object x, object y) { return this.x.Compare(x, y); } }",
+index: 1);
+        }
+
+        [WorkItem(472, "https://github.com/dotnet/roslyn/issues/472")]
+        [Fact, Trait(Traits.Feature, Traits.Features.CodeActionsImplementInterface)]
+        public void TestImplementThroughFieldMemberRemoveUnnecessaryCastAndThis()
+        {
+            Test(
+@"using System.Collections; sealed class X : [|IComparer|] { X a; }",
+@"using System.Collections; sealed class X : IComparer { X a; public int Compare(object x, object y) { return a.Compare(x, y); } }",
 index: 1);
         }
 
@@ -1491,7 +1511,7 @@ interface I
 }
 class C : I
 {
-    public void Foo([DateTimeConstant(100), Optional]DateTime d1, [IUnknownConstant, Optional]object d2)
+    public void Foo([DateTimeConstant(100), Optional] DateTime d1, [IUnknownConstant, Optional] object d2)
     {
         throw new NotImplementedException();
     }
@@ -2620,6 +2640,51 @@ partial class C
         // GC.SuppressFinalize(this);
     }}
     #endregion";
+        }
+
+        [WorkItem(1132014)]
+        [Fact, Trait(Traits.Feature, Traits.Features.CodeActionsImplementInterface)]
+        public void TestInaccessibleAttributes()
+        {
+            Test(
+@"using System;
+
+public class Foo : [|Holder.SomeInterface|]
+{
+}
+
+public class Holder
+{
+    public interface SomeInterface
+    {
+        void Something([SomeAttribute] string helloWorld);
+    }
+
+    private class SomeAttribute : Attribute
+    {
+    }
+}",
+@"using System;
+
+public class Foo : Holder.SomeInterface
+{
+    public void Something(string helloWorld)
+    {
+        throw new NotImplementedException();
+    }
+}
+
+public class Holder
+{
+    public interface SomeInterface
+    {
+        void Something([SomeAttribute] string helloWorld);
+    }
+
+    private class SomeAttribute : Attribute
+    {
+    }
+}");
         }
     }
 }

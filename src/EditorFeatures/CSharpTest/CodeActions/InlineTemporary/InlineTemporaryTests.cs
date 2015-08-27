@@ -2054,7 +2054,7 @@ class C
     static void Main()
     {
         Action<string> g = null;
-        var h = (Foo<string>) + g;
+        var h = Foo + g;
     }
 
     static void Foo<T>(T y) { }
@@ -3202,7 +3202,7 @@ class Program
 
         [WorkItem(529698)]
         [Fact, Trait(Traits.Feature, Traits.Features.CodeActionsInlineTemporary)]
-        public void InlineCompundAssignmentIntoInitializer()
+        public void InlineCompoundAssignmentIntoInitializer()
         {
             Test(
             @"
@@ -3552,6 +3552,130 @@ class A
         }
 
         [Fact, Trait(Traits.Feature, Traits.Features.CodeActionsInlineTemporary)]
+        [WorkItem(2593, "https://github.com/dotnet/roslyn/issues/2593")]
+        public void TestConditionalAccessWithExtensionMethodInvocation()
+        {
+            Test(
+            @"
+using System;
+using System.Collections.Generic;
+using System.Linq;
+
+static class M
+{
+    public static IEnumerable<string> Something(this C cust)
+    {
+        throw new NotImplementedException();
+    }
+}
+
+class C
+{
+    private object GetAssemblyIdentity(IEnumerable<C> types)
+    {
+        foreach (var t in types)
+        {
+            var [|assembly|] = t?.Something().First();
+            var identity = assembly?.ToArray();
+        }
+        return null;
+    }
+}
+", @"
+using System;
+using System.Collections.Generic;
+using System.Linq;
+
+static class M
+{
+    public static IEnumerable<string> Something(this C cust)
+    {
+        throw new NotImplementedException();
+    }
+}
+
+class C
+{
+    private object GetAssemblyIdentity(IEnumerable<C> types)
+    {
+        foreach (var t in types)
+        {
+            var identity = t?.Something().First()?.ToArray();
+        }
+        return null;
+    }
+}
+");
+        }
+
+        [Fact, Trait(Traits.Feature, Traits.Features.CodeActionsInlineTemporary)]
+        [WorkItem(2593, "https://github.com/dotnet/roslyn/issues/2593")]
+        public void TestConditionalAccessWithExtensionMethodInvocation_2()
+        {
+            Test(
+            @"
+using System;
+using System.Collections.Generic;
+using System.Linq;
+
+static class M
+{
+    public static IEnumerable<string> Something(this C cust)
+    {
+        throw new NotImplementedException();
+    }
+
+    public static Func<C> Something2(this C cust)
+    {
+        throw new NotImplementedException();
+    }
+}
+
+class C
+{
+    private object GetAssemblyIdentity(IEnumerable<C> types)
+    {
+        foreach (var t in types)
+        {
+            var [|assembly|] = (t?.Something2())()?.Something().First();
+            var identity = assembly?.ToArray();
+        }
+        return null;
+    }
+}
+", @"
+using System;
+using System.Collections.Generic;
+using System.Linq;
+
+static class M
+{
+    public static IEnumerable<string> Something(this C cust)
+    {
+        throw new NotImplementedException();
+    }
+
+    public static Func<C> Something2(this C cust)
+    {
+        throw new NotImplementedException();
+    }
+}
+
+class C
+{
+    private object GetAssemblyIdentity(IEnumerable<C> types)
+    {
+        foreach (var t in types)
+        {
+            var identity = (t?.Something2())()?.Something().First()?.ToArray();
+        }
+        return null;
+    }
+}
+");
+        }
+
+        [Fact, Trait(Traits.Feature, Traits.Features.CodeActionsInlineTemporary)]
         public void TestAliasQualifiedNameIntoInterpolation()
         {
             Test(
@@ -3641,6 +3765,127 @@ class A
         var y = $""{s.ToUpper()}"";
     }
 }");
+        }
+
+        [WorkItem(4583, "https://github.com/dotnet/roslyn/issues/4583")]
+        [Fact, Trait(Traits.Feature, Traits.Features.CodeActionsInlineTemporary)]
+        public void DontParenthesizeInterpolatedStringWithNoInterpolation()
+        {
+            Test(
+            @"
+class C
+{
+    public void M()
+    {
+        var [|s1|] = $""hello"";
+        var s2 = string.Replace(s1, ""world"");
+    }
+}
+", @"
+class C
+{
+    public void M()
+    {
+        var s2 = string.Replace($""hello"", ""world"");
+    }
+}");
+        }
+
+        [WorkItem(4583, "https://github.com/dotnet/roslyn/issues/4583")]
+        [Fact, Trait(Traits.Feature, Traits.Features.CodeActionsInlineTemporary)]
+        public void DontParenthesizeInterpolatedStringWithInterpolation()
+        {
+            Test(
+            @"
+class C
+{
+    public void M(int x)
+    {
+        var [|s1|] = $""hello {x}"";
+        var s2 = string.Replace(s1, ""world"");
+    }
+}
+", @"
+class C
+{
+    public void M(int x)
+    {
+        var s2 = string.Replace($""hello {x}"", ""world"");
+    }
+}");
+        }
+
+        [WorkItem(4583, "https://github.com/dotnet/roslyn/issues/4583")]
+        [Fact, Trait(Traits.Feature, Traits.Features.CodeActionsInlineTemporary)]
+        public void InlineFormattableStringIntoCallSiteRequiringFormattableString()
+        {
+            const string initial = @"
+using System;
+" + CodeSnippets.FormattableStringType + @"
+class C
+{
+    static void M(FormattableString s)
+    {
+    }
+
+    static void N(int x, int y)
+    {
+        FormattableString [||]s = $""{x}, {y}"";
+        M(s);
+    }
+}";
+
+            const string expected = @"
+using System;
+" + CodeSnippets.FormattableStringType + @"
+class C
+{
+    static void M(FormattableString s)
+    {
+    }
+
+    static void N(int x, int y)
+    {
+        M($""{x}, {y}"");
+    }
+}";
+
+            Test(initial, expected, compareTokens: false);
+        }
+
+        [WorkItem(4624, "https://github.com/dotnet/roslyn/issues/4624")]
+        [Fact, Trait(Traits.Feature, Traits.Features.CodeActionsInlineTemporary)]
+        public void InlineFormattableStringIntoCallSiteWithFormattableStringOverload()
+        {
+            const string initial = @"
+using System;
+" + CodeSnippets.FormattableStringType + @"
+class C
+{
+    static void M(string s) { }
+    static void M(FormattableString s) { }
+
+    static void N(int x, int y)
+    {
+        FormattableString [||]s = $""{x}, {y}"";
+        M(s);
+    }
+}";
+
+            const string expected = @"
+using System;
+" + CodeSnippets.FormattableStringType + @"
+class C
+{
+    static void M(string s) { }
+    static void M(FormattableString s) { }
+
+    static void N(int x, int y)
+    {
+        M((FormattableString)$""{x}, {y}"");
+    }
+}";
+            Test(initial, expected, compareTokens: false);
         }
     }
 }

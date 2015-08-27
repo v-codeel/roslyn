@@ -1583,7 +1583,7 @@ static class E
         <Fact>
         <WorkItem(530817)>
         <Trait(Traits.Feature, Traits.Features.Rename)>
-        Public Sub CSharpShowDeclarationConflictsImmidiately()
+        Public Sub CSharpShowDeclarationConflictsImmediately()
             Using workspace = CreateWorkspaceWithWaiter(
                         <Workspace>
                             <Project Language="C#" CommonReferences="true">
@@ -1619,7 +1619,7 @@ static class E
         <Fact>
         <WorkItem(530817)>
         <Trait(Traits.Feature, Traits.Features.Rename)>
-        Public Sub VBShowDeclarationConflictsImmidiately()
+        Public Sub VBShowDeclarationConflictsImmediately()
             Using workspace = CreateWorkspaceWithWaiter(
                         <Workspace>
                             <Project Language="Visual Basic" CommonReferences="true">
@@ -1690,8 +1690,7 @@ static class E
 
         Private Shared Function GetTagsOfType(expectedTagType As ITextMarkerTag, renameService As InlineRenameService, textBuffer As ITextBuffer) As IEnumerable(Of Span)
             Dim tagger = New RenameTagger(textBuffer, renameService)
-            Dim snapshotSpan = New SnapshotSpan(textBuffer.CurrentSnapshot, 0, textBuffer.CurrentSnapshot.Length)
-            Dim tags = tagger.GetTags(New NormalizedSnapshotSpanCollection(snapshotSpan))
+            Dim tags = tagger.GetTags(textBuffer.CurrentSnapshot.GetSnapshotSpanCollection())
 
             Return (From tag In tags
                     Where tag.Tag Is expectedTagType

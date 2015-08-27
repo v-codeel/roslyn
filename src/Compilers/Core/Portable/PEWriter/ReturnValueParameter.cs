@@ -23,7 +23,7 @@ namespace Microsoft.Cci
             get { return _containingMethod; }
         }
 
-        private IMethodDefinition _containingMethod;
+        private readonly IMethodDefinition _containingMethod;
 
         public IMetadataConstant Constant
         {
@@ -64,9 +64,9 @@ namespace Microsoft.Cci
             get { return _containingMethod.ReturnValueIsByRef; }
         }
 
-        public bool HasByRefBeforeCustomModifiers
+        public ushort CountOfCustomModifiersPrecedingByRef
         {
-            get { return false; }
+            get { return 0; }
         }
 
         public bool IsMarshalledExplicitly

@@ -97,6 +97,20 @@ using System.Linq;
 
         [Fact]
         [Trait(Traits.Feature, Traits.Features.SmartIndent)]
+        public void AfterTopOfFileComment()
+        {
+            var code = @"// comment
+
+class
+";
+            AssertIndentNotUsingSmartTokenFormatterButUsingIndenter(
+                code,
+                indentationLine: 2,
+                expectedIndentation: 0);
+        }
+
+        [Fact]
+        [Trait(Traits.Feature, Traits.Features.SmartIndent)]
         public void DottedName()
         {
             var code = @"using System.
@@ -1249,6 +1263,25 @@ Program.number}"";
             AssertIndentNotUsingSmartTokenFormatterButUsingIndenter(
                 code,
                 indentationLine: 5,
+                expectedIndentation: 8);
+        }
+
+        [Fact]
+        [WorkItem(1339, "https://github.com/dotnet/roslyn/issues/1339")]
+        [Trait(Traits.Feature, Traits.Features.SmartIndent)]
+        public void IndentAutoPropertyInitializerAsPartOfTheDeclaration()
+        {
+            var code = @"class Program
+{
+    public int d { get; } 
+= 3;
+    static void Main(string[] args)
+    {
+    }
+}";
+            AssertIndentNotUsingSmartTokenFormatterButUsingIndenter(
+                code,
+                indentationLine: 3,
                 expectedIndentation: 8);
         }
 

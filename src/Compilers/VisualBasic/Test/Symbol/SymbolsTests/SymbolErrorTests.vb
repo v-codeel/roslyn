@@ -3921,7 +3921,7 @@ End Class
             CompilationUtils.AssertNoErrors(other)
 
             Dim comp As VisualBasicCompilation = CompilationUtils.CreateCompilationWithMscorlibAndReferences(
-<compilation name="AccessCheckCrossAssemblyDeiver2">
+<compilation name="AccessCheckCrossAssemblyDerived2">
     <file name="a.vb"><![CDATA[
 Public Class A
     Inherits C
@@ -10404,7 +10404,7 @@ BC31086: 'Public Overrides Sub F1()' cannot override 'Public Sub F1()' because i
             CompilationUtils.AssertTheseDeclarationDiagnostics(compilation1, expectedErrors1)
         End Sub
 
-        Private Shared TypeWithMixedProperty As String = <![CDATA[
+        Private Shared ReadOnly s_typeWithMixedProperty As String = <![CDATA[
 .class public auto ansi beforefieldinit Base_VirtGet_Set
        extends [mscorlib]System.Object
 {
@@ -10498,7 +10498,7 @@ Class VBDerived
 
 End Class
         ]]></file>
-    </compilation>, TypeWithMixedProperty)
+    </compilation>, s_typeWithMixedProperty)
 
             Dim expectedErrors1 = <errors><![CDATA[
 BC31086: 'Public Overrides Property Prop As Integer' cannot override 'Public Overloads Property Prop As Integer' because it is not declared 'Overridable'.
@@ -10528,9 +10528,9 @@ Class VBDerived
 
 End Class
         ]]></file>
-    </compilation>, TypeWithMixedProperty)
+    </compilation>, s_typeWithMixedProperty)
 
-            ' WARNING: There are no Errors, but setter is actually not overriden!!!
+            ' WARNING: There are no Errors, but setter is actually not overridden!!!
 
             Dim expectedErrors1 = <errors><![CDATA[
                                   ]]></errors>
@@ -11881,11 +11881,11 @@ Module Module1
 End Module
 
 Public Class Cls
-    Public VauleOfProperty1 As IEnumerable(Of String)
+    Public ValueOfProperty1 As IEnumerable(Of String)
     'COMPILEERROR: BC31408, "Iterator"
     Public WriteOnly Iterator Property WriteOnlyPro1() As IEnumerable(Of String)
         Set(value As IEnumerable(Of String))
-            VauleOfProperty1 = value
+            ValueOfProperty1 = value
         End Set
     End Property
 End Class
@@ -11913,7 +11913,7 @@ Imports System.Collections.Generic
 Imports System.Threading
 Imports System.Threading.Tasks
 ' Bug51817: Incorrect Iterator Modifier in Source Code Causes VBC to exit incorrectly when Msbuild Project
-Public Class Sceanario2
+Public Class Scenario2
     Implements IEnumerator(Of Integer)
     Public Function MoveNext() As Boolean Implements System.Collections.IEnumerator.MoveNext
         Return True
@@ -13240,7 +13240,7 @@ BC31527: 'Microsoft.VisualBasic.ComClassAttribute' cannot be applied to a class 
         ' BC31531ERR_DllImportNotLegalOnEventMethod
         ' see AttributeTests
 
-        <Fact>
+        <Fact, WorkItem(1116455, "DevDiv")>
         Public Sub BC31534ERR_FriendAssemblyBadArguments()
             Dim compilation = CompilationUtils.CreateCompilationWithMscorlibAndReferences(
     <compilation name="FriendAssemblyBadArguments">
@@ -13261,6 +13261,7 @@ Imports System.Runtime.CompilerServices
 <Assembly: InternalsVisibleTo("Test, Version=1.1.1.*")>              ' error
 <Assembly: InternalsVisibleTo("Test, ProcessorArchitecture=MSIL")>   ' error
 <Assembly: InternalsVisibleTo("Test, CuLTure=EN")>                   ' error
+<Assembly: InternalsVisibleTo("Test, PublicKeyToken=null")>          ' ok
         ]]></file>
     </compilation>, {SystemCoreRef})
 
@@ -19572,7 +19573,7 @@ BC40056: Namespace or type specified in the Imports 'Alias2' doesn't contain any
         End Sub
 
         <Fact>
-        Public Sub BC40057WRN_UndefinedOrEmpyProjectNamespaceOrClass1()
+        Public Sub BC40057WRN_UndefinedOrEmptyProjectNamespaceOrClass1()
             Dim globalImports = GlobalImport.Parse({"Alias2 = System", "N12 = Alias2"})
             Dim options = TestOptions.ReleaseExe.WithGlobalImports(globalImports)
             Dim compilation1 = CompilationUtils.CreateCompilationWithMscorlib(
@@ -20748,7 +20749,7 @@ BC30461: Classes cannot be declared 'MustOverride'.
             CompilationUtils.AssertTheseDeclarationDiagnostics(compilation, expectedErrors)
         End Sub
 
-        ' Checks for accessibilty across partial types
+        ' Checks for accessibility across partial types
         <Fact>
         Public Sub ModifierErrorsAcrossPartialTypes()
             Dim compilation1 = CompilationUtils.CreateCompilationWithMscorlib(
@@ -20791,7 +20792,7 @@ BC30926: 'MustInherit' cannot be specified for partial type 'A' because it canno
 
         End Sub
 
-        ' Checks for mising partial on clases
+        ' Checks for missing partial on classes
         <Fact>
         Public Sub ModifierWarningsAcrossPartialTypes()
             Dim compilation1 = CompilationUtils.CreateCompilationWithMscorlib(

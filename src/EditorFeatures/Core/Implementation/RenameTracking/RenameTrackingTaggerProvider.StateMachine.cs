@@ -33,6 +33,11 @@ namespace Microsoft.CodeAnalysis.Editor.Implementation.RenameTracking
             private readonly ITextBuffer _buffer;
             private readonly IDiagnosticAnalyzerService _diagnosticAnalyzerService;
 
+            // Store committed sessions so they can be restored on undo/redo. The undo transactions
+            // may live beyond the lifetime of the buffer tracked by this StateMachine, so storing
+            // them here allows them to be correctly cleaned up when the buffer goes away.
+            private readonly IList<TrackingSession> _committedSessions = new List<TrackingSession>();
+
             private int _refCount;
 
             public TrackingSession TrackingSession { get; private set; }
@@ -42,9 +47,9 @@ namespace Microsoft.CodeAnalysis.Editor.Implementation.RenameTracking
             public event Action<ITrackingSpan> TrackingSessionCleared = delegate { };
 
             public StateMachine(
-                ITextBuffer buffer, 
-                IInlineRenameService inlineRenameService, 
-                IAsynchronousOperationListener asyncListener, 
+                ITextBuffer buffer,
+                IInlineRenameService inlineRenameService,
+                IAsynchronousOperationListener asyncListener,
                 IDiagnosticAnalyzerService diagnosticAnalyzerService)
             {
                 _buffer = buffer;
@@ -67,7 +72,7 @@ namespace Microsoft.CodeAnalysis.Editor.Implementation.RenameTracking
                 using (Logger.LogBlock(FunctionId.Rename_Tracking_BufferChanged, CancellationToken.None))
                 {
                     // When the buffer changes, several things might be happening:
-                    // 1. If a non-identifer character has been added or deleted, we stop tracking
+                    // 1. If a non-identifier character has been added or deleted, we stop tracking
                     //    completely.
                     // 2. Otherwise, if the changes are completely contained an existing session, then
                     //    continue that session.
@@ -100,16 +105,22 @@ namespace Microsoft.CodeAnalysis.Editor.Implementation.RenameTracking
                     {
                         // Continuing an existing tracking session. If there may have been a tag
                         // showing, then update the tags.
-                        if (this.TrackingSession.IsDefinitelyRenamableIdentifier())
-                        {
-                            this.TrackingSession.CheckNewIdentifier(this, _buffer.CurrentSnapshot);
-                            TrackingSessionUpdated();
-                        }
+                        UpdateTrackingSessionIfRenamable();
                     }
                     else
                     {
                         StartTrackingSession(e);
                     }
+                }
+            }
+
+            public void UpdateTrackingSessionIfRenamable()
+            {
+                AssertIsForeground();
+                if (this.TrackingSession.IsDefinitelyRenamableIdentifier())
+                {
+                    this.TrackingSession.CheckNewIdentifier(this, _buffer.CurrentSnapshot);
+                    TrackingSessionUpdated();
                 }
             }
 
@@ -220,7 +231,7 @@ namespace Microsoft.CodeAnalysis.Editor.Implementation.RenameTracking
                         // manually.
 
                         _diagnosticAnalyzerService?.Reanalyze(
-                            document.Project.Solution.Workspace, 
+                            document.Project.Solution.Workspace,
                             documentIds: SpecializedCollections.SingletonEnumerable(document.Id));
                     }
 
@@ -236,6 +247,21 @@ namespace Microsoft.CodeAnalysis.Editor.Implementation.RenameTracking
                 return false;
             }
 
+            internal int StoreCurrentTrackingSessionAndGenerateId()
+            {
+                AssertIsForeground();
+
+                var existingIndex = _committedSessions.IndexOf(TrackingSession);
+                if (existingIndex >= 0)
+                {
+                    return existingIndex;
+                }
+
+                var index = _committedSessions.Count;
+                _committedSessions.Insert(index, TrackingSession);
+                return index;
+            }
+
             public bool CanInvokeRename(out TrackingSession trackingSession, bool isSmartTagCheck = false, bool waitForResult = false, CancellationToken cancellationToken = default(CancellationToken))
             {
                 // This needs to be able to run on a background thread for the diagnostic.
@@ -247,8 +273,9 @@ namespace Microsoft.CodeAnalysis.Editor.Implementation.RenameTracking
                 }
 
                 ISyntaxFactsService syntaxFactsService;
-                return TryGetSyntaxFactsService(out syntaxFactsService) &&
-                    trackingSession.CanInvokeRename(syntaxFactsService, isSmartTagCheck, waitForResult, cancellationToken);
+                IRenameTrackingLanguageHeuristicsService languageHeuristicsService;
+                return TryGetSyntaxFactsService(out syntaxFactsService) && TryGetLanguageHeuristicsService(out languageHeuristicsService) &&
+                    trackingSession.CanInvokeRename(syntaxFactsService, languageHeuristicsService, isSmartTagCheck, waitForResult, cancellationToken);
             }
 
             internal async Task<IEnumerable<Diagnostic>> GetDiagnostic(SyntaxTree tree, DiagnosticDescriptor diagnosticDescriptor, CancellationToken cancellationToken)
@@ -293,12 +320,12 @@ namespace Microsoft.CodeAnalysis.Editor.Implementation.RenameTracking
                 }
             }
 
-            public void RestoreTrackingSession(TrackingSession trackingSession)
+            public void RestoreTrackingSession(int trackingSessionId)
             {
                 AssertIsForeground();
                 ClearTrackingSession();
 
-                this.TrackingSession = trackingSession;
+                this.TrackingSession = _committedSessions[trackingSessionId];
                 TrackingSessionUpdated();
             }
 
@@ -324,6 +351,20 @@ namespace Microsoft.CodeAnalysis.Editor.Implementation.RenameTracking
                 }
 
                 return syntaxFactsService != null;
+            }
+
+            private bool TryGetLanguageHeuristicsService(out IRenameTrackingLanguageHeuristicsService languageHeuristicsService)
+            {
+                // Can be called on a background thread
+
+                languageHeuristicsService = null;
+                var document = _buffer.CurrentSnapshot.GetOpenDocumentInCurrentContextWithChanges();
+                if (document != null)
+                {
+                    languageHeuristicsService = document.Project.LanguageServices.GetService<IRenameTrackingLanguageHeuristicsService>();
+                }
+
+                return languageHeuristicsService != null;
             }
 
             public void Connect()

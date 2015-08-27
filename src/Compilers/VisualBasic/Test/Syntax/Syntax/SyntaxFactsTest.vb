@@ -121,7 +121,7 @@ Public Class SyntaxFactsTests
     End Sub
 
     <Fact>
-    Public Sub GetInstanceExpresssion()
+    Public Sub GetInstanceExpression()
         Assert.Equal(SyntaxKind.None, SyntaxFacts.GetInstanceExpression(SyntaxKind.DeclareKeyword))
         Assert.Equal(SyntaxKind.MeExpression, SyntaxFacts.GetInstanceExpression(SyntaxKind.MeKeyword))
         Assert.Equal(SyntaxKind.MyBaseExpression, SyntaxFacts.GetInstanceExpression(SyntaxKind.MyBaseKeyword))
@@ -1001,7 +1001,7 @@ End Namespace
     End Sub
 
     <Fact>
-    Sub AllowsLeadingOrTrailingImplicitLineContinuation()
+    Public Sub AllowsLeadingOrTrailingImplicitLineContinuation()
 
         Dim cu = SyntaxFactory.ParseCompilationUnit(My.Resources.Resource.VBAllInOne)
 
@@ -1099,7 +1099,7 @@ End Namespace
     End Sub
 
     <Fact>
-    Sub AllowsLeadingOrTrailingImplicitLineContinuationNegativeTests()
+    Public Sub AllowsLeadingOrTrailingImplicitLineContinuationNegativeTests()
 
         Dim cu = SyntaxFactory.ParseCompilationUnit(My.Resources.Resource.VBAllInOne)
 

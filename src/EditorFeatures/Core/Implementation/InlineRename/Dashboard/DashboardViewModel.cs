@@ -15,6 +15,7 @@ namespace Microsoft.CodeAnalysis.Editor.Implementation.InlineRename
 {
     internal class DashboardViewModel : INotifyPropertyChanged, IDisposable
     {
+        private const int SymbolDescriptionTextLength = 15;
         private readonly Visibility _renameOverloadsVisibility;
 
         private DashboardSeverity _severity = DashboardSeverity.None;
@@ -34,7 +35,7 @@ namespace Microsoft.CodeAnalysis.Editor.Implementation.InlineRename
         {
             Contract.ThrowIfNull(session);
             _session = session;
-            _searchText = "Searching...";
+            _searchText = EditorFeaturesResources.Searching;
 
             _renameOverloadsVisibility = session.HasRenameOverloads ? Visibility.Visible : Visibility.Collapsed;
             _isRenameOverloadsEditable = !session.ForceRenameOverloads;
@@ -85,7 +86,7 @@ namespace Microsoft.CodeAnalysis.Editor.Implementation.InlineRename
             {
                 _errorText = string.IsNullOrEmpty(session.ReplacementText)
                     ? null
-                    : string.Format(EditorFeaturesResources.IsNotAValidIdentifier, session.ReplacementText);
+                    : string.Format(EditorFeaturesResources.IsNotAValidIdentifier, GetTruncatedName(session.ReplacementText));
             }
 
             UpdateSeverity();
@@ -155,8 +156,15 @@ namespace Microsoft.CodeAnalysis.Editor.Implementation.InlineRename
         {
             get
             {
-                return string.Format(EditorFeaturesResources.Rename1, this.Session.OriginalSymbolName);
+                return string.Format(EditorFeaturesResources.Rename1, GetTruncatedName(Session.OriginalSymbolName));
             }
+        }
+
+        private static string GetTruncatedName(string fullName)
+        {
+            return fullName.Length < SymbolDescriptionTextLength
+                ? fullName
+                : fullName.Substring(0, SymbolDescriptionTextLength) + "...";
         }
 
         public string SearchText

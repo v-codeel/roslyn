@@ -15,7 +15,7 @@ Namespace Microsoft.CodeAnalysis.Editor.VisualBasic.UnitTests.Diagnostics.Suppre
     Public MustInherit Class VisualBasicSuppressionTests
         Inherits AbstractSuppressionDiagnosticTest
 
-        Private ReadOnly compilationOptions As CompilationOptions =
+        Private ReadOnly _compilationOptions As CompilationOptions =
             New VisualBasicCompilationOptions(OutputKind.ConsoleApplication).WithOptionInfer(True)
 
         Protected Overrides Function GetScriptOptions() As ParseOptions
@@ -626,11 +626,11 @@ End Class]]>
                 Private Class UserDiagnosticAnalyzer
                     Inherits DiagnosticAnalyzer
 
-                    Private descriptor As New DiagnosticDescriptor("InfoDiagnostic", "InfoDiagnostic", "InfoDiagnostic", "InfoDiagnostic", DiagnosticSeverity.Info, isEnabledByDefault:=True)
+                    Private _descriptor As New DiagnosticDescriptor("InfoDiagnostic", "InfoDiagnostic", "InfoDiagnostic", "InfoDiagnostic", DiagnosticSeverity.Info, isEnabledByDefault:=True)
 
                     Public Overrides ReadOnly Property SupportedDiagnostics() As ImmutableArray(Of DiagnosticDescriptor)
                         Get
-                            Return ImmutableArray.Create(descriptor)
+                            Return ImmutableArray.Create(_descriptor)
                         End Get
                     End Property
 
@@ -640,7 +640,7 @@ End Class]]>
 
                     Private Sub AnalyzeNode(context As SyntaxNodeAnalysisContext)
                         Dim classDecl = DirectCast(context.Node, ClassStatementSyntax)
-                        context.ReportDiagnostic(Diagnostic.Create(descriptor, classDecl.Identifier.GetLocation()))
+                        context.ReportDiagnostic(Diagnostic.Create(_descriptor, classDecl.Identifier.GetLocation()))
                     End Sub
                 End Class
 
@@ -690,11 +690,11 @@ End Class]]>
                 Private Class UserDiagnosticAnalyzer
                     Inherits DiagnosticAnalyzer
 
-                    Private descriptor As New DiagnosticDescriptor("#$DiagnosticWithBadId", "DiagnosticWithBadId", "DiagnosticWithBadId", "DiagnosticWithBadId", DiagnosticSeverity.Info, isEnabledByDefault:=True)
+                    Private _descriptor As New DiagnosticDescriptor("#$DiagnosticWithBadId", "DiagnosticWithBadId", "DiagnosticWithBadId", "DiagnosticWithBadId", DiagnosticSeverity.Info, isEnabledByDefault:=True)
 
                     Public Overrides ReadOnly Property SupportedDiagnostics() As ImmutableArray(Of DiagnosticDescriptor)
                         Get
-                            Return ImmutableArray.Create(descriptor)
+                            Return ImmutableArray.Create(_descriptor)
                         End Get
                     End Property
 
@@ -704,7 +704,7 @@ End Class]]>
 
                     Private Sub AnalyzeNode(context As SyntaxNodeAnalysisContext)
                         Dim classDecl = DirectCast(context.Node, ClassStatementSyntax)
-                        context.ReportDiagnostic(Diagnostic.Create(descriptor, classDecl.Identifier.GetLocation()))
+                        context.ReportDiagnostic(Diagnostic.Create(_descriptor, classDecl.Identifier.GetLocation()))
                     End Sub
                 End Class
 
@@ -715,6 +715,7 @@ End Class]]>
                 <WorkItem(730770)>
                 <Fact, Trait(Traits.Feature, Traits.Features.CodeActionsSuppression)>
                 Public Sub TestDiagnosticWithBadIdSuppressed()
+                    ' Diagnostics with bad/invalid ID are not reported.
                     Dim source = <![CDATA[
 Imports System
 
@@ -722,39 +723,8 @@ Imports System
     Sub Method()
     End Sub
 End Class]]>
-                    Dim expected = <![CDATA[
-Imports System
 
-#Disable Warning #$DiagnosticWithBadId ' DiagnosticWithBadId
-Class C
-#Enable Warning #$DiagnosticWithBadId ' DiagnosticWithBadId
-    Sub Method()
-    End Sub
-End Class]]>
-                    Test(source.Value, expected.Value)
-
-                    Dim source2 = <![CDATA[
-Imports System
-
-#Disable Warning #$DiagnosticWithBadId ' DiagnosticWithBadId
-[|Class C|]
-#Enable Warning #$DiagnosticWithBadId ' DiagnosticWithBadId
-    Sub Method()
-    End Sub
-End Class]]>
-                    Dim expected2 = <![CDATA[
-Imports System
-
-#Disable Warning #$DiagnosticWithBadId ' DiagnosticWithBadId
-#Disable Warning #$DiagnosticWithBadId ' DiagnosticWithBadId
-Class C
-#Enable Warning #$DiagnosticWithBadId ' DiagnosticWithBadId
-#Enable Warning #$DiagnosticWithBadId ' DiagnosticWithBadId
-    Sub Method()
-    End Sub
-End Class]]>
-                    ' Verify that the original suppression doesn't really work and that the diagnostic can be suppressed again.
-                    Test(source2.Value, expected2.Value)
+                    TestMissing(source.Value)
                 End Sub
             End Class
 
@@ -763,11 +733,11 @@ End Class]]>
                 Private Class UserDiagnosticAnalyzer
                     Inherits DiagnosticAnalyzer
 
-                    Private descriptor As New DiagnosticDescriptor("REm", "REm Title", "REm", "REm", DiagnosticSeverity.Warning, isEnabledByDefault:=True)
+                    Private _descriptor As New DiagnosticDescriptor("REm", "REm Title", "REm", "REm", DiagnosticSeverity.Warning, isEnabledByDefault:=True)
 
                     Public Overrides ReadOnly Property SupportedDiagnostics() As ImmutableArray(Of DiagnosticDescriptor)
                         Get
-                            Return ImmutableArray.Create(descriptor)
+                            Return ImmutableArray.Create(_descriptor)
                         End Get
                     End Property
 
@@ -777,7 +747,7 @@ End Class]]>
 
                     Public Sub AnalyzeNode(context As SyntaxNodeAnalysisContext)
                         Dim classDecl = DirectCast(context.Node, ClassStatementSyntax)
-                        context.ReportDiagnostic(Diagnostic.Create(descriptor, classDecl.Identifier.GetLocation()))
+                        context.ReportDiagnostic(Diagnostic.Create(_descriptor, classDecl.Identifier.GetLocation()))
                     End Sub
                 End Class
 
@@ -827,11 +797,11 @@ End Class]]>
                 Private Class UserDiagnosticAnalyzer
                     Inherits DiagnosticAnalyzer
 
-                    Private descriptor As New DiagnosticDescriptor("ErrorDiagnostic", "ErrorDiagnostic", "ErrorDiagnostic", "ErrorDiagnostic", DiagnosticSeverity.[Error], isEnabledByDefault:=True)
+                    Private _descriptor As New DiagnosticDescriptor("ErrorDiagnostic", "ErrorDiagnostic", "ErrorDiagnostic", "ErrorDiagnostic", DiagnosticSeverity.[Error], isEnabledByDefault:=True)
 
                     Public Overrides ReadOnly Property SupportedDiagnostics() As ImmutableArray(Of DiagnosticDescriptor)
                         Get
-                            Return ImmutableArray.Create(descriptor)
+                            Return ImmutableArray.Create(_descriptor)
                         End Get
                     End Property
 
@@ -841,7 +811,7 @@ End Class]]>
 
                     Public Sub AnalyzeNode(context As SyntaxNodeAnalysisContext)
                         Dim classDecl = DirectCast(context.Node, ClassStatementSyntax)
-                        context.ReportDiagnostic(Diagnostic.Create(descriptor, classDecl.Identifier.GetLocation()))
+                        context.ReportDiagnostic(Diagnostic.Create(_descriptor, classDecl.Identifier.GetLocation()))
                     End Sub
                 End Class
 
@@ -921,11 +891,11 @@ End Class]]>
                 Private Class UserDiagnosticAnalyzer
                     Inherits DiagnosticAnalyzer
 
-                    Private descriptor As New DiagnosticDescriptor("InfoDiagnostic", "InfoDiagnostic", "InfoDiagnostic", "InfoDiagnostic", DiagnosticSeverity.Info, isEnabledByDefault:=True)
+                    Private _descriptor As New DiagnosticDescriptor("InfoDiagnostic", "InfoDiagnostic", "InfoDiagnostic", "InfoDiagnostic", DiagnosticSeverity.Info, isEnabledByDefault:=True)
 
                     Public Overrides ReadOnly Property SupportedDiagnostics() As ImmutableArray(Of DiagnosticDescriptor)
                         Get
-                            Return ImmutableArray.Create(descriptor)
+                            Return ImmutableArray.Create(_descriptor)
                         End Get
                     End Property
 
@@ -937,32 +907,32 @@ End Class]]>
                         Select Case context.Node.Kind()
                             Case SyntaxKind.ClassStatement
                                 Dim classDecl = DirectCast(context.Node, ClassStatementSyntax)
-                                context.ReportDiagnostic(Diagnostic.Create(descriptor, classDecl.Identifier.GetLocation()))
+                                context.ReportDiagnostic(Diagnostic.Create(_descriptor, classDecl.Identifier.GetLocation()))
                                 Exit Select
 
                             Case SyntaxKind.NamespaceStatement
                                 Dim ns = DirectCast(context.Node, NamespaceStatementSyntax)
-                                context.ReportDiagnostic(Diagnostic.Create(descriptor, ns.Name.GetLocation()))
+                                context.ReportDiagnostic(Diagnostic.Create(_descriptor, ns.Name.GetLocation()))
                                 Exit Select
 
                             Case SyntaxKind.SubStatement, SyntaxKind.FunctionStatement
                                 Dim method = DirectCast(context.Node, MethodStatementSyntax)
-                                context.ReportDiagnostic(Diagnostic.Create(descriptor, method.Identifier.GetLocation()))
+                                context.ReportDiagnostic(Diagnostic.Create(_descriptor, method.Identifier.GetLocation()))
                                 Exit Select
 
                             Case SyntaxKind.PropertyStatement
                                 Dim p = DirectCast(context.Node, PropertyStatementSyntax)
-                                context.ReportDiagnostic(Diagnostic.Create(descriptor, p.Identifier.GetLocation()))
+                                context.ReportDiagnostic(Diagnostic.Create(_descriptor, p.Identifier.GetLocation()))
                                 Exit Select
 
                             Case SyntaxKind.FieldDeclaration
                                 Dim f = DirectCast(context.Node, FieldDeclarationSyntax)
-                                context.ReportDiagnostic(Diagnostic.Create(descriptor, f.Declarators.First().Names.First.GetLocation()))
+                                context.ReportDiagnostic(Diagnostic.Create(_descriptor, f.Declarators.First().Names.First.GetLocation()))
                                 Exit Select
 
                             Case SyntaxKind.EventStatement
                                 Dim e = DirectCast(context.Node, EventStatementSyntax)
-                                context.ReportDiagnostic(Diagnostic.Create(descriptor, e.Identifier.GetLocation()))
+                                context.ReportDiagnostic(Diagnostic.Create(_descriptor, e.Identifier.GetLocation()))
                                 Exit Select
                         End Select
                     End Sub
@@ -1579,11 +1549,11 @@ End Class
                 Private Class UserDiagnosticAnalyzer
                     Inherits DiagnosticAnalyzer
 
-                    Private descriptor As New DiagnosticDescriptor("InfoDiagnostic", "InfoDiagnostic", "InfoDiagnostic", "InfoDiagnostic", DiagnosticSeverity.Info, isEnabledByDefault:=True)
+                    Private _descriptor As New DiagnosticDescriptor("InfoDiagnostic", "InfoDiagnostic", "InfoDiagnostic", "InfoDiagnostic", DiagnosticSeverity.Info, isEnabledByDefault:=True)
 
                     Public Overrides ReadOnly Property SupportedDiagnostics() As ImmutableArray(Of DiagnosticDescriptor)
                         Get
-                            Return ImmutableArray.Create(descriptor)
+                            Return ImmutableArray.Create(_descriptor)
                         End Get
                     End Property
 
@@ -1595,32 +1565,32 @@ End Class
                         Select Case context.Node.Kind()
                             Case SyntaxKind.ClassStatement
                                 Dim classDecl = DirectCast(context.Node, ClassStatementSyntax)
-                                context.ReportDiagnostic(Diagnostic.Create(descriptor, classDecl.Identifier.GetLocation()))
+                                context.ReportDiagnostic(Diagnostic.Create(_descriptor, classDecl.Identifier.GetLocation()))
                                 Exit Select
 
                             Case SyntaxKind.NamespaceStatement
                                 Dim ns = DirectCast(context.Node, NamespaceStatementSyntax)
-                                context.ReportDiagnostic(Diagnostic.Create(descriptor, ns.Name.GetLocation()))
+                                context.ReportDiagnostic(Diagnostic.Create(_descriptor, ns.Name.GetLocation()))
                                 Exit Select
 
                             Case SyntaxKind.SubStatement, SyntaxKind.FunctionStatement
                                 Dim method = DirectCast(context.Node, MethodStatementSyntax)
-                                context.ReportDiagnostic(Diagnostic.Create(descriptor, method.Identifier.GetLocation()))
+                                context.ReportDiagnostic(Diagnostic.Create(_descriptor, method.Identifier.GetLocation()))
                                 Exit Select
 
                             Case SyntaxKind.PropertyStatement
                                 Dim p = DirectCast(context.Node, PropertyStatementSyntax)
-                                context.ReportDiagnostic(Diagnostic.Create(descriptor, p.Identifier.GetLocation()))
+                                context.ReportDiagnostic(Diagnostic.Create(_descriptor, p.Identifier.GetLocation()))
                                 Exit Select
 
                             Case SyntaxKind.FieldDeclaration
                                 Dim f = DirectCast(context.Node, FieldDeclarationSyntax)
-                                context.ReportDiagnostic(Diagnostic.Create(descriptor, f.Declarators.First().Names.First.GetLocation()))
+                                context.ReportDiagnostic(Diagnostic.Create(_descriptor, f.Declarators.First().Names.First.GetLocation()))
                                 Exit Select
 
                             Case SyntaxKind.EventStatement
                                 Dim e = DirectCast(context.Node, EventStatementSyntax)
-                                context.ReportDiagnostic(Diagnostic.Create(descriptor, e.Identifier.GetLocation()))
+                                context.ReportDiagnostic(Diagnostic.Create(_descriptor, e.Identifier.GetLocation()))
                                 Exit Select
                         End Select
                     End Sub

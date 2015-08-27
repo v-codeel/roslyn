@@ -5,13 +5,15 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Runtime.InteropServices;
 using Microsoft.CodeAnalysis.CompilerServer;
-using ProprietaryTestResources = Microsoft.CodeAnalysis.Test.Resources.Proprietary;
 using Microsoft.CodeAnalysis.CSharp.Test.Utilities;
 using Microsoft.CodeAnalysis.Test.Utilities;
+using Roslyn.Test.Utilities;
 using Xunit;
 
-using static Microsoft.CodeAnalysis.Test.Utilities.SharedResourceHelpers;
+using static Roslyn.Test.Utilities.SharedResourceHelpers;
+using System.Reflection;
 
 namespace Microsoft.CodeAnalysis.CSharp.CommandLine.UnitTests
 {
@@ -29,7 +31,7 @@ class C
     }
 }";
 
-        [Fact]
+        [ConditionalFact(typeof(WindowsOnly))]
         public void TrivialSourceFileOnlyCsc()
         {
             var hello = Temp.CreateFile().WriteAllText(helloWorldCS).Path;
@@ -57,7 +59,7 @@ class C
             CleanupAllGeneratedFiles(hello);
         }
 
-        [Fact]
+        [ConditionalFact(typeof(WindowsOnly))]
         public void AppConfigCsc()
         {
             var hello = Temp.CreateFile().WriteAllText(helloWorldCS).Path;
@@ -73,8 +75,8 @@ class C
   </runtime>
 </configuration>").Path;
 
-            var silverlight = Temp.CreateFile().WriteAllBytes(ProprietaryTestResources.NetFX.silverlight_v5_0_5_0.System_v5_0_5_0_silverlight).Path;
-            var net4_0dll = Temp.CreateFile().WriteAllBytes(ProprietaryTestResources.NetFX.v4_0_30319.System).Path;
+            var silverlight = Temp.CreateFile().WriteAllBytes(TestResources.NetFX.silverlight_v5_0_5_0.System_v5_0_5_0_silverlight).Path;
+            var net4_0dll = Temp.CreateFile().WriteAllBytes(TestResources.NetFX.v4_0_30319.System).Path;
 
             var outWriter = new StringWriter(CultureInfo.InvariantCulture);
             var cmd = new MockCSharpCompiler(null, _baseDirectory,
@@ -103,11 +105,11 @@ class C
             CleanupAllGeneratedFiles(hello);
         }
 
-        [Fact]
+        [ConditionalFact(typeof(WindowsOnly))]
         public void StrongNameKeyCsc()
         {
             var hello = Temp.CreateFile().WriteAllText(helloWorldCS).Path;
-            var snkPath = Temp.CreateFile("TestKeyPair_", ".snk").WriteAllBytes(TestResources.SymbolsTests.General.snKey).Path;
+            var snkPath = Temp.CreateFile("TestKeyPair_", ".snk").WriteAllBytes(TestResources.General.snKey).Path;
             var touchedDir = Temp.CreateDirectory();
             var touchedBase = Path.Combine(touchedDir.Path, "touched");
 
@@ -138,7 +140,7 @@ class C
             CleanupAllGeneratedFiles(hello);
         }
 
-        [Fact]
+        [ConditionalFact(typeof(WindowsOnly))]
         public void XmlDocumentFileCsc()
         {
             var sourcePath = Temp.CreateFile().WriteAllText(@"
@@ -195,7 +197,7 @@ public class C { }").Path;
             CleanupAllGeneratedFiles(sourcePath);
         }
 
-        [Fact]
+        [ConditionalFact(typeof(WindowsOnly))]
         public void TrivialMetadataCaching()
         {
             List<String> filelist = new List<string>();
@@ -212,10 +214,13 @@ public class C { }").Path;
 
                 filelist.Add(source1);
                 var outWriter = new StringWriter();
-                var cmd = new CSharpCompilerServer(null,
+                var cmd = new CSharpCompilerServer(
                     new[] { "/nologo", "/touchedfiles:" + touchedBase, source1 },
+                    null,
                     _baseDirectory,
-                    s_libDirectory);
+                    RuntimeEnvironment.GetRuntimeDirectory(),
+                    s_libDirectory,
+                    new TestAnalyzerAssemblyLoader());
 
                 List<string> expectedReads;
                 List<string> expectedWrites;
@@ -280,6 +285,19 @@ public class C { }").Path;
             expected = expectedWrites.Select(s => s.ToUpperInvariant()).OrderBy(s => s);
             Assert.Equal(string.Join("\r\n", expected),
                          File.ReadAllText(touchedWritesPath).Trim());
+        }
+
+        private class TestAnalyzerAssemblyLoader : IAnalyzerAssemblyLoader
+        {
+            public void AddDependencyLocation(string fullPath)
+            {
+                throw new NotImplementedException();
+            }
+
+            public Assembly LoadFromPath(string fullPath)
+            {
+                throw new NotImplementedException();
+            }
         }
     }
 }

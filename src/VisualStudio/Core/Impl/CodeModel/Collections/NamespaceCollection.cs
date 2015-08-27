@@ -69,14 +69,14 @@ namespace Microsoft.VisualStudio.LanguageServices.Implementation.CodeModel.Colle
             int ordinal;
             CodeModelService.GetOptionNameAndOrdinal(parentNode, node, out name, out ordinal);
 
-            return (EnvDTE.CodeElement)CodeOptionsStatement.Create(this.State, this.FileCodeModel, name, ordinal);
+            return CodeOptionsStatement.Create(this.State, this.FileCodeModel, name, ordinal);
         }
 
         private EnvDTE.CodeElement CreateCodeImport(SyntaxNode node, AbstractCodeElement parentElement)
         {
             var name = CodeModelService.GetImportNamespaceOrType(node);
 
-            return (EnvDTE.CodeElement)CodeImport.Create(this.State, this.FileCodeModel, parentElement, name);
+            return CodeImport.Create(this.State, this.FileCodeModel, parentElement, name);
         }
 
         private EnvDTE.CodeElement CreateCodeAttribute(SyntaxNode node, SyntaxNode parentNode, AbstractCodeElement parentElement)
@@ -99,7 +99,7 @@ namespace Microsoft.VisualStudio.LanguageServices.Implementation.CodeModel.Colle
             nodesBuilder.AddRange(CodeModelService.GetOptionNodes(node));
             nodesBuilder.AddRange(CodeModelService.GetImportNodes(node));
             nodesBuilder.AddRange(CodeModelService.GetAttributeNodes(node));
-            nodesBuilder.AddRange(CodeModelService.GetFlattenedMemberNodes(node));
+            nodesBuilder.AddRange(CodeModelService.GetLogicalSupportedMemberNodes(node));
 
             return new NodeSnapshot(this.State, _fileCodeModel, node, parentElement, nodesBuilder.ToImmutable());
         }
@@ -150,7 +150,7 @@ namespace Microsoft.VisualStudio.LanguageServices.Implementation.CodeModel.Colle
             currentIndex += attributeNodeCount;
 
             // Members
-            var memberNodes = CodeModelService.GetFlattenedMemberNodes(node);
+            var memberNodes = CodeModelService.GetLogicalSupportedMemberNodes(node);
             var memberNodeCount = memberNodes.Count();
             if (index < currentIndex + memberNodeCount)
             {
@@ -178,7 +178,7 @@ namespace Microsoft.VisualStudio.LanguageServices.Implementation.CodeModel.Colle
                 CodeModelService.GetOptionNameAndOrdinal(node, child, out childName, out ordinal);
                 if (childName == name)
                 {
-                    element = (EnvDTE.CodeElement)CodeOptionsStatement.Create(State, FileCodeModel, childName, ordinal);
+                    element = CodeOptionsStatement.Create(State, FileCodeModel, childName, ordinal);
                     return true;
                 }
             }
@@ -189,7 +189,7 @@ namespace Microsoft.VisualStudio.LanguageServices.Implementation.CodeModel.Colle
                 var childName = CodeModelService.GetImportNamespaceOrType(child);
                 if (childName == name)
                 {
-                    element = (EnvDTE.CodeElement)CodeImport.Create(State, FileCodeModel, parentElement, childName);
+                    element = CodeImport.Create(State, FileCodeModel, parentElement, childName);
                     return true;
                 }
             }
@@ -208,7 +208,7 @@ namespace Microsoft.VisualStudio.LanguageServices.Implementation.CodeModel.Colle
             }
 
             // Members
-            foreach (var child in CodeModelService.GetFlattenedMemberNodes(node))
+            foreach (var child in CodeModelService.GetLogicalSupportedMemberNodes(node))
             {
                 var childName = CodeModelService.GetName(child);
                 if (childName == name)
@@ -231,7 +231,7 @@ namespace Microsoft.VisualStudio.LanguageServices.Implementation.CodeModel.Colle
                     CodeModelService.GetOptionNodes(node).Count() +
                     CodeModelService.GetImportNodes(node).Count() +
                     CodeModelService.GetAttributeNodes(node).Count() +
-                    CodeModelService.GetFlattenedMemberNodes(node).Count();
+                    CodeModelService.GetLogicalSupportedMemberNodes(node).Count();
             }
         }
     }

@@ -14,7 +14,7 @@ Namespace Microsoft.CodeAnalysis.Editor.VisualBasic.Formatting.Indentation
         Private Class Indenter
             Inherits AbstractIndenter
 
-            Sub New(document As Document, rules As IEnumerable(Of IFormattingRule), optionSet As OptionSet, line As ITextSnapshotLine, cancellationToken As CancellationToken)
+            Public Sub New(document As Document, rules As IEnumerable(Of IFormattingRule), optionSet As OptionSet, line As ITextSnapshotLine, cancellationToken As CancellationToken)
                 MyBase.New(document, rules, optionSet, line, cancellationToken)
             End Sub
 
@@ -50,29 +50,34 @@ Namespace Microsoft.CodeAnalysis.Editor.VisualBasic.Formatting.Indentation
 
                     Dim trivia = Tree.GetRoot(CancellationToken).FindTrivia(lastNonWhitespacePosition.Value)
 
+                    ' preserve the indentation of the comment trivia before a case statement
+                    If trivia.Kind = SyntaxKind.CommentTrivia AndAlso trivia.Token.IsKind(SyntaxKind.CaseKeyword) AndAlso trivia.Token.Parent.IsKind(SyntaxKind.CaseStatement) Then
+                        Return GetIndentationOfLine(previousLine)
+                    End If
+
                     If trivia.Kind = SyntaxKind.LineContinuationTrivia OrElse trivia.Kind = SyntaxKind.CommentTrivia Then
-                        Return GetIndentationBasedOnToken(GetTokenOnLeft(trivia), trivia)
-                    End If
+                            Return GetIndentationBasedOnToken(GetTokenOnLeft(trivia), trivia)
+                        End If
 
-                    ' if we are at invalid token (skipped token) at the end of statement, treat it like we are after line continuation
-                    If trivia.Kind = SyntaxKind.SkippedTokensTrivia AndAlso trivia.Token.IsLastTokenOfStatement() Then
-                        Return GetIndentationBasedOnToken(GetTokenOnLeft(trivia), trivia)
-                    End If
+                        ' if we are at invalid token (skipped token) at the end of statement, treat it like we are after line continuation
+                        If trivia.Kind = SyntaxKind.SkippedTokensTrivia AndAlso trivia.Token.IsLastTokenOfStatement() Then
+                            Return GetIndentationBasedOnToken(GetTokenOnLeft(trivia), trivia)
+                        End If
 
-                    ' okay, now check whether the trivia is at the beginning of the line
-                    Dim firstNonWhitespacePosition = previousLine.GetFirstNonWhitespacePosition()
-                    If Not firstNonWhitespacePosition.HasValue Then
-                        Return IndentFromStartOfLine(0)
-                    End If
+                        ' okay, now check whether the trivia is at the beginning of the line
+                        Dim firstNonWhitespacePosition = previousLine.GetFirstNonWhitespacePosition()
+                        If Not firstNonWhitespacePosition.HasValue Then
+                            Return IndentFromStartOfLine(0)
+                        End If
 
-                    Dim firstTokenOnLine = Tree.GetRoot(CancellationToken).FindToken(firstNonWhitespacePosition.Value, findInsideTrivia:=True)
-                    If firstTokenOnLine.Kind <> SyntaxKind.None AndAlso firstTokenOnLine.Span.Contains(firstNonWhitespacePosition.Value) Then
-                        'okay, beginning of the line is not trivia, use this token as the base token
-                        Return GetIndentationBasedOnToken(firstTokenOnLine)
-                    End If
+                        Dim firstTokenOnLine = Tree.GetRoot(CancellationToken).FindToken(firstNonWhitespacePosition.Value, findInsideTrivia:=True)
+                        If firstTokenOnLine.Kind <> SyntaxKind.None AndAlso firstTokenOnLine.Span.Contains(firstNonWhitespacePosition.Value) Then
+                            'okay, beginning of the line is not trivia, use this token as the base token
+                            Return GetIndentationBasedOnToken(firstTokenOnLine)
+                        End If
 
-                    Return GetIndentationOfLine(previousLine)
-                End If
+                        Return GetIndentationOfLine(previousLine)
+                    End If
             End Function
 
             Private Function GetTokenOnLeft(trivia As SyntaxTrivia) As SyntaxToken
@@ -90,10 +95,10 @@ Namespace Microsoft.CodeAnalysis.Editor.VisualBasic.Formatting.Indentation
                 Dim text = currentLine.GetText()
                 Contract.Assert(String.IsNullOrWhiteSpace(text) = False)
 
-                Dim trimedText = text.Trim()
+                Dim trimmedText = text.Trim()
 
                 Contract.Assert(SyntaxFacts.GetText(SyntaxKind.HashToken).Length = 1)
-                Return trimedText(0) = SyntaxFacts.GetText(SyntaxKind.HashToken)(0)
+                Return trimmedText(0) = SyntaxFacts.GetText(SyntaxKind.HashToken)(0)
             End Function
 
             Private Function GetIndentationBasedOnToken(token As SyntaxToken, Optional trivia As SyntaxTrivia = Nothing) As IndentationResult?
@@ -143,6 +148,11 @@ Namespace Microsoft.CodeAnalysis.Editor.VisualBasic.Formatting.Indentation
             Private Function GetIndentationOfCurrentPosition(token As SyntaxToken, position As Integer, extraSpaces As Integer) As IndentationResult
                 ' special case for multi-line string
                 Dim containingToken = Tree.FindTokenOnLeftOfPosition(position, CancellationToken)
+                If containingToken.IsKind(SyntaxKind.InterpolatedStringTextToken) OrElse
+                   containingToken.IsKind(SyntaxKind.InterpolatedStringText) OrElse
+                    (containingToken.IsKind(SyntaxKind.CloseBraceToken) AndAlso token.Parent.IsKind(SyntaxKind.Interpolation)) Then
+                    Return IndentFromStartOfLine(0)
+                End If
                 If containingToken.Kind = SyntaxKind.StringLiteralToken AndAlso containingToken.FullSpan.Contains(position) Then
                     Return IndentFromStartOfLine(0)
                 End If
@@ -267,7 +277,7 @@ Namespace Microsoft.CodeAnalysis.Editor.VisualBasic.Formatting.Indentation
                     Return GetIndentationOfLine(baseLine)
                 End If
 
-                ' if position is between "," and next token, consider the positon to be belonged to the list that
+                ' if position is between "," and next token, consider the position to be belonged to the list that
                 ' owns the ","
                 If IsCommaInParameters(token) AndAlso (token.Span.End <= position AndAlso position <= token.GetNextToken().SpanStart) Then
                     Return GetIndentationOfCurrentPosition(token, token.SpanStart)
@@ -282,7 +292,7 @@ Namespace Microsoft.CodeAnalysis.Editor.VisualBasic.Formatting.Indentation
                         Return GetIndentationOfLine(triviaLine, Me.OptionSet.GetOption(FormattingOptions.IndentationSize, token.Language))
                     End If
 
-                    ' no base line to use to calcuate the indentation
+                    ' no base line to use to calculate the indentation
                     Return IndentFromStartOfLine(0)
                 End If
 

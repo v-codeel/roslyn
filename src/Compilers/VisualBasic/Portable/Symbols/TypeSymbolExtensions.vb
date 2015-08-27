@@ -475,7 +475,7 @@ Namespace Microsoft.CodeAnalysis.VisualBasic.Symbols
         End Function
 
         ''' <summary>
-        ''' Dig through possibly jugged array type to the ultimate element type
+        ''' Dig through possibly jagged array type to the ultimate element type
         ''' </summary>
         <Extension()>
         Public Function DigThroughArrayType(possiblyArrayType As TypeSymbol) As TypeSymbol
@@ -869,17 +869,17 @@ Namespace Microsoft.CodeAnalysis.VisualBasic.Symbols
         <Extension()>
         Friend Sub CheckTypeArguments(typeArguments As ImmutableArray(Of TypeSymbol), expectedCount As Integer)
             If typeArguments.IsDefault Then
-                Throw New Global.System.ArgumentNullException("typeArguments")
+                Throw New Global.System.ArgumentNullException(NameOf(typeArguments))
             End If
 
             For Each typeArg In typeArguments
                 If typeArg Is Nothing Then
-                    Throw New ArgumentException(VBResources.TypeArgumentCannotBeNothing, "typeArguments")
+                    Throw New ArgumentException(VBResources.TypeArgumentCannotBeNothing, NameOf(typeArguments))
                 End If
             Next
 
             If typeArguments.Length = 0 OrElse typeArguments.Length <> expectedCount Then
-                Throw New ArgumentException(VBResources.WrongNumberOfTypeArguments, "typeArguments")
+                Throw New ArgumentException(VBResources.WrongNumberOfTypeArguments, NameOf(typeArguments))
             End If
         End Sub
 
@@ -1116,6 +1116,27 @@ Namespace Microsoft.CodeAnalysis.VisualBasic.Symbols
             End While
 
             Return typeArguments
+        End Function
+
+        ''' <summary>
+        ''' Return all of the type arguments and their modifiers in this type and enclosing types,
+        ''' from outer-most to inner-most type.
+        ''' </summary>
+        <Extension>
+        Public Function GetAllTypeArgumentsWithModifiers(type As NamedTypeSymbol) As ImmutableArray(Of TypeWithModifiers)
+            Dim typeArguments = type.TypeArgumentsNoUseSiteDiagnostics
+            Dim typeArgumentsCustomModifiers = type.TypeArgumentsCustomModifiers
+
+            While True
+                type = type.ContainingType
+                If type Is Nothing Then
+                    Exit While
+                End If
+                typeArguments = type.TypeArgumentsNoUseSiteDiagnostics.Concat(typeArguments)
+                typeArgumentsCustomModifiers = type.TypeArgumentsCustomModifiers.Concat(typeArgumentsCustomModifiers)
+            End While
+
+            Return ImmutableArray.CreateRange(typeArguments.Zip(typeArgumentsCustomModifiers, Function(a, m) New TypeWithModifiers(a, m)))
         End Function
 
         ''' <summary>

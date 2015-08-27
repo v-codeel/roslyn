@@ -2,8 +2,7 @@
 <!-- Copyright (c)  Microsoft.  All Rights Reserved.  Licensed under the Apache License, Version 2.0.  See License.txt in the project root for license information. -->
 <Project ToolsVersion="4.0" DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ImportGroup Label="Settings">
-    <Import Project="..\..\..\Tools\Microsoft.CodeAnalysis.Toolset.Open\Targets\VSL.Settings.targets" />
-    <Import Project="..\..\..\..\build\VSL.Settings.Closed.targets" />
+    <Import Project="..\..\..\..\build\Targets\VSL.Settings.targets" />
   </ImportGroup>
   <PropertyGroup>
     <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
@@ -12,7 +11,8 @@
     <OutputType>Library</OutputType>
     <AppDesignerFolder>Properties</AppDesignerFolder>
     <RootNamespace>Microsoft.CodeAnalysis.BuildTasks</RootNamespace>
-    <AssemblyName>Microsoft.Build.Tasks.Roslyn</AssemblyName>
+    <AssemblyName>Microsoft.Build.Tasks.CodeAnalysis</AssemblyName>
+    <TargetFrameworkVersion>v4.5</TargetFrameworkVersion>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' " />
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' " />
@@ -29,9 +29,9 @@
       <HintPath>$(MSBuildProgramFiles32)\Reference Assemblies\Microsoft\MSBuild\v14.0\Microsoft.Build.Utilities.Core.dll</HintPath>
     </Reference>
     <Reference Include="System" />
-    <Reference Include="System.Collections.Immutable, Version=1.1.33.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a, processorArchitecture=MSIL">
+    <Reference Include="System.Collections.Immutable, Version=$(SystemCollectionsImmutableAssemblyVersion), Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a, processorArchitecture=MSIL">
       <SpecificVersion>False</SpecificVersion>
-      <HintPath>..\..\..\..\packages\System.Collections.Immutable.1.1.33-beta\lib\portable-net45+win8+wp8+wpa81\System.Collections.Immutable.dll</HintPath>
+      <HintPath>..\..\..\..\packages\System.Collections.Immutable.$(SystemCollectionsImmutableVersion)\lib\portable-net45+win8+wp8+wpa81\System.Collections.Immutable.dll</HintPath>
     </Reference>
   </ItemGroup>
   <ItemGroup>
@@ -50,6 +50,9 @@
     <Compile Include="..\VBCSCompiler\CompilerServerLogger.cs">
       <Link>CompilerServerLogger.cs</Link>
     </Compile>
+    <Compile Include="..\..\Helpers\ConsoleUtil.cs">
+      <Link>ConsoleUtil.cs</Link>
+    </Compile>
     <Compile Include="BuildClient.cs" />
     <Compile Include="CanonicalError.cs" />
     <Compile Include="CommandLineBuilderExtension.cs" />
@@ -59,9 +62,12 @@
       <DesignTime>True</DesignTime>
       <DependentUpon>ErrorString.resx</DependentUpon>
     </Compile>
+    <Compile Include="ICscHostObject5.cs" />
+    <Compile Include="IVbcHostObject6.cs" />
     <Compile Include="ManagedCompiler.cs" />
     <Compile Include="NativeMethods.cs" />
     <Compile Include="PropertyDictionary.cs" />
+    <Compile Include="RCWForCurrentContext.cs" />
     <Compile Include="Utilities.cs" />
     <Compile Include="Vbc.cs" />
   </ItemGroup>
@@ -76,17 +82,12 @@
       <Project>{b501a547-c911-4a05-ac6e-274a50dff30e}</Project>
       <Name>CSharpCodeAnalysis</Name>
     </ProjectReference>
-    <ProjectReference Include="..\Desktop\CodeAnalysis.Desktop.csproj">
-      <Project>{dfa21ca1-7f96-47ee-940c-069858e81727}</Project>
-      <Name>CodeAnalysis.Desktop</Name>
-    </ProjectReference>
     <ProjectReference Include="..\Portable\CodeAnalysis.csproj">
       <Project>{1ee8cad3-55f9-4d91-96b2-084641da9a6c}</Project>
       <Name>CodeAnalysis</Name>
     </ProjectReference>
   </ItemGroup>
   <ImportGroup Label="Targets">
-    <Import Project="..\..\..\Tools\Microsoft.CodeAnalysis.Toolset.Open\Targets\VSL.Imports.targets" />
-    <Import Project="..\..\..\..\build\VSL.Imports.Closed.targets" />
+    <Import Project="..\..\..\..\build\Targets\VSL.Imports.targets" />
   </ImportGroup>
 </Project>

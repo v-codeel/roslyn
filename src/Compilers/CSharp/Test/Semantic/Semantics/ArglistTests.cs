@@ -22,7 +22,7 @@ using Xunit;
 //
 // static void M(int x, int y, __arglist) { var ai = new ArgIterator(__arglist); }
 //
-// 3) As the "recevier" of a "call" syntax in the last position of a call to an __arglist method:
+// 3) As the "receiver" of a "call" syntax in the last position of a call to an __arglist method:
 //
 // C.M(1, 2, __arglist(3, 4, 5));
 //
@@ -145,7 +145,7 @@ Diagnostic(ErrorCode.ERR_VarArgsInExpressionTree, "__arglist()")
                 );
         }
 
-        [Fact]
+        [ClrOnlyFact(ClrOnlyReason.Ilasm)]
         public void MakeRefTest01()
         {
             var text = @"
@@ -245,7 +245,7 @@ public struct C
             CreateCompilationWithMscorlib(text).VerifyDiagnostics();
         }
 
-        [Fact]
+        [ClrOnlyFact(ClrOnlyReason.Ilasm)]
         public void RefTypeTest01()
         {
             var text = @"
@@ -303,7 +303,7 @@ Diagnostic(ErrorCode.ERR_ValueCantBeNull, "__reftype(null)").WithArguments("Syst
                 );
         }
 
-        [Fact]
+        [ClrOnlyFact(ClrOnlyReason.Ilasm)]
         public void ArglistTest01()
         {
             var text = @"
@@ -333,7 +333,7 @@ public class C
             verifier.VerifyIL("C.M(__arglist)", expectedIL);
         }
 
-        [Fact]
+        [ClrOnlyFact(ClrOnlyReason.Ilasm)]
         public void ArglistTest02()
         {
             var text = @"
@@ -526,7 +526,7 @@ class error
                 Diagnostic(ErrorCode.ERR_IllegalVarArgs, "__arglist"));
         }
 
-        [Fact]
+        [ClrOnlyFact(ClrOnlyReason.Ilasm)]
         public void RefValueTest01()
         {
             var text = @"
@@ -599,7 +599,7 @@ public struct C
             verifier.VerifyIL("C.Ref", expectedRefIL);
         }
 
-        [Fact]
+        [ClrOnlyFact(ClrOnlyReason.Ilasm)]
         public void RefValueTest01a()
         {
             var text = @"
@@ -741,7 +741,7 @@ static class C
             // CS0118: 'C.Main()' is a 'method' but is used like a 'type'
             // instead of
             // CS0246: The type or namespace name 'Main' could not be found
-            // The native compiler behaviour seems better here; we might consider fixing Roslyn to match.
+            // The native compiler behavior seems better here; we might consider fixing Roslyn to match.
 
             var comp = CreateCompilationWithMscorlib(text);
             comp.VerifyDiagnostics(
@@ -1358,6 +1358,38 @@ class E
                 // (6,9): error CS7036: There is no argument given that corresponds to the required formal parameter '__arglist' of 'D'
                 //         d(__arglist());
                 Diagnostic(ErrorCode.ERR_NoCorrespondingArgument, "d").WithArguments("__arglist", "D").WithLocation(6, 9));
+        }
+
+        [Fact, WorkItem(1253, "https://github.com/dotnet/roslyn/issues/1253")]
+        public void LambdaWithUnsafeParameter()
+        {
+            var source =
+@"
+
+using System;
+using System.Threading;
+
+namespace ConsoleApplication21
+{
+    public unsafe class FooBar : IDisposable
+    {
+        public void Dispose()
+        {
+            NativeOverlapped* overlapped = AllocateNativeOverlapped(() => { });
+        }
+
+        private unsafe static NativeOverlapped* AllocateNativeOverlapped(IOCompletionCallback callback, object context, byte[] pinData)
+        {
+            return null;
+        }
+    }
+}
+";
+            CreateCompilationWithMscorlib(source, options: TestOptions.UnsafeReleaseDll).VerifyDiagnostics(
+    // (12,44): error CS7036: There is no argument given that corresponds to the required formal parameter 'context' of 'FooBar.AllocateNativeOverlapped(IOCompletionCallback, object, byte[])'
+    //             NativeOverlapped* overlapped = AllocateNativeOverlapped(() => { });
+    Diagnostic(ErrorCode.ERR_NoCorrespondingArgument, "AllocateNativeOverlapped").WithArguments("context", "ConsoleApplication21.FooBar.AllocateNativeOverlapped(System.Threading.IOCompletionCallback, object, byte[])").WithLocation(12, 44)
+);
         }
     }
 }

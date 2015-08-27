@@ -50,7 +50,7 @@ Namespace Microsoft.CodeAnalysis.VisualBasic.Syntax.InternalSyntax
                     End If
 
                 Case Else
-                    Throw New ArgumentException("typeSuffix")
+                    Throw New ArgumentException(NameOf(typeSuffix))
             End Select
         End Function
 
@@ -62,7 +62,7 @@ Namespace Microsoft.CodeAnalysis.VisualBasic.Syntax.InternalSyntax
                 Case TypeCharacter.SingleLiteral, TypeCharacter.Single
                     Return New FloatingLiteralTokenSyntax(Of Single)(SyntaxKind.FloatingLiteralToken, text, leadingTrivia, trailingTrivia, typeSuffix, CSng(value))
                 Case Else
-                    Throw New ArgumentException("typeSuffix")
+                    Throw New ArgumentException(NameOf(typeSuffix))
             End Select
         End Function
 
@@ -112,7 +112,7 @@ Namespace Microsoft.CodeAnalysis.VisualBasic.Syntax.InternalSyntax
         End Function
 
         ''' <summary>
-        ''' Create a missing punctutation mark.
+        ''' Create a missing punctuation mark.
         ''' </summary>
         Friend Shared Function MissingPunctuation(kind As SyntaxKind) As PunctuationSyntax
             Return New PunctuationSyntax(kind, "", Nothing, Nothing)
@@ -507,7 +507,7 @@ Namespace Microsoft.CodeAnalysis.VisualBasic.Syntax.InternalSyntax
             End Get
         End Property
 
-        Private Shared s_missingExpr As ExpressionSyntax = SyntaxFactory.IdentifierName(SyntaxFactory.Identifier("", Nothing, Nothing))
+        Private Shared ReadOnly s_missingExpr As ExpressionSyntax = SyntaxFactory.IdentifierName(SyntaxFactory.Identifier("", Nothing, Nothing))
         Friend Shared Function MissingExpression() As ExpressionSyntax
             Return s_missingExpr
         End Function

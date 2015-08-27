@@ -73,7 +73,7 @@ namespace Microsoft.CodeAnalysis.CSharp
             get { return this.Flags.Includes(BinderFlags.AttributeArgument); }
         }
 
-        protected bool InCref
+        internal bool InCref
         {
             get { return this.Flags.Includes(BinderFlags.Cref); }
         }
@@ -619,7 +619,7 @@ namespace Microsoft.CodeAnalysis.CSharp
 
             bool hasErrors = argument.HasAnyErrors;
 
-            TypeSymbol typedReferenceType = this.Compilation.GetSpecialType(SpecialType.System_TypedReference);
+            TypeSymbol typedReferenceType = GetSpecialType(SpecialType.System_TypedReference, diagnostics, node);
 
             if ((object)argument.Type != null && argument.Type.IsRestrictedType())
             {
@@ -662,7 +662,7 @@ namespace Microsoft.CodeAnalysis.CSharp
         {
             // There are two forms of __arglist expression. In a method with an __arglist parameter,
             // it is legal to use __arglist as an expression of type RuntimeArgumentHandle. In 
-            // a call to such a method, it is legal to use __arglist(x, y, z) as the final argument.\
+            // a call to such a method, it is legal to use __arglist(x, y, z) as the final argument.
             // This method only handles the first usage; the second usage is parsed as a call syntax.
 
             // The native compiler allows __arglist in a lambda:
@@ -1335,7 +1335,7 @@ namespace Microsoft.CodeAnalysis.CSharp
             {
                 if (memberDeclaringType.TypeKind == TypeKind.Submission)
                 {
-                    return new BoundPreviousSubmissionReference(syntax, currentType, memberDeclaringType) { WasCompilerGenerated = true };
+                    return new BoundPreviousSubmissionReference(syntax, memberDeclaringType) { WasCompilerGenerated = true };
                 }
                 else
                 {
@@ -1399,11 +1399,7 @@ namespace Microsoft.CodeAnalysis.CSharp
                 return BadExpression(node, result.Kind);
             }
 
-            if (!result.IsSingleViable)
-            {
-                Debug.Assert(false, "If this happens, we need to deal with multiple label definitions.");
-            }
-
+            Debug.Assert(result.IsSingleViable, "If this happens, we need to deal with multiple label definitions.");
             var symbol = (LabelSymbol)result.Symbols.First();
             result.Free();
             return new BoundLabel(node, symbol, null);
@@ -1726,11 +1722,11 @@ namespace Microsoft.CodeAnalysis.CSharp
 
         // Given a list of arguments, create arrays of the bound arguments and the names of those
         // arguments.
-        private void BindArgumentsAndNames(ArgumentListSyntax argumentListOpt, DiagnosticBag diagnostics, AnalyzedArguments result, bool allowArglist = false)
+        private void BindArgumentsAndNames(ArgumentListSyntax argumentListOpt, DiagnosticBag diagnostics, AnalyzedArguments result, bool allowArglist = false, bool isDelegateCreation = false)
         {
             if (argumentListOpt != null)
             {
-                BindArgumentsAndNames(argumentListOpt.Arguments, diagnostics, result, allowArglist);
+                BindArgumentsAndNames(argumentListOpt.Arguments, diagnostics, result, allowArglist, isDelegateCreation: isDelegateCreation);
             }
         }
 
@@ -1746,7 +1742,8 @@ namespace Microsoft.CodeAnalysis.CSharp
             SeparatedSyntaxList<ArgumentSyntax> arguments,
             DiagnosticBag diagnostics,
             AnalyzedArguments result,
-            bool allowArglist)
+            bool allowArglist,
+            bool isDelegateCreation = false)
         {
             // Only report the first "duplicate name" or "named before positional" error, 
             // so as to avoid "cascading" errors.
@@ -1756,7 +1753,7 @@ namespace Microsoft.CodeAnalysis.CSharp
             {
                 var argumentSyntax = arguments[i];
 
-                hadError = BindArgumentAndName(result, diagnostics, hadError, argumentSyntax, allowArglist);
+                hadError = BindArgumentAndName(result, diagnostics, hadError, argumentSyntax, allowArglist, isDelegateCreation: isDelegateCreation);
             }
         }
 
@@ -1765,9 +1762,14 @@ namespace Microsoft.CodeAnalysis.CSharp
             DiagnosticBag diagnostics,
             bool hadError,
             ArgumentSyntax argumentSyntax,
-            bool allowArglist)
+            bool allowArglist,
+            bool isDelegateCreation = false)
         {
-            RefKind refKind = argumentSyntax.RefOrOutKeyword.Kind().GetRefKind();
+            // The old native compiler ignores ref/out in a delegate creation expression.
+            // For compatibility we implement the same bug except in strict mode.
+            RefKind refKind = (!isDelegateCreation || Compilation.FeatureStrictEnabled)
+                ? argumentSyntax.RefOrOutKeyword.Kind().GetRefKind()
+                : RefKind.None;
 
             hadError |= BindArgumentAndName(
                 result,
@@ -2796,7 +2798,7 @@ namespace Microsoft.CodeAnalysis.CSharp
 
             try
             {
-                BindArgumentsAndNames(node.ArgumentList, diagnostics, analyzedArguments);
+                BindArgumentsAndNames(node.ArgumentList, diagnostics, analyzedArguments, isDelegateCreation: true);
 
                 bool hasErrors = false;
                 if (analyzedArguments.HasErrors)
@@ -4460,14 +4462,14 @@ namespace Microsoft.CodeAnalysis.CSharp
             Debug.Assert(node != null);
             Debug.Assert(boundLeft != null);
 
-            if ((object)boundLeft.Type != null && boundLeft.Type.IsDynamic())
-            {
-                return BindDynamicMemberAccess(node, boundLeft, right, invoked, indexed, diagnostics);
-            }
-
             boundLeft = MakeMemberAccessValue(boundLeft, diagnostics);
 
             TypeSymbol leftType = boundLeft.Type;
+
+            if ((object)leftType != null && leftType.IsDynamic())
+            {
+                return BindDynamicMemberAccess(node, boundLeft, right, invoked, indexed, diagnostics);
+            }
 
             // No member accesses on void
             if ((object)leftType != null && leftType.SpecialType == SpecialType.System_Void)
@@ -4485,11 +4487,6 @@ namespace Microsoft.CodeAnalysis.CSharp
                 DiagnosticInfo diagnosticInfo = new CSDiagnosticInfo(ErrorCode.ERR_BadUnaryOp, SyntaxFacts.GetText(operatorToken.Kind()), msgId.Localize());
                 diagnostics.Add(new CSDiagnostic(diagnosticInfo, node.Location));
                 return BadExpression(node, boundLeft);
-            }
-
-            if (boundLeft.Kind == BoundKind.DefaultOperator && boundLeft.ConstantValue == ConstantValue.Null)
-            {
-                Error(diagnostics, ErrorCode.WRN_DotOnDefault, node, leftType);
             }
 
             var lookupResult = LookupResult.GetInstance();
@@ -4597,7 +4594,7 @@ namespace Microsoft.CodeAnalysis.CSharp
                             }
                             else if (this.EnclosingNameofArgument == node)
                             {
-                                // Support selecing an extension method from a type name in nameof(.)
+                                // Support selecting an extension method from a type name in nameof(.)
                                 return BindInstanceMemberAccess(node, right, boundLeft, rightName, rightArity, typeArgumentsSyntax, typeArguments, invoked, diagnostics);
                             }
                             else
@@ -4646,6 +4643,14 @@ namespace Microsoft.CodeAnalysis.CSharp
             finally
             {
                 lookupResult.Free();
+            }
+        }
+
+        private static void WarnOnAccessOfOffDefault(CSharpSyntaxNode node, BoundExpression boundLeft, DiagnosticBag diagnostics)
+        {
+            if (boundLeft != null && boundLeft.Kind == BoundKind.DefaultOperator && boundLeft.ConstantValue == ConstantValue.Null)
+            {
+                Error(diagnostics, ErrorCode.WRN_DotOnDefault, node, boundLeft.Type);
             }
         }
 
@@ -5256,6 +5261,11 @@ namespace Microsoft.CodeAnalysis.CSharp
                 }
             }
 
+            if (!fieldSymbol.IsStatic)
+            {
+                WarnOnAccessOfOffDefault(node, receiver, diagnostics);
+            }
+
             TypeSymbol fieldType = fieldSymbol.GetFieldType(this.FieldsBeingBound);
             BoundExpression expr = new BoundFieldAccess(node, receiver, fieldSymbol, constantValueOpt, resultKind, fieldType, hasErrors: (hasErrors || hasError));
 
@@ -5320,6 +5330,11 @@ namespace Microsoft.CodeAnalysis.CSharp
         {
             bool hasError = this.CheckInstanceOrStatic(node, receiver, propertySymbol, ref lookupResult, diagnostics);
 
+            if (!propertySymbol.IsStatic)
+            {
+                WarnOnAccessOfOffDefault(node, receiver, diagnostics);
+            }
+
             return new BoundPropertyAccess(node, receiver, propertySymbol, lookupResult, propertySymbol.Type, hasErrors: (hasErrors || hasError));
         }
 
@@ -5336,6 +5351,11 @@ namespace Microsoft.CodeAnalysis.CSharp
             diagnostics.Add(node, useSiteDiagnostics);
 
             bool hasError = this.CheckInstanceOrStatic(node, receiver, eventSymbol, ref lookupResult, diagnostics);
+
+            if (!eventSymbol.IsStatic)
+            {
+                WarnOnAccessOfOffDefault(node, receiver, diagnostics);
+            }
 
             return new BoundEventAccess(node, receiver, eventSymbol, isUsableAsField, lookupResult, eventSymbol.Type, hasErrors: (hasErrors || hasError));
         }
@@ -5562,10 +5582,8 @@ namespace Microsoft.CodeAnalysis.CSharp
             {
                 return BadIndexerExpression(node, expr, analyzedArguments, null, diagnostics);
             }
-            else if (expr.Kind == BoundKind.DefaultOperator && ((BoundDefaultOperator)expr).ConstantValue == ConstantValue.Null)
-            {
-                Error(diagnostics, ErrorCode.WRN_DotOnDefault, node, expr.Type);
-            }
+
+            WarnOnAccessOfOffDefault(node, expr, diagnostics);
 
             // Did we have any errors?
             if (analyzedArguments.HasErrors || expr.HasAnyErrors)
@@ -6437,7 +6455,7 @@ namespace Microsoft.CodeAnalysis.CSharp
                 receiverType = receiverType.GetNullableUnderlyingType();
             }
 
-            receiver = new BoundConditionalReceiver(receiver.Syntax, receiverType) { WasCompilerGenerated = true };
+            receiver = new BoundConditionalReceiver(receiver.Syntax, 0, receiverType) { WasCompilerGenerated = true };
             return receiver;
         }
 

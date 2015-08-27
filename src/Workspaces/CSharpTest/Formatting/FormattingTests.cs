@@ -988,6 +988,34 @@ class D
 }", false, changingOptions);
         }
 
+        [Fact, Trait(Traits.Feature, Traits.Features.Formatting)]
+        public void RemoveSpacingAroundBinaryOperatorsShouldMakeAtLeastOneSpaceForIsAndAsKeywords()
+        {
+            var changingOptions = new Dictionary<OptionKey, object>();
+            changingOptions.Add(CSharpFormattingOptions.SpacingAroundBinaryOperator, BinaryOperatorSpacingOptions.Remove);
+            AssertFormat(@"class Class2
+{
+    public void nothing()
+    {
+        var a = 1*2+3-4/5;
+        a+=1;
+        object o = null;
+        string s = o as string;
+        bool b = o is string;
+    }
+}", @"class Class2
+    {
+    public void nothing()
+        {
+            var a = 1   *   2  +   3   -  4  /  5;
+            a    += 1;
+            object o = null;
+            string s = o        as       string;
+            bool b   = o        is       string;
+        }
+    }",  false, changingOptions);
+        }
+
         [WorkItem(772298, "DevDiv")]
         [Fact, Trait(Traits.Feature, Traits.Features.Formatting)]
         public void IndentUserSettingNonDefaultTest_OpenBracesOfLambdaWithNoNewLine()
@@ -4762,7 +4790,7 @@ class C
         [Fact, Trait(Traits.Feature, Traits.Features.Formatting)]
         public void TestSpacingOptionAroundControlFlow()
         {
-            var code = @"
+            const string code = @"
 class Program
 {
     public void foo()
@@ -4789,14 +4817,22 @@ class Program
 
         try
         { }
+        catch (System.Exception)
+        { }
         catch (System.Exception e)
         { }
 
         using(somevar)
         { }
+
+        lock(somevar)
+        { }
+
+        fixed(char* p = str)
+        { }
     }
 }";
-            var expected = @"
+            const string expected = @"
 class Program
 {
     public void foo()
@@ -4823,10 +4859,18 @@ class Program
 
         try
         { }
+        catch ( System.Exception )
+        { }
         catch ( System.Exception e )
         { }
 
         using ( somevar )
+        { }
+
+        lock ( somevar )
+        { }
+
+        fixed ( char* p = str )
         { }
     }
 }";
@@ -5323,6 +5367,29 @@ class Program
 }";
 
             var options = new Dictionary<OptionKey, object>() { { CSharpFormattingOptions.SpaceBetweenEmptySquareBrackets, true } };
+            AssertFormat(expected, code, changedOptionSet: options);
+        }
+
+        [Fact, Trait(Traits.Feature, Traits.Features.Formatting)]
+        public void ArrayDeclarationShouldFollowEmptySquareBrackets()
+        {
+            const string code = @"
+class Program
+{
+   var t = new Foo(new[ ] { ""a"", ""b"" });
+}";
+
+            const string expected = @"
+class Program
+{
+    var t = new Foo(new[] { ""a"", ""b"" });
+}";
+
+            var options = new Dictionary<OptionKey, object>
+            {
+                { CSharpFormattingOptions.SpaceWithinSquareBrackets, true },
+                { CSharpFormattingOptions.SpaceBetweenEmptySquareBrackets, false }
+            };
             AssertFormat(expected, code, changedOptionSet: options);
         }
 
@@ -6081,6 +6148,304 @@ class Program
     }
 }";
             AssertFormat(code, code);
+        }
+
+        [Fact]
+        public void SpacingInMethodCallArguments_True()
+        {
+            const string code = @"
+[Bar(A=1,B=2)]
+class Program
+{
+    public void foo()
+    {
+        var a = typeof(A);
+        var b = M(a);
+        var c = default(A);
+        var d = sizeof(A);
+        M();
+    }
+}";
+            const string expected = @"
+[Bar ( A = 1, B = 2 )]
+class Program
+{
+    public void foo()
+    {
+        var a = typeof ( A );
+        var b = M ( a );
+        var c = default ( A );
+        var d = sizeof ( A );
+        M ( );
+    }
+}";
+            var optionSet = new Dictionary<OptionKey, object>
+            {
+                { CSharpFormattingOptions.SpaceWithinMethodCallParentheses, true },
+                { CSharpFormattingOptions.SpaceAfterMethodCallName, true },
+                { CSharpFormattingOptions.SpaceBetweenEmptyMethodCallParentheses, true },
+            };
+            AssertFormat(expected, code, changedOptionSet: optionSet);
+        }
+
+        [WorkItem(1298, "https://github.com/dotnet/roslyn/issues/1298")]
+        [Fact, Trait(Traits.Feature, Traits.Features.Formatting)]
+        public void DontforceAccessorsToNewLineWithPropertyInitializers()
+        {
+            var code = @"using System.Collections.Generic;
+
+class Program
+{
+    public List<ExcludeValidation> ValidationExcludeFilters { get; }
+    = new List<ExcludeValidation>();
+}
+
+public class ExcludeValidation
+{
+}";
+
+            var expected = @"using System.Collections.Generic;
+
+class Program
+{
+    public List<ExcludeValidation> ValidationExcludeFilters { get; }
+    = new List<ExcludeValidation>();
+}
+
+public class ExcludeValidation
+{
+}";
+            AssertFormat(expected, code);
+        }
+
+        [WorkItem(1339, "https://github.com/dotnet/roslyn/issues/1339")]
+        [Fact, Trait(Traits.Feature, Traits.Features.Formatting)]
+        public void DontFormatAutoPropertyInitializerIfNotDifferentLine()
+        {
+            var code = @"class Program
+{
+    public int d { get; }
+            = 3;
+    static void Main(string[] args)
+    {
+    }
+}";
+            AssertFormat(code, code);
+        }
+
+        [Fact, Trait(Traits.Feature, Traits.Features.Formatting)]
+        public void SpacingForForStatementInfiniteLoop()
+        {
+            var code = @"
+class Program
+{
+    void Main()
+    {
+        for ( ; ; )
+        {
+        }
+    }
+}";
+            var expected = @"
+class Program
+{
+    void Main()
+    {
+        for (;;)
+        {
+        }
+    }
+}";
+            AssertFormat(expected, code);
+        }
+
+        [WorkItem(4421, "https://github.com/dotnet/roslyn/issues/4421")]
+        [WorkItem(4240, "https://github.com/dotnet/roslyn/issues/4240")]
+        [Fact, Trait(Traits.Feature, Traits.Features.Formatting)]
+        public void VerifySpacingAfterMethodDeclarationName_Default()
+        {
+            var code = @"class Program<T>
+{
+    public static Program operator +   (Program p1, Program p2) { return null; }
+    public static implicit operator string (Program p) { return null; }
+    public static void M  () { }
+    public void F<T>    () { }
+}";
+            var expected = @"class Program<T>
+{
+    public static Program operator +(Program p1, Program p2) { return null; }
+    public static implicit operator string(Program p) { return null; }
+    public static void M() { }
+    public void F<T>() { }
+}";
+            AssertFormat(expected, code);
+        }
+
+        [WorkItem(4240, "https://github.com/dotnet/roslyn/issues/4240")]
+        [WorkItem(4421, "https://github.com/dotnet/roslyn/issues/4421")]
+        [Fact, Trait(Traits.Feature, Traits.Features.Formatting)]
+        public void VerifySpacingAfterMethodDeclarationName_NonDefault()
+        {
+            var changingOptions = new Dictionary<OptionKey, object>();
+            changingOptions.Add(CSharpFormattingOptions.SpacingAfterMethodDeclarationName, true);
+            var code = @"class Program<T>
+{
+    public static Program operator +   (Program p1, Program p2) { return null; }
+    public static implicit operator string     (Program p) { return null; }
+    public static void M  () { }
+    public void F<T>   () { }
+}";
+            var expected = @"class Program<T>
+{
+    public static Program operator + (Program p1, Program p2) { return null; }
+    public static implicit operator string (Program p) { return null; }
+    public static void M () { }
+    public void F<T> () { }
+}";
+            AssertFormat(expected, code, changedOptionSet: changingOptions);
+        }
+
+        [WorkItem(939, "https://github.com/dotnet/roslyn/issues/939")]
+        [Fact, Trait(Traits.Feature, Traits.Features.Formatting)]
+        public void DontFormatInsideArrayInitializers()
+        {
+            var code = @"class Program
+{
+    static void Main(string[] args)
+    {
+        int[] sss = new[] {
+                       //Comment1
+                2,
+            5,            324534,    345345,
+                        //Comment2
+                            //This comment should not line up with the previous comment
+                    234234
+                     //Comment3
+                ,         234,
+            234234
+                                /*
+                                This is a multiline comment
+                                */
+                    //Comment4
+              };
+    }
+}";
+            AssertFormat(code, code);
+        }
+
+        [WorkItem(1184285)]
+        [WorkItem(4280, "https://github.com/dotnet/roslyn/issues/4280")]
+        [Fact, Trait(Traits.Feature, Traits.Features.Formatting)]
+        public void FormatDictionaryInitializers()
+        {
+            var code = @"class Program
+{
+    void Main()
+    {
+        var sample = new Dictionary<string, string> {[""x""] = ""d""    ,[""z""]   =  ""XX"" };
+    }
+}";
+            var expected = @"class Program
+{
+    void Main()
+    {
+        var sample = new Dictionary<string, string> { [""x""] = ""d"", [""z""] = ""XX"" };
+    }
+}";
+            AssertFormat(expected, code);
+        }
+
+        [WorkItem(3256, "https://github.com/dotnet/roslyn/issues/3256")]
+        [Fact, Trait(Traits.Feature, Traits.Features.Formatting)]
+        public void SwitchSectionHonorsNewLineForBracesinControlBlockOption_Default()
+        {
+            var code = @"class Program
+{
+    public void foo()
+    {
+        int f = 1;
+        switch (f) {
+            case 1: {
+                    // DO nothing
+                    break;
+                }
+        }
+    }
+}";
+            var expected = @"class Program
+{
+    public void foo()
+    {
+        int f = 1;
+        switch (f)
+        {
+            case 1:
+                {
+                    // DO nothing
+                    break;
+                }
+        }
+    }
+}";
+            AssertFormat(expected, code);
+        }
+
+        [WorkItem(3256, "https://github.com/dotnet/roslyn/issues/3256")]
+        [Fact, Trait(Traits.Feature, Traits.Features.Formatting)]
+        public void SwitchSectionHonorsNewLineForBracesinControlBlockOption_NonDefault()
+        {
+            var changingOptions = new Dictionary<OptionKey, object>();
+            changingOptions.Add(CSharpFormattingOptions.NewLinesForBracesInControlBlocks, false);
+            var code = @"class Program
+{
+    public void foo()
+    {
+        int f = 1;
+        switch (f)
+        {
+            case 1:
+                {
+                    // DO nothing
+                    break;
+                }
+        }
+    }
+}";
+
+            var expected = @"class Program
+{
+    public void foo()
+    {
+        int f = 1;
+        switch (f) {
+            case 1: {
+                    // DO nothing
+                    break;
+                }
+        }
+    }
+}";
+            AssertFormat(expected, code, changedOptionSet: changingOptions);
+        }
+        
+        [Fact, Trait(Traits.Feature, Traits.Features.Formatting)]
+        public void FormattingCodeWithMissingTokensShouldRespectFormatTabsOption1()
+        {
+            var optionSet = new Dictionary<OptionKey, object> { { new OptionKey(FormattingOptions.UseTabs, LanguageNames.CSharp), true } };
+
+            AssertFormat(@"class Program
+{
+	static void Main()
+	{
+		return // Note the missing semicolon
+	} // The tab here should stay a tab
+}", @"class Program
+{
+	static void Main()
+	{
+		return // Note the missing semicolon
+	} // The tab here should stay a tab
+}", changedOptionSet: optionSet);
         }
     }
 }

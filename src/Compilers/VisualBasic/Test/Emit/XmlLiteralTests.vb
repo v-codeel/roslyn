@@ -3,6 +3,7 @@
 Imports System.IO
 Imports System.Text
 Imports Microsoft.Cci
+Imports Microsoft.CodeAnalysis.VisualBasic.Symbols
 Imports Roslyn.Test.Utilities
 
 Namespace Microsoft.CodeAnalysis.VisualBasic.UnitTests
@@ -3494,7 +3495,7 @@ End Module
                 sourceBuilder.AppendLine("End Module")
 
                 Dim sourceTree = VisualBasicSyntaxTree.ParseText(sourceBuilder.ToString())
-                Dim comp = VisualBasicCompilation.Create(Guid.NewGuid().ToString(), {sourceTree}, DefaultReferences.Concat(XmlReferences))
+                Dim comp = VisualBasicCompilation.Create(Guid.NewGuid().ToString(), {sourceTree}, DefaultVbReferences.Concat(XmlReferences))
                 CompileAndVerify(comp, expectedOutput:=<![CDATA[
 91
 10
@@ -3545,7 +3546,7 @@ End Module
             sourceBuilder.AppendLine("End Module")
 
             Dim sourceTree = VisualBasicSyntaxTree.ParseText(sourceBuilder.ToString())
-            Dim comp = VisualBasicCompilation.Create(Guid.NewGuid().ToString(), {sourceTree}, DefaultReferences.Concat(XmlReferences))
+            Dim comp = VisualBasicCompilation.Create(Guid.NewGuid().ToString(), {sourceTree}, DefaultVbReferences.Concat(XmlReferences))
             CompileAndVerify(comp, expectedOutput:="[[" & NormalizeValue(str) & "]]")
         End Sub
 
@@ -4921,6 +4922,49 @@ End Module
   <r:z />
 </p:x>
 ]]>)
+        End Sub
+
+        ''' <summary>
+        ''' My.InternalXmlHelper should be emitted into the root namespace.
+        ''' </summary>
+        <Fact()>
+        Public Sub InternalXmlHelper_RootNamespace()
+            Const source = "
+Imports System
+Imports System.Xml.Linq
+
+Class C
+    Sub M()
+        Dim a = <element attr='value'/>.@attr
+    End Sub
+End Class
+"
+            Dim tree = VisualBasicSyntaxTree.ParseText(source)
+
+            Dim refBuilder = ArrayBuilder(Of MetadataReference).GetInstance()
+            refBuilder.Add(MscorlibRef)
+            refBuilder.Add(MsvbRef)
+            refBuilder.AddRange(XmlReferences)
+            Dim refs = refBuilder.ToImmutableAndFree()
+
+            CompileAndVerify(
+                CreateCompilationWithReferences(tree, refs, TestOptions.DebugDll),
+                symbolValidator:=
+                    Sub(moduleSymbol)
+                        moduleSymbol.GlobalNamespace.
+                            GetMember(Of NamespaceSymbol)("My").
+                            GetMember(Of NamedTypeSymbol)("InternalXmlHelper")
+                    End Sub)
+
+            CompileAndVerify(
+                CreateCompilationWithReferences(tree, refs, TestOptions.DebugDll.WithRootNamespace("Root")),
+                symbolValidator:=
+                    Sub(moduleSymbol)
+                        moduleSymbol.GlobalNamespace.
+                            GetMember(Of NamespaceSymbol)("Root").
+                            GetMember(Of NamespaceSymbol)("My").
+                            GetMember(Of NamedTypeSymbol)("InternalXmlHelper")
+                    End Sub)
         End Sub
 
     End Class

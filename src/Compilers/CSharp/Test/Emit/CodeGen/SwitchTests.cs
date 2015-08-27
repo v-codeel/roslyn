@@ -864,7 +864,7 @@ public class Test
 	}
 }";
 
-            var compVerifier = CompileAndVerify(text, emitOptions: TestEmitters.CCI, expectedOutput: "0");
+            var compVerifier = CompileAndVerify(text, expectedOutput: "0");
             compVerifier.VerifyIL("Test.DoEnum", @"
 {
   // Code size      127 (0x7f)
@@ -1214,11 +1214,14 @@ class Class1
                 {
                     i = 1;
                 }
-                finally {}
+                finally
+                {
+                    j = 2;
+                }
                 break;
 
             default:
-                i = 2;                
+                i = 2;
                 break;
         }
 
@@ -1229,45 +1232,46 @@ class Class1
             var compVerifier = CompileAndVerify(text, expectedOutput: "0");
             compVerifier.VerifyIL("Class1.Main", @"
 {
-  // Code size       28 (0x1c)
+  // Code size       30 (0x1e)
   .maxstack  1
   .locals init (int V_0, //j
-  int V_1) //i
+                int V_1) //i
   IL_0000:  ldc.i4.0
   IL_0001:  stloc.0
   IL_0002:  ldc.i4.3
   IL_0003:  stloc.1
   IL_0004:  ldloc.0
-  IL_0005:  brtrue.s   IL_0012
+  IL_0005:  brtrue.s   IL_0014
   IL_0007:  nop
   .try
-{
-  .try
-{
-  IL_0008:  ldc.i4.0
-  IL_0009:  stloc.1
-  IL_000a:  leave.s    IL_0014
-}
-  catch object
-{
-  IL_000c:  pop
-  IL_000d:  ldc.i4.1
-  IL_000e:  stloc.1
-  IL_000f:  leave.s    IL_0014
-}
-}
+  {
+    .try
+    {
+      IL_0008:  ldc.i4.0
+      IL_0009:  stloc.1
+      IL_000a:  leave.s    IL_0016
+    }
+    catch object
+    {
+      IL_000c:  pop
+      IL_000d:  ldc.i4.1
+      IL_000e:  stloc.1
+      IL_000f:  leave.s    IL_0016
+    }
+  }
   finally
-{
-  IL_0011:  endfinally
-}
-  IL_0012:  ldc.i4.2
-  IL_0013:  stloc.1
-  IL_0014:  ldloc.1
-  IL_0015:  call       ""void System.Console.Write(int)""
-  IL_001a:  ldloc.1
-  IL_001b:  ret
-}
-"
+  {
+    IL_0011:  ldc.i4.2
+    IL_0012:  stloc.0
+    IL_0013:  endfinally
+  }
+  IL_0014:  ldc.i4.2
+  IL_0015:  stloc.1
+  IL_0016:  ldloc.1
+  IL_0017:  call       ""void System.Console.Write(int)""
+  IL_001c:  ldloc.1
+  IL_001d:  ret
+}"
             );
         }
 
@@ -2137,7 +2141,7 @@ class Test
 		Console.WriteLine(success);
 	}
 }";
-            var compVerifier = CompileAndVerify(text, expectedOutput: "True");
+            var compVerifier = CompileAndVerify(text, options: TestOptions.ReleaseExe.WithModuleName("MODULE"), expectedOutput: "True");
 
             compVerifier.VerifyIL("Test.M", @"
 {
@@ -2160,7 +2164,7 @@ class Test
   IL_001a:  callvirt   ""string string.Remove(int, int)""
   IL_001f:  starg.s    V_0
   IL_0021:  ldarg.0   
-  IL_0022:  call       ""$$method0x6000001-ComputeStringHash""
+  IL_0022:  call       ""ComputeStringHash""
   IL_0027:  stloc.1   
   IL_0028:  ldloc.1   
   IL_0029:  ldc.i4     0xc60bf9f2
@@ -2487,7 +2491,7 @@ class Test
 		Console.Write(status);
 	}
 }";
-            var compVerifier = CompileAndVerify(text, expectedOutput: "PASS");
+            var compVerifier = CompileAndVerify(text, options: TestOptions.ReleaseExe.WithModuleName("MODULE"), expectedOutput: "PASS");
 
             compVerifier.VerifyIL("Test.Switcheroo", @"
 {
@@ -2508,7 +2512,7 @@ class Test
   IL_0017:  callvirt   ""string string.Remove(int, int)""
   IL_001c:  starg.s    V_0
   IL_001e:  ldarg.0   
-  IL_001f:  call       ""$$method0x6000001-ComputeStringHash""
+  IL_001f:  call       ""ComputeStringHash""
   IL_0024:  stloc.1   
   IL_0025:  ldloc.1   
   IL_0026:  ldc.i4     0xb2f29419
@@ -3213,102 +3217,6 @@ struct A
 
         [WorkItem(543673, "DevDiv")]
         [Fact()]
-        public void ImplicitUserDefinedConversionToSwitchGoverningType_11564_2_5()
-        {
-            // Dev10 behavior: 2nd switch expression is an ambiguous user defined conversion
-
-            // Roslyn behavior: 2nd switch expression: No ambiguity, binds to "implicit operator int(A a)"
-
-            var text =
-@"using System;
- 
-struct A
-{
-    public static implicit operator int(A a)
-    {
-        Console.WriteLine(""0"");
-        return 0;
-    }
- 
-    public static implicit operator int(A? a)
-    {
-        Console.WriteLine(""1"");
-        return 0;
-    }
- 
-    class B
-    {
-        static void Main()
-        {
-            A? aNullable = new A();
-            switch(aNullable)
-            {
-                default: break;
-            }
-
-            A a = new A();
-            switch(a)
-            {
-                default: break;
-            }
-        }
-    }
-}
-";
-            CompileAndVerify(text, expectedOutput: @"1
-0");
-        }
-
-        [WorkItem(543673, "DevDiv")]
-        [Fact()]
-        public void ImplicitUserDefinedConversionToSwitchGoverningType_11564_2_6()
-        {
-            // Dev10 behavior: 2nd switch expression is an ambiguous user defined conversion
-
-            // Roslyn behavior: 2nd switch expression: No ambiguity, binds to "implicit operator int?(A a)"
-
-            var text =
-@"using System;
- 
-struct A
-{
-    public static implicit operator int?(A a)
-    {
-        Console.WriteLine(""0"");
-        return 0;
-    }
- 
-    public static implicit operator int?(A? a)
-    {
-        Console.WriteLine(""1"");
-        return 0;
-    }
- 
-    class B
-    {
-        static void Main()
-        {
-            A? aNullable = new A();
-            switch(aNullable)
-            {
-                default: break;
-            }
-
-            A a = new A();
-            switch(a)
-            {
-                default: break;
-            }
-        }
-    }
-}
-";
-            CompileAndVerify(text, expectedOutput: @"1
-0");
-        }
-
-        [WorkItem(543673, "DevDiv")]
-        [Fact()]
         public void ImplicitUserDefinedConversionToSwitchGoverningType_11564_3_1()
         {
             var text =
@@ -3354,8 +3262,6 @@ struct A
         [Fact()]
         public void ImplicitUserDefinedConversionToSwitchGoverningType_11564_3_3()
         {
-            // Dev10 behavior: 2nd switch expression is an ambiguous user defined conversion
-
             var text =
 @"using System;
  
@@ -3449,7 +3355,7 @@ class Program
                 references: new[] { AacorlibRef });
 
 
-            var verifier = CompileAndVerify(comp, verify: false, emitOptions: TestEmitters.RefEmitUnsupported);
+            var verifier = CompileAndVerify(comp, verify: false);
             verifier.VerifyIL("Program.Main", @"
 {
   // Code size      223 (0xdf)
@@ -4140,7 +4046,7 @@ namespace ConsoleApplication24
             ERR_BadBinaryOperatorSignature = 563,
             ERR_BadShiftOperatorSignature = 564,
             ERR_InterfacesCantContainOperators = 567,
-            ERR_StructsCantContainDefaultContructor = 568,
+            ERR_StructsCantContainDefaultConstructor = 568,
             ERR_CantOverrideBogusMethod = 569,
             ERR_BindToBogus = 570,
             ERR_CantCallSpecialMethod = 571,
@@ -4521,7 +4427,7 @@ namespace ConsoleApplication24
             ERR_ParamsCantBeRefOut = 1611,
             ERR_ReturnNotLValue = 1612,
             ERR_MissingCoClass = 1613,
-            ERR_AmbigousAttribute = 1614,
+            ERR_AmbiguousAttribute = 1614,
             ERR_BadArgExtraRef = 1615,
             WRN_CmdOptionConflictsSource = 1616,
             ERR_BadCompatMode = 1617,
@@ -6159,7 +6065,7 @@ public class Test
     }
 }";
 
-            var comp = CreateCompilationWithMscorlib(text);
+            var comp = CreateCompilationWithMscorlib(text, options: TestOptions.ReleaseExe.WithModuleName("MODULE"));
             CompileAndVerify(comp).VerifyIL("Test.Main", @"
 {
   // Code size      328 (0x148)
@@ -6181,7 +6087,7 @@ public class Test
   IL_0019:  ldelem.ref
   IL_001a:  stloc.0
   IL_001b:  ldloc.0
-  IL_001c:  call       ""$$method0x6000001-ComputeStringHash""
+  IL_001c:  call       ""ComputeStringHash""
   IL_0021:  stloc.1
   IL_0022:  ldloc.1
   IL_0023:  ldc.i4     0xc30bf539
@@ -6326,7 +6232,7 @@ public class Test
     }
 }";
 
-            var comp = CreateCompilationWithMscorlib(text);
+            var comp = CreateCompilationWithMscorlib(text, options: TestOptions.ReleaseExe.WithModuleName("MODULE"));
 
             // With special members available, we use a hashtable approach.
             CompileAndVerify(comp).VerifyIL("Test.Main", @"
@@ -6340,7 +6246,7 @@ public class Test
   IL_0002:  ldelem.ref
   IL_0003:  stloc.0
   IL_0004:  ldloc.0
-  IL_0005:  call       ""$$method0x6000001-ComputeStringHash""
+  IL_0005:  call       ""ComputeStringHash""
   IL_000a:  stloc.1
   IL_000b:  ldloc.1
   IL_000c:  ldc.i4     0xc30bf539

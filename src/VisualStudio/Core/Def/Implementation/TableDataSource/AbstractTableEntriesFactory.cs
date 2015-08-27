@@ -6,7 +6,7 @@ using System.Linq;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.Shared.Extensions;
 using Microsoft.CodeAnalysis.Text;
-using Microsoft.VisualStudio.TableManager;
+using Microsoft.VisualStudio.Shell.TableManager;
 using Microsoft.VisualStudio.Text;
 
 namespace Microsoft.VisualStudio.LanguageServices.Implementation.TableDataSource
@@ -14,10 +14,16 @@ namespace Microsoft.VisualStudio.LanguageServices.Implementation.TableDataSource
     internal abstract class AbstractTableEntriesFactory<TData> : ITableEntriesSnapshotFactory
     {
         private readonly object _gate = new object();
+        private readonly AbstractTableDataSource<TData> _source;
         private readonly WeakReference<ITableEntriesSnapshot> _lastSnapshotWeakReference = new WeakReference<ITableEntriesSnapshot>(null);
 
         private int _lastVersion = 0;
         private int _lastItemCount = 0;
+
+        public AbstractTableEntriesFactory(AbstractTableDataSource<TData> source)
+        {
+            _source = source;
+        }
 
         protected abstract ImmutableArray<TData> GetItems();
         protected abstract ImmutableArray<ITrackingPoint> GetTrackingPoints(ImmutableArray<TData> items);
@@ -52,6 +58,7 @@ namespace Microsoft.VisualStudio.LanguageServices.Implementation.TableDataSource
                 if (items.Length != itemCount)
                 {
                     _lastItemCount = items.Length;
+                    _source.Refresh(this);
                 }
 
                 return CreateSnapshot(version, items);
@@ -71,6 +78,7 @@ namespace Microsoft.VisualStudio.LanguageServices.Implementation.TableDataSource
                 var version = _lastVersion;
                 if (version != versionNumber)
                 {
+                    _source.Refresh(this);
                     return null;
                 }
 
@@ -82,6 +90,7 @@ namespace Microsoft.VisualStudio.LanguageServices.Implementation.TableDataSource
                 var items = GetItems();
                 if (items.Length != _lastItemCount)
                 {
+                    _source.Refresh(this);
                     return null;
                 }
 

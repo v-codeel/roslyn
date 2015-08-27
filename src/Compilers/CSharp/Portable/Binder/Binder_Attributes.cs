@@ -640,7 +640,7 @@ namespace Microsoft.CodeAnalysis.CSharp
 
             if (index < argumentsCount)
             {
-                // found a matching named argumed
+                // found a matching named argument
                 Debug.Assert(index >= startIndex);
 
                 // increment argsConsumedCount
@@ -685,7 +685,7 @@ namespace Microsoft.CodeAnalysis.CSharp
         private TypedConstant GetDefaultValueArgument(ParameterSymbol parameter, AttributeSyntax syntax, DiagnosticBag diagnostics)
         {
             var parameterType = parameter.Type;
-            ConstantValue defaultConstantValue = parameter.ExplicitDefaultConstantValue;
+            ConstantValue defaultConstantValue = parameter.IsOptional ? parameter.ExplicitDefaultConstantValue : ConstantValue.NotAvailable;
 
             TypedConstantKind kind;
             object defaultValue = null;
@@ -1077,7 +1077,7 @@ namespace Microsoft.CodeAnalysis.CSharp
 
                 if (typedConstantKind != TypedConstantKind.Error && type.ContainsTypeParameter())
                 {
-                    // Devdig Bug #12636: Constant values of open types should not be allowed in attributes
+                    // Devdiv Bug #12636: Constant values of open types should not be allowed in attributes
 
                     // SPEC ERROR:  C# language specification does not explicitly disallow constant values of open types. For e.g.
 

@@ -22,7 +22,7 @@ Namespace Microsoft.CodeAnalysis.VisualBasic.Syntax.InternalSyntax
             Debug.Assert(IsAtNewLine())
 
             ' leading whitespace until we see # should be regular whitespace
-            If CanGetChar() AndAlso IsWhitespace(PeekChar()) Then
+            If CanGet() AndAlso IsWhitespace(Peek()) Then
                 Dim ws = ScanWhitespace()
                 tList.Add(ws)
             End If
@@ -210,7 +210,7 @@ Namespace Microsoft.CodeAnalysis.VisualBasic.Syntax.InternalSyntax
                     SyntaxKind.EnableWarningDirectiveTrivia, 'TODO: Add support for processing #Enable and #Disable
                     SyntaxKind.DisableWarningDirectiveTrivia
 
-                ' These directives require no processing
+                    ' These directives require no processing
 
                 Case Else
                     Throw ExceptionUtilities.UnexpectedValue(statement.Kind)
@@ -484,7 +484,7 @@ Namespace Microsoft.CodeAnalysis.VisualBasic.Syntax.InternalSyntax
             End Function
 
             Friend Function IsEquivalentTo(other As PreprocessorState) As Boolean
-                ' for now, we will only consider two are equivalents when there are only regions but no other directvies
+                ' for now, we will only consider two are equivalents when there are only regions but no other directives
                 If Me._conditionals.Count > 0 OrElse
                    Me._symbols.Count > 0 OrElse
                    Me._externalSourceDirective IsNot Nothing OrElse

@@ -6,6 +6,8 @@ extern alias PDB;
 using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
+using System.Collections.ObjectModel;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Reflection;
@@ -19,8 +21,9 @@ using Microsoft.CodeAnalysis.CodeGen;
 using Microsoft.CodeAnalysis.Collections;
 using Microsoft.CodeAnalysis.Emit;
 using Microsoft.CodeAnalysis.Test.Utilities;
+using Microsoft.DiaSymReader;
+using Microsoft.VisualStudio.Debugger.Evaluation;
 using Microsoft.VisualStudio.Debugger.Evaluation.ClrCompilation;
-using Microsoft.VisualStudio.SymReaderInterop;
 using Roslyn.Test.Utilities;
 using Xunit;
 using PDB::Roslyn.Test.MetadataUtilities;
@@ -53,6 +56,243 @@ namespace Microsoft.CodeAnalysis.ExpressionEvaluator
 
     internal static class ExpressionCompilerTestHelpers
     {
+        internal static CompileResult CompileAssignment(
+            this EvaluationContextBase context,
+            string target,
+            string expr,
+            out string error,
+            CompilationTestData testData = null,
+            DiagnosticFormatter formatter = null)
+        {
+            ResultProperties resultProperties;
+            ImmutableArray<AssemblyIdentity> missingAssemblyIdentities;
+            var result = context.CompileAssignment(
+                target,
+                expr,
+                ImmutableArray<Alias>.Empty,
+                formatter ?? DiagnosticFormatter.Instance,
+                out resultProperties,
+                out error,
+                out missingAssemblyIdentities,
+                EnsureEnglishUICulture.PreferredOrNull,
+                testData);
+            Assert.Empty(missingAssemblyIdentities);
+            // This is a crude way to test the language, but it's convenient to share this test helper.
+            var isCSharp = context.GetType().Namespace.IndexOf("csharp", StringComparison.OrdinalIgnoreCase) >= 0;
+            var expectedFlags = error != null
+                ? DkmClrCompilationResultFlags.None
+                : isCSharp
+                    ? DkmClrCompilationResultFlags.PotentialSideEffect
+                    : DkmClrCompilationResultFlags.PotentialSideEffect | DkmClrCompilationResultFlags.ReadOnlyResult;
+            Assert.Equal(expectedFlags, resultProperties.Flags);
+            Assert.Equal(default(DkmEvaluationResultCategory), resultProperties.Category);
+            Assert.Equal(default(DkmEvaluationResultAccessType), resultProperties.AccessType);
+            Assert.Equal(default(DkmEvaluationResultStorageType), resultProperties.StorageType);
+            Assert.Equal(default(DkmEvaluationResultTypeModifierFlags), resultProperties.ModifierFlags);
+            return result;
+        }
+
+        internal static CompileResult CompileAssignment(
+            this EvaluationContextBase context,
+            string target,
+            string expr,
+            ImmutableArray<Alias> aliases,
+            DiagnosticFormatter formatter,
+            out ResultProperties resultProperties,
+            out string error,
+            out ImmutableArray<AssemblyIdentity> missingAssemblyIdentities,
+            CultureInfo preferredUICulture,
+            CompilationTestData testData)
+        {
+            var diagnostics = DiagnosticBag.GetInstance();
+            var result = context.CompileAssignment(target, expr, aliases, diagnostics, out resultProperties, testData);
+            if (diagnostics.HasAnyErrors())
+            {
+                bool useReferencedModulesOnly;
+                error = context.GetErrorMessageAndMissingAssemblyIdentities(diagnostics, formatter, preferredUICulture, EvaluationContextBase.SystemCoreIdentity, out useReferencedModulesOnly, out missingAssemblyIdentities);
+            }
+            else
+            {
+                error = null;
+                missingAssemblyIdentities = ImmutableArray<AssemblyIdentity>.Empty;
+            }
+            diagnostics.Free();
+            return result;
+        }
+
+        internal static ReadOnlyCollection<byte> CompileGetLocals(
+            this EvaluationContextBase context,
+            ArrayBuilder<LocalAndMethod> locals,
+            bool argumentsOnly,
+            out string typeName,
+            CompilationTestData testData,
+            DiagnosticDescription[] expectedDiagnostics = null)
+        {
+            var diagnostics = DiagnosticBag.GetInstance();
+            var result = context.CompileGetLocals(
+                locals,
+                argumentsOnly,
+                ImmutableArray<Alias>.Empty,
+                diagnostics,
+                out typeName,
+                testData);
+            diagnostics.Verify(expectedDiagnostics ?? DiagnosticDescription.None);
+            diagnostics.Free();
+            return result;
+        }
+
+        internal static CompileResult CompileExpression(
+            this EvaluationContextBase context,
+            string expr,
+            out string error,
+            CompilationTestData testData = null,
+            DiagnosticFormatter formatter = null)
+        {
+            ResultProperties resultProperties;
+            return CompileExpression(context, expr, out resultProperties, out error, testData, formatter);
+        }
+
+        internal static CompileResult CompileExpression(
+            this EvaluationContextBase context,
+            string expr,
+            out ResultProperties resultProperties,
+            out string error,
+            CompilationTestData testData = null,
+            DiagnosticFormatter formatter = null)
+        {
+            ImmutableArray<AssemblyIdentity> missingAssemblyIdentities;
+            var result = context.CompileExpression(
+                expr,
+                DkmEvaluationFlags.TreatAsExpression,
+                ImmutableArray<Alias>.Empty,
+                formatter ?? DiagnosticFormatter.Instance,
+                out resultProperties,
+                out error,
+                out missingAssemblyIdentities,
+                EnsureEnglishUICulture.PreferredOrNull,
+                testData);
+            Assert.Empty(missingAssemblyIdentities);
+            return result;
+        }
+
+        static internal CompileResult CompileExpression(
+            this EvaluationContextBase evaluationContext,
+            string expr,
+            DkmEvaluationFlags compilationFlags,
+            ImmutableArray<Alias> aliases,
+            out string error,
+            CompilationTestData testData = null,
+            DiagnosticFormatter formatter = null)
+        {
+            ResultProperties resultProperties;
+            ImmutableArray<AssemblyIdentity> missingAssemblyIdentities;
+            var result = evaluationContext.CompileExpression(
+                expr,
+                compilationFlags,
+                aliases,
+                formatter ?? DiagnosticFormatter.Instance,
+                out resultProperties,
+                out error,
+                out missingAssemblyIdentities,
+                EnsureEnglishUICulture.PreferredOrNull,
+                testData);
+            Assert.Empty(missingAssemblyIdentities);
+            return result;
+        }
+
+        /// <summary>
+        /// Compile C# expression and emit assembly with evaluation method.
+        /// </summary>
+        /// <returns>
+        /// Result containing generated assembly, type and method names, and any format specifiers.
+        /// </returns>
+        static internal CompileResult CompileExpression(
+            this EvaluationContextBase evaluationContext,
+            string expr,
+            DkmEvaluationFlags compilationFlags,
+            ImmutableArray<Alias> aliases,
+            DiagnosticFormatter formatter,
+            out ResultProperties resultProperties,
+            out string error,
+            out ImmutableArray<AssemblyIdentity> missingAssemblyIdentities,
+            CultureInfo preferredUICulture,
+            CompilationTestData testData)
+        {
+            var diagnostics = DiagnosticBag.GetInstance();
+            var result = evaluationContext.CompileExpression(expr, compilationFlags, aliases, diagnostics, out resultProperties, testData);
+            if (diagnostics.HasAnyErrors())
+            {
+                bool useReferencedModulesOnly;
+                error = evaluationContext.GetErrorMessageAndMissingAssemblyIdentities(diagnostics, formatter, preferredUICulture, EvaluationContextBase.SystemCoreIdentity, out useReferencedModulesOnly, out missingAssemblyIdentities);
+            }
+            else
+            {
+                error = null;
+                missingAssemblyIdentities = ImmutableArray<AssemblyIdentity>.Empty;
+            }
+            diagnostics.Free();
+            return result;
+        }
+
+        internal static CompileResult CompileExpressionWithRetry(
+            ImmutableArray<MetadataBlock> metadataBlocks,
+            EvaluationContextBase context,
+            ExpressionCompiler.CompileDelegate<CompileResult> compile,
+            DkmUtilities.GetMetadataBytesPtrFunction getMetaDataBytesPtr,
+            out string errorMessage)
+        {
+            return ExpressionCompiler.CompileWithRetry(
+                metadataBlocks,
+                DiagnosticFormatter.Instance,
+                (blocks, useReferencedModulesOnly) => context,
+                compile,
+                getMetaDataBytesPtr,
+                out errorMessage);
+        }
+
+        internal static CompileResult CompileExpressionWithRetry(
+            ImmutableArray<MetadataBlock> metadataBlocks,
+            string expr,
+            ExpressionCompiler.CreateContextDelegate createContext,
+            DkmUtilities.GetMetadataBytesPtrFunction getMetaDataBytesPtr,
+            out string errorMessage,
+            out CompilationTestData testData)
+        {
+            var r = ExpressionCompiler.CompileWithRetry(
+                metadataBlocks,
+                DiagnosticFormatter.Instance,
+                createContext,
+                (context, diagnostics) =>
+                {
+                    var td = new CompilationTestData();
+                    ResultProperties resultProperties;
+                    var compileResult = context.CompileExpression(
+                        expr,
+                        DkmEvaluationFlags.TreatAsExpression,
+                        ImmutableArray<Alias>.Empty,
+                        diagnostics,
+                        out resultProperties,
+                        td);
+                    return new CompileExpressionResult(compileResult, td);
+                },
+                getMetaDataBytesPtr,
+                out errorMessage);
+            testData = r.TestData;
+            return r.CompileResult;
+        }
+
+        private struct CompileExpressionResult
+        {
+            internal readonly CompileResult CompileResult;
+            internal readonly CompilationTestData TestData;
+
+            internal CompileExpressionResult(CompileResult compileResult, CompilationTestData testData)
+            {
+                this.CompileResult = compileResult;
+                this.TestData = testData;
+            }
+        }
+
         internal static TypeDefinition GetTypeDef(this MetadataReader reader, string typeName)
         {
             return reader.TypeDefinitions.Select(reader.GetTypeDefinition).First(t => reader.StringComparer.Equals(t.Name, typeName));
@@ -171,6 +411,7 @@ namespace Microsoft.CodeAnalysis.ExpressionEvaluator
                         win32Resources: null,
                         manifestResources: null,
                         options: EmitOptions.Default,
+                        debugEntryPoint: null,
                         testData: null,
                         getHostDiagnostics: null,
                         cancellationToken: default(CancellationToken));
@@ -267,16 +508,21 @@ namespace Microsoft.CodeAnalysis.ExpressionEvaluator
             }
         }
 
+        internal static ModuleMetadata GetModuleMetadata(this MetadataReference reference)
+        {
+            var metadata = ((MetadataImageReference)reference).GetMetadata();
+            var assemblyMetadata = metadata as AssemblyMetadata;
+            Assert.True((assemblyMetadata == null) || (assemblyMetadata.GetModules().Length == 1));
+            return (assemblyMetadata == null) ? (ModuleMetadata)metadata : assemblyMetadata.GetModules()[0];
+        }
+
         internal static ModuleInstance ToModuleInstance(
             this MetadataReference reference,
             byte[] fullImage,
             object symReader,
             bool includeLocalSignatures = true)
         {
-            var metadata = ((MetadataImageReference)reference).GetMetadata();
-            var assemblyMetadata = metadata as AssemblyMetadata;
-            Assert.True((assemblyMetadata == null) || (assemblyMetadata.GetModules().Length == 1));
-            var moduleMetadata = (assemblyMetadata == null) ? (ModuleMetadata)metadata : assemblyMetadata.GetModules()[0];
+            var moduleMetadata = reference.GetModuleMetadata();
             var moduleId = moduleMetadata.Module.GetModuleVersionIdOrThrow();
             // The Expression Compiler expects metadata only, no headers or IL.
             var metadataBytes = moduleMetadata.Module.PEReaderOpt.GetMetadata().GetContent().ToArray();
@@ -287,7 +533,21 @@ namespace Microsoft.CodeAnalysis.ExpressionEvaluator
                 fullImage,
                 metadataBytes,
                 symReader,
-                includeLocalSignatures);
+                includeLocalSignatures && (fullImage != null));
+        }
+
+        internal static AssemblyIdentity GetAssemblyIdentity(this MetadataReference reference)
+        {
+            var moduleMetadata = reference.GetModuleMetadata();
+            var reader = moduleMetadata.MetadataReader;
+            return reader.ReadAssemblyIdentityOrThrow();
+        }
+
+        internal static Guid GetModuleVersionId(this MetadataReference reference)
+        {
+            var moduleMetadata = reference.GetModuleMetadata();
+            var reader = moduleMetadata.MetadataReader;
+            return reader.GetModuleVersionIdOrThrow();
         }
 
         internal static void VerifyLocal<TMethodSymbol>(
@@ -296,6 +556,7 @@ namespace Microsoft.CodeAnalysis.ExpressionEvaluator
             LocalAndMethod localAndMethod,
             string expectedMethodName,
             string expectedLocalName,
+            string expectedLocalDisplayName,
             DkmClrCompilationResultFlags expectedFlags,
             Action<TMethodSymbol> verifyTypeParameters,
             string expectedILOpt,
@@ -305,6 +566,7 @@ namespace Microsoft.CodeAnalysis.ExpressionEvaluator
             where TMethodSymbol : IMethodSymbol
         {
             Assert.Equal(expectedLocalName, localAndMethod.LocalName);
+            Assert.Equal(expectedLocalDisplayName, localAndMethod.LocalDisplayName);
             Assert.True(expectedMethodName.StartsWith(localAndMethod.MethodName, StringComparison.Ordinal), expectedMethodName + " does not start with " + localAndMethod.MethodName); // Expected name may include type arguments and parameters.
             Assert.Equal(expectedFlags, localAndMethod.Flags);
             var methodData = testData.GetMethodData(typeName + "." + expectedMethodName);
@@ -337,6 +599,8 @@ namespace Microsoft.CodeAnalysis.ExpressionEvaluator
                 }.ToImmutableDictionary());
             }
         }
+
+        internal const uint NoILOffset = 0xffffffff;
 
         internal static readonly MetadataReference IntrinsicAssemblyReference = GetIntrinsicAssemblyReference();
 
@@ -374,7 +638,7 @@ namespace Microsoft.CodeAnalysis.ExpressionEvaluator
     ldnull
     throw
   }
-  .method public static void CreateVariable(class [mscorlib]System.Type 'type', string name)
+  .method public static void CreateVariable(class [mscorlib]System.Type 'type', string name, valuetype [mscorlib]System.Guid customTypeInfoPayloadTypeId, uint8[] customTypeInfoPayload)
   {
     ldnull
     throw
@@ -479,7 +743,7 @@ namespace Microsoft.CodeAnalysis.ExpressionEvaluator
             return metadata.GetReference(filePath: path);
         }
 
-        internal static int GetOffset(int methodToken, ISymUnmanagedReader symReader, int atLineNumber)
+        internal static uint GetOffset(int methodToken, ISymUnmanagedReader symReader, int atLineNumber = -1)
         {
             int ilOffset;
             if (symReader == null)
@@ -502,7 +766,24 @@ namespace Microsoft.CodeAnalysis.ExpressionEvaluator
                 }
             }
             Assert.InRange(ilOffset, 0, int.MaxValue);
-            return ilOffset;
+            return (uint)ilOffset;
+        }
+
+        internal static string GetMethodOrTypeSignatureParts(string signature, out string[] parameterTypeNames)
+        {
+            var parameterListStart = signature.IndexOf('(');
+            if (parameterListStart < 0)
+            {
+                parameterTypeNames = null;
+                return signature;
+            }
+
+            var parameters = signature.Substring(parameterListStart + 1, signature.Length - parameterListStart - 2);
+            var methodName = signature.Substring(0, parameterListStart);
+            parameterTypeNames = (parameters.Length == 0) ?
+                new string[0] :
+                parameters.Split(',');
+            return methodName;
         }
     }
 }

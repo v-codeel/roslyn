@@ -1,11 +1,8 @@
 ' Copyright (c) Microsoft.  All Rights Reserved.  Licensed under the Apache License, Version 2.0.  See License.txt in the project root for license information.
 
-Imports System.ComponentModel.Composition.Hosting
-Imports System.ComponentModel.Composition.Primitives
 Imports System.Threading
 Imports Microsoft.CodeAnalysis
-Imports Microsoft.CodeAnalysis.Completion.Providers
-Imports Microsoft.CodeAnalysis.Completion.Rules
+Imports Microsoft.CodeAnalysis.Completion
 Imports Microsoft.CodeAnalysis.Editor
 Imports Microsoft.CodeAnalysis.Editor.CommandHandlers
 Imports Microsoft.CodeAnalysis.Editor.Commands
@@ -40,13 +37,13 @@ Namespace Microsoft.VisualStudio.LanguageServices.UnitTests.Snippets
             optionService.SetOptions(optionService.GetOptions().WithChangedOption(InternalFeatureOnOffOptions.Snippets, True))
             Dim mockEditorAdaptersFactoryService = New Mock(Of IVsEditorAdaptersFactoryService)
             Dim mockSVsServiceProvider = New Mock(Of SVsServiceProvider)
-            snippetCommandHandler = If(languageName = LanguageNames.CSharp,
+            _snippetCommandHandler = If(languageName = LanguageNames.CSharp,
                 DirectCast(New CSharp.Snippets.SnippetCommandHandler(mockEditorAdaptersFactoryService.Object, mockSVsServiceProvider.Object), AbstractSnippetCommandHandler),
                 New VisualBasic.Snippets.SnippetCommandHandler(mockEditorAdaptersFactoryService.Object, mockSVsServiceProvider.Object))
 
             If languageName = LanguageNames.VisualBasic Then
                 Dim snippetProvider = New VisualBasic.Snippets.SnippetCompletionProvider(Nothing)
-                Dim snippetLazy = New Lazy(Of ICompletionProvider, OrderableLanguageMetadata)(Function() snippetProvider, New TestOrderableLanguageMetadata(languageName))
+                Dim snippetLazy = New Lazy(Of CompletionListProvider, OrderableLanguageMetadata)(Function() snippetProvider, New TestOrderableLanguageMetadata(languageName))
 
                 Dim asyncCompletionService = New AsyncCompletionService(
                     GetService(Of IEditorOperationsFactoryService)(),
@@ -54,21 +51,20 @@ Namespace Microsoft.VisualStudio.LanguageServices.UnitTests.Snippets
                     GetService(Of IInlineRenameService)(),
                     New TestCompletionPresenter(Me),
                     GetExports(Of IAsynchronousOperationListener, FeatureMetadata)(),
-                    GetExports(Of ICompletionRules, OrderableLanguageMetadata)(),
                     {snippetLazy},
                     GetExports(Of IBraceCompletionSessionProvider, IBraceCompletionMetadata)())
 
                 Dim CompletionCommandHandler = New CompletionCommandHandler(asyncCompletionService)
 
-                Me.completionCommandHandler = CompletionCommandHandler
+                Me._completionCommandHandler = CompletionCommandHandler
             End If
 
             SnippetExpansionClient = New MockSnippetExpansionClient(startActiveSession)
             TextView.Properties.AddProperty(GetType(AbstractSnippetExpansionClient), SnippetExpansionClient)
         End Sub
 
-        Private ReadOnly snippetCommandHandler As AbstractSnippetCommandHandler
-        Private ReadOnly completionCommandHandler As CompletionCommandHandler
+        Private ReadOnly _snippetCommandHandler As AbstractSnippetCommandHandler
+        Private ReadOnly _completionCommandHandler As CompletionCommandHandler
         Private _currentCompletionPresenterSession As TestCompletionPresenterSession
         Public Property SnippetExpansionClient As MockSnippetExpansionClient
 
@@ -96,7 +92,7 @@ Namespace Microsoft.VisualStudio.LanguageServices.UnitTests.Snippets
         End Property
 
         Public Shared Function CreateTestState(markup As String, languageName As String, Optional startActiveSession As Boolean = False, Optional extraParts As IEnumerable(Of Type) = Nothing) As SnippetTestState
-            extraParts = If(extraParts, {})
+            extraParts = If(extraParts, Type.EmptyTypes)
             Dim workspaceXml = <Workspace>
                                    <Project Language=<%= languageName %> CommonReferences="true">
                                        <Document><%= markup %></Document>
@@ -107,25 +103,25 @@ Namespace Microsoft.VisualStudio.LanguageServices.UnitTests.Snippets
         End Function
 
         Friend Overloads Sub SendTabToCompletion()
-            Dim handler = DirectCast(completionCommandHandler, ICommandHandler(Of TabKeyCommandArgs))
+            Dim handler = DirectCast(_completionCommandHandler, ICommandHandler(Of TabKeyCommandArgs))
 
             SendTab(AddressOf handler.ExecuteCommand, AddressOf SendTab)
         End Sub
 
         Friend Overloads Sub SendTab()
-            SendTab(AddressOf snippetCommandHandler.ExecuteCommand, Function() EditorOperations.InsertText("    "))
+            SendTab(AddressOf _snippetCommandHandler.ExecuteCommand, Function() EditorOperations.InsertText("    "))
         End Sub
 
         Friend Overloads Sub SendBackTab()
-            SendBackTab(AddressOf snippetCommandHandler.ExecuteCommand, Function() EditorOperations.Unindent())
+            SendBackTab(AddressOf _snippetCommandHandler.ExecuteCommand, Function() EditorOperations.Unindent())
         End Sub
 
         Friend Overloads Sub SendReturn()
-            SendReturn(AddressOf snippetCommandHandler.ExecuteCommand, Function() EditorOperations.InsertNewLine())
+            SendReturn(AddressOf _snippetCommandHandler.ExecuteCommand, Function() EditorOperations.InsertNewLine())
         End Sub
 
         Friend Overloads Sub SendEscape()
-            SendEscape(AddressOf snippetCommandHandler.ExecuteCommand, Function() EditorOperations.InsertText("EscapePassedThrough!"))
+            SendEscape(AddressOf _snippetCommandHandler.ExecuteCommand, Function() EditorOperations.InsertText("EscapePassedThrough!"))
         End Sub
 
         Private Class MockOrderableContentTypeMetadata
@@ -140,7 +136,7 @@ Namespace Microsoft.VisualStudio.LanguageServices.UnitTests.Snippets
         Friend Class MockSnippetExpansionClient
             Inherits AbstractSnippetExpansionClient
 
-            Private startActiveSession As Boolean
+            Private _startActiveSession As Boolean
 
             Public Sub New(startActiveSession As Boolean)
                 MyBase.New(Nothing, Nothing, Nothing, Nothing)

@@ -3,11 +3,10 @@
 Imports System.Threading
 Imports System.Threading.Tasks
 Imports Microsoft.CodeAnalysis.Completion
-Imports Microsoft.CodeAnalysis.Completion.Providers
+Imports Microsoft.CodeAnalysis.Editor.CSharp.Formatting
 Imports Microsoft.CodeAnalysis.Editor.UnitTests.Extensions
 Imports Microsoft.CodeAnalysis.Options
 Imports Microsoft.CodeAnalysis.Text
-Imports Roslyn.Utilities
 
 Namespace Microsoft.CodeAnalysis.Editor.UnitTests.IntelliSense
     Public Class CSharpCompletionCommandHandlerTests
@@ -351,13 +350,13 @@ class Program
             Using state = TestState.CreateCSharpTestState(
                               <Document>
                                   $$
-                              </Document>)
+                              </Document>, extraExportedTypes:={GetType(CSharpEditorFormattingService)}.ToList())
 
                 state.SendTypeChars("using Sys")
                 state.AssertSelectedCompletionItem(displayText:="System", isHardSelected:=True)
                 state.SendTypeChars(";")
                 state.AssertNoCompletionSession()
-                Assert.Contains("using System;", state.GetLineTextFromCaretPosition(), StringComparison.Ordinal)
+                state.AssertMatchesTextStartingAtLine(1, "using System;")
             End Using
         End Sub
 
@@ -1379,33 +1378,16 @@ class C
         End Sub
 
         Private Class SlowProvider
-            Implements ICompletionProvider
+            Inherits CompletionListProvider
 
-            Public checkpoint As checkpoint = New checkpoint()
+            Public checkpoint As Checkpoint = New Checkpoint()
 
-            Public Async Function GetGroupAsync(document As Document, position As Integer, triggerInfo As CompletionTriggerInfo, Optional cancellationToken As CancellationToken = Nothing) As Task(Of CompletionItemGroup) Implements ICompletionProvider.GetGroupAsync
+            Public Overrides Async Function ProduceCompletionListAsync(context As CompletionListContext) As Task
                 Await checkpoint.Task.ConfigureAwait(False)
-                Return Nothing
             End Function
 
-            Public Function IsTriggerCharacter(text As SourceText, characterPosition As Integer, options As OptionSet) As Boolean Implements ICompletionProvider.IsTriggerCharacter
+            Public Overrides Function IsTriggerCharacter(text As SourceText, characterPosition As Integer, options As OptionSet) As Boolean
                 Return True
-            End Function
-
-            Public Function IsFilterCharacter(completionItem As CompletionItem, ch As Char, textTypedSoFar As String) As Boolean Implements ICompletionProvider.IsFilterCharacter
-                Return False
-            End Function
-
-            Public Function IsCommitCharacter(completionItem As CompletionItem, ch As Char, textTypedSoFar As String) As Boolean Implements ICompletionProvider.IsCommitCharacter
-                Return False
-            End Function
-
-            Public Function SendEnterThroughToEditor(completionItem As CompletionItem, textTypedSoFar As String) As Boolean Implements ICompletionProvider.SendEnterThroughToEditor
-                Throw New NotImplementedException()
-            End Function
-
-            Public Function GetTextChange(selectedItem As CompletionItem, Optional ch As Char? = Nothing, Optional textTypedSoFar As String = Nothing) As TextChange Implements ICompletionProvider.GetTextChange
-                Throw New NotImplementedException()
             End Function
         End Class
 
@@ -1451,6 +1433,78 @@ class C
                 state.TextView.Selection.Mode = VisualStudio.Text.Editor.TextSelectionMode.Box
                 state.SendCommitUniqueCompletionListItem()
                 state.AssertNoCompletionSession()
+            End Using
+        End Sub
+
+        <WorkItem(1594, "https://github.com/dotnet/roslyn/issues/1594")>
+        <Fact, Trait(Traits.Feature, Traits.Features.Completion)>
+        Public Sub NoPreselectionOnSpaceWhenAbuttingWord()
+            Using state = TestState.CreateCSharpTestState(
+                <Document><![CDATA[
+class Program
+{
+    void Main()
+    {
+        Program p = new $$Program();
+    }
+}]]></Document>)
+                state.SendTypeChars(" ")
+                state.AssertNoCompletionSession()
+            End Using
+        End Sub
+
+        <WorkItem(1594, "https://github.com/dotnet/roslyn/issues/1594")>
+        <Fact, Trait(Traits.Feature, Traits.Features.Completion)>
+        Public Sub SpacePreselectionAtEndOfFile()
+            Using state = TestState.CreateCSharpTestState(
+                <Document><![CDATA[
+class Program
+{
+    void Main()
+    {
+        Program p = new $$]]></Document>)
+                state.SendTypeChars(" ")
+                state.AssertCompletionSession()
+            End Using
+        End Sub
+
+        <WorkItem(1659, "https://github.com/dotnet/roslyn/issues/1659")>
+        <Fact, Trait(Traits.Feature, Traits.Features.Completion)>
+        Public Sub DismissOnSelectAllCommand()
+            Using state = TestState.CreateCSharpTestState(
+                <Document><![CDATA[
+class C
+{
+    void foo(int x)
+    {
+        $$]]></Document>)
+                ' Note: the caret is at the file, so the Select All command's movement
+                ' of the caret to the end of the selection isn't responsible for 
+                ' dismissing the session.
+                state.SendInvokeCompletionList()
+                state.AssertCompletionSession()
+                state.SendSelectAll()
+                state.AssertNoCompletionSession()
+            End Using
+        End Sub
+
+        <WorkItem(588, "https://github.com/dotnet/roslyn/issues/588")>
+        <Fact, Trait(Traits.Feature, Traits.Features.Completion)>
+        Public Sub CompletionCommitAndFormatAreSeparateUndoTransactions()
+            Using state = TestState.CreateCSharpTestState(
+                <Document><![CDATA[
+class C
+{
+    void foo(int x)
+    {
+        int doodle;
+$$]]></Document>, extraExportedTypes:={GetType(CSharpEditorFormattingService)}.ToList())
+                state.SendTypeChars("doo;")
+                state.AssertMatchesTextStartingAtLine(6, "        doodle;")
+                state.SendUndo()
+                state.AssertMatchesTextStartingAtLine(6, "doodle;")
+                state.SendUndo()
+                state.AssertMatchesTextStartingAtLine(6, "doo;")
             End Using
         End Sub
     End Class

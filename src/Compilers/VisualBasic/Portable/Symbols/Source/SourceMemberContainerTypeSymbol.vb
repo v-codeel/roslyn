@@ -247,7 +247,7 @@ Namespace Microsoft.CodeAnalysis.VisualBasic.Symbols
         Private Function CreateNestedType(declaration As MergedTypeDeclaration) As NamedTypeSymbol
 #If DEBUG Then
             ' Ensure that the type declaration is either from user code or embedded
-            ' code, but not merged accross embedded code/user code boundary.
+            ' code, but not merged across embedded code/user code boundary.
             Dim embedded = EmbeddedSymbolKind.Unset
             For Each ref In declaration.SyntaxReferences
                 Dim refKind = ref.SyntaxTree.GetEmbeddedKind()
@@ -664,7 +664,7 @@ Namespace Microsoft.CodeAnalysis.VisualBasic.Symbols
             ' confusing error to the user like "J is invalid because T1 is an Out parameter". So we want
             ' to do a better job of reporting errors. In particular,
             '   * If we are checking a GenericTypeBinding (e.g. x as J(Of T1)) for contravariant validity, look up
-            '     to find the outermost ancester binding (e.g. parentargs=I[T1]) which is of a variant interface.
+            '     to find the outermost ancestor binding (e.g. parentargs=I[T1]) which is of a variant interface.
             '     If this is also the outermost variant container of the current context, then it's an error.
 
             Select Case type.Kind
@@ -900,7 +900,7 @@ Namespace Microsoft.CodeAnalysis.VisualBasic.Symbols
                     End If
 
                     ' The general code below will catch the case of nullables "T?" or "Nullable(Of T)", which require T to
-                    ' be inviarant. But we want more specific error reporting for this case, so we check for it first.
+                    ' be invariant. But we want more specific error reporting for this case, so we check for it first.
                     If namedType.IsNullableType() Then
                         Debug.Assert(namedType.TypeParameters(0).Variance = VarianceKind.None, "unexpected: a nullable type should have one generic parameter with no variance")
                         If namedType.TypeArgumentsNoUseSiteDiagnostics(0).IsValueType Then
@@ -1302,13 +1302,6 @@ Namespace Microsoft.CodeAnalysis.VisualBasic.Symbols
             End Get
         End Property
 
-        Public NotOverridable Overrides ReadOnly Property IsSubmissionClass As Boolean
-            Get
-                Dim kind = _declaration.Declarations(0).Kind
-                Return kind = DeclarationKind.Submission
-            End Get
-        End Property
-
         Public NotOverridable Overrides ReadOnly Property IsImplicitClass As Boolean
             Get
                 Return _declaration.Declarations(0).Kind = DeclarationKind.ImplicitClass
@@ -1699,44 +1692,53 @@ Namespace Microsoft.CodeAnalysis.VisualBasic.Symbols
         End Property
 
 #If DEBUG Then
-        ' Thread id to catch cases where ComputeMembersAndInitializers
-        ' is called recursively. This does not catch all recursive cases,
-        ' only cases where the method is called recursively on the first
-        ' thread that called ComputeMembersAndInitializers.
-        Private _computingMembersThreadId As Integer
+        ' A thread local hash table to catch cases when BuildMembersAndInitializers
+        ' is called recursively for the same symbol. 
+        <ThreadStatic>
+        Private Shared s_SymbolsBuildingMembersAndInitializers As HashSet(Of SourceMemberContainerTypeSymbol)
 #End If
 
         Private Function BuildMembersAndInitializers(diagBag As DiagnosticBag) As MembersAndInitializers
-#If DEBUG Then
-            Dim threadId = Environment.CurrentManagedThreadId
 
-            ' Bug 1098580 tracks re-enabling this assert.
-            'Debug.Assert(m_computingMembersThreadId <> threadId)
-            Interlocked.CompareExchange(_computingMembersThreadId, threadId, 0)
+            Dim membersAndInitializers As MembersAndInitializers
+
+#If DEBUG Then
+            If s_SymbolsBuildingMembersAndInitializers Is Nothing Then
+                s_SymbolsBuildingMembersAndInitializers = New HashSet(Of SourceMemberContainerTypeSymbol)(ReferenceEqualityComparer.Instance)
+            End If
+
+            Dim added As Boolean = s_SymbolsBuildingMembersAndInitializers.Add(Me)
+
+            Debug.Assert(added)
+            Try
 #End If
-            ' Get type members
-            Dim typeMembers = GetTypeMembersDictionary()
+                ' Get type members
+                Dim typeMembers = GetTypeMembersDictionary()
 
-            ' Get non-type members
-            Dim membersAndInitializers As MembersAndInitializers = BuildNonTypeMembers(diagBag)
-            _defaultPropertyName = DetermineDefaultPropertyName(membersAndInitializers.Members, diagBag)
+                ' Get non-type members
+                membersAndInitializers = BuildNonTypeMembers(diagBag)
+                _defaultPropertyName = DetermineDefaultPropertyName(membersAndInitializers.Members, diagBag)
 
-            ' Find/process partial methods
-            ProcessPartialMethodsIfAny(membersAndInitializers.Members, diagBag)
+                ' Find/process partial methods
+                ProcessPartialMethodsIfAny(membersAndInitializers.Members, diagBag)
 
-            ' Merge types with non-types
-            For Each typeSymbols In typeMembers.Values
-                Dim nontypeSymbols As ImmutableArray(Of Symbol) = Nothing
-                Dim name = typeSymbols(0).Name
-                If Not membersAndInitializers.Members.TryGetValue(name, nontypeSymbols) Then
-                    membersAndInitializers.Members.Add(name, StaticCast(Of Symbol).From(typeSymbols))
-                Else
-                    membersAndInitializers.Members(name) = nontypeSymbols.Concat(StaticCast(Of Symbol).From(typeSymbols))
-                End If
-            Next
+                ' Merge types with non-types
+                For Each typeSymbols In typeMembers.Values
+                    Dim nontypeSymbols As ImmutableArray(Of Symbol) = Nothing
+                    Dim name = typeSymbols(0).Name
+                    If Not membersAndInitializers.Members.TryGetValue(name, nontypeSymbols) Then
+                        membersAndInitializers.Members.Add(name, StaticCast(Of Symbol).From(typeSymbols))
+                    Else
+                        membersAndInitializers.Members(name) = nontypeSymbols.Concat(StaticCast(Of Symbol).From(typeSymbols))
+                    End If
+                Next
 
 #If DEBUG Then
-            Interlocked.CompareExchange(_computingMembersThreadId, 0, threadId)
+            Finally
+                If added Then
+                    s_SymbolsBuildingMembersAndInitializers.Remove(Me)
+                End If
+            End Try
 #End If
             Return membersAndInitializers
         End Function
@@ -2028,8 +2030,8 @@ Namespace Microsoft.CodeAnalysis.VisualBasic.Symbols
 
             ''' <summary> Queue element structure </summary>
             Public Structure QueueElement
-                Public Type As NamedTypeSymbol
-                Public Path As ConsList(Of FieldSymbol)
+                Public ReadOnly Type As NamedTypeSymbol
+                Public ReadOnly Path As ConsList(Of FieldSymbol)
 
                 Public Sub New(type As NamedTypeSymbol, path As ConsList(Of FieldSymbol))
                     Debug.Assert(type IsNot Nothing)
@@ -2068,7 +2070,7 @@ Namespace Microsoft.CodeAnalysis.VisualBasic.Symbols
         ''' is non-deterministic (depends on the order of symbols in a hash table).
         ''' 
         ''' Moreover, Dev10 analyzes the type graph and reports only one error in case S1 --> S2 --> S1 even if 
-        ''' there are two fields referensing S2 from S1.
+        ''' there are two fields referencing S2 from S1.
         ''' 
         ''' Example:
         '''    Structure S2
@@ -2749,6 +2751,15 @@ Namespace Microsoft.CodeAnalysis.VisualBasic.Symbols
 
                 EnsureCtor(members, isShared, isDebuggable, diagnostics)
             End If
+
+            If Not isShared AndAlso IsScriptClass Then
+                ' a submission can only have a single declaration:
+                Dim syntaxRef = SyntaxReferences.Single()
+                Dim scriptInitializer = New SynthesizedInteractiveInitializerMethod(syntaxRef, Me, diagnostics)
+                AddSymbolToMembers(scriptInitializer, members.Members)
+                Dim scriptEntryPoint = SynthesizedEntryPointSymbol.Create(Me, scriptInitializer.ReturnType, diagnostics)
+                AddSymbolToMembers(scriptEntryPoint, members.Members)
+            End If
         End Sub
 
         Private Sub EnsureCtor(members As MembersAndInitializersBuilder, isShared As Boolean, isDebuggable As Boolean, diagBag As DiagnosticBag)
@@ -3051,7 +3062,7 @@ Namespace Microsoft.CodeAnalysis.VisualBasic.Symbols
                 Else
                     ' If both symbols are implicitly defined (say an overloaded property P where each
                     ' overload implicitly defines get_P), no error is reported. 
-                    ' If there are any errors in cases if definitng members have same names.
+                    ' If there are any errors in cases if defining members have same names.
                     ' In such cases, the errors should be reported on the defining symbols.
 
                     If Not CaseInsensitiveComparison.Equals(firstAssociatedSymbol.Name,
@@ -3247,8 +3258,7 @@ Namespace Microsoft.CodeAnalysis.VisualBasic.Symbols
                 Next
 
                 ' This point should not be reachable.
-                Debug.Assert(False)
-                Return -1
+                Throw ExceptionUtilities.Unreachable
             End If
 
             Dim syntaxOffset As Integer
@@ -3258,8 +3268,7 @@ Namespace Microsoft.CodeAnalysis.VisualBasic.Symbols
 
             ' This point should not be reachable. An implicit constructor has no body and no initializer,
             ' so the variable has to be declared in a member initializer.
-            Debug.Assert(False)
-            Return -1
+            Throw ExceptionUtilities.Unreachable
         End Function
 
         ' Calculates a syntax offset of a syntax position that is contained in a property or field initializer (if it is in fact contained in one).
@@ -3324,7 +3333,7 @@ Namespace Microsoft.CodeAnalysis.VisualBasic.Symbols
                 ' Only Modules can declare extension methods.
 
                 If _lazyContainsExtensionMethods = ThreeState.Unknown Then
-                    If Not (_containingSymbol.Kind = SymbolKind.Namespace AndAlso Me.TypeKind = TypeKind.Module AndAlso Me.AnyMemberHasAttributes) Then
+                    If Not (_containingSymbol.Kind = SymbolKind.Namespace AndAlso Me.AllowsExtensionMethods() AndAlso Me.AnyMemberHasAttributes) Then
                         _lazyContainsExtensionMethods = ThreeState.False
                     End If
                 End If
@@ -3597,7 +3606,7 @@ Namespace Microsoft.CodeAnalysis.VisualBasic.Symbols
             Dim opInfo As OverloadResolution.OperatorInfo = OverloadResolution.GetOperatorInfo(method.Name)
 
             If Not OverloadResolution.ValidateOverloadedOperator(method, opInfo, diagnostics) Then
-                ' Mulformed operator, but still an operator.
+                ' Malformed operator, but still an operator.
                 Return True
             End If
 

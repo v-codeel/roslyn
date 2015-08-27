@@ -757,6 +757,7 @@ class Foo
             }
         }
 
+        [WorkItem(3447, "https://github.com/dotnet/roslyn/issues/3447")]
         [WorkItem(850540)]
         [Fact, Trait(Traits.Feature, Traits.Features.AutomaticCompletion)]
         public void BlockIndentationWithAutomaticBraceFormattingDisabled()
@@ -773,6 +774,14 @@ class Foo
     {}
 }";
 
+            var expectedAfterReturn = @"class C
+{
+    public void X()
+    {
+
+    }
+}";
+
             var optionSet = new Dictionary<OptionKey, object>
                             {
                                 { new OptionKey(FeatureOnOffOptions.AutoFormattingOnCloseBrace, LanguageNames.CSharp), false },
@@ -785,7 +794,120 @@ class Foo
                 CheckStart(session.Session);
                 Assert.Equal(expected, session.Session.SubjectBuffer.CurrentSnapshot.GetText());
 
-                CheckReturnOnNonEmptyLine(session.Session, 3);
+                CheckReturn(session.Session, 4, expectedAfterReturn);
+            }
+        }
+
+        [WorkItem(2224, "https://github.com/dotnet/roslyn/issues/2224")]
+        [Fact, Trait(Traits.Feature, Traits.Features.AutomaticCompletion)]
+        public void NoSmartOrBlockIndentationWithAutomaticBraceFormattingDisabled()
+        {
+            var code = @"namespace NS1
+{
+    public class C1
+$$
+}";
+
+            var expected = @"namespace NS1
+{
+    public class C1
+{ }
+}";
+
+            var optionSet = new Dictionary<OptionKey, object>
+                            {
+                                { new OptionKey(FormattingOptions.SmartIndent, LanguageNames.CSharp), FormattingOptions.IndentStyle.None }
+                            };
+            using (var session = CreateSession(code, optionSet))
+            {
+                Assert.NotNull(session);
+
+                CheckStart(session.Session);
+                Assert.Equal(expected, session.Session.SubjectBuffer.CurrentSnapshot.GetText());
+            }
+        }
+
+        [WorkItem(2330, "https://github.com/dotnet/roslyn/issues/2330")]
+        [Fact, Trait(Traits.Feature, Traits.Features.AutomaticCompletion)]
+        public void BlockIndentationWithAutomaticBraceFormatting()
+        {
+            var code = @"namespace NS1
+{
+        public class C1
+        $$
+}";
+
+            var expected = @"namespace NS1
+{
+        public class C1
+        { }
+}";
+
+            var expectedAfterReturn = @"namespace NS1
+{
+        public class C1
+        {
+
+        }
+}";
+
+            var optionSet = new Dictionary<OptionKey, object>
+                            {
+                                { new OptionKey(FormattingOptions.SmartIndent, LanguageNames.CSharp), FormattingOptions.IndentStyle.Block }
+                            };
+            using (var session = CreateSession(code, optionSet))
+            {
+                Assert.NotNull(session);
+
+                CheckStart(session.Session);
+                Assert.Equal(expected, session.Session.SubjectBuffer.CurrentSnapshot.GetText());
+
+                CheckReturn(session.Session, 8, expectedAfterReturn);
+            }
+        }
+
+        [WorkItem(2330, "https://github.com/dotnet/roslyn/issues/2330")]
+        [Fact, Trait(Traits.Feature, Traits.Features.AutomaticCompletion)]
+        public void BlockIndentationWithAutomaticBraceFormattingSecondSet()
+        {
+            var code = @"namespace NS1
+{
+        public class C1
+        { public class C2 $$
+
+        }
+}";
+
+            var expected = @"namespace NS1
+{
+        public class C1
+        { public class C2 { }
+
+        }
+}";
+
+            var expectedAfterReturn = @"namespace NS1
+{
+        public class C1
+        { public class C2 {
+
+        }
+
+        }
+}";
+
+            var optionSet = new Dictionary<OptionKey, object>
+                            {
+                                { new OptionKey(FormattingOptions.SmartIndent, LanguageNames.CSharp), FormattingOptions.IndentStyle.Block }
+                            };
+            using (var session = CreateSession(code, optionSet))
+            {
+                Assert.NotNull(session);
+
+                CheckStart(session.Session);
+                Assert.Equal(expected, session.Session.SubjectBuffer.CurrentSnapshot.GetText());
+
+                CheckReturn(session.Session, 8, expectedAfterReturn);
             }
         }
 

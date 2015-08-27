@@ -262,7 +262,7 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
 
             // SPEC: For a given source type S and target type T, if S or T are
             // SPEC: nullable types let S0 and T0 refer to their underlying types,
-            // SPEC: otherise, S0 and T0 are equal to S and T, respectively.
+            // SPEC: otherwise, S0 and T0 are equal to S and T, respectively.
 
             var source = this.ParameterTypes[0];
             var target = this.ReturnType;
@@ -306,13 +306,13 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
             // Those are the easy ones. Now we come to:
 
             // SPEC: 
-            // Exluding user-defined conversions, a conversion does not exist from 
+            // Excluding user-defined conversions, a conversion does not exist from 
             // S to T or T to S. For the purposes of these rules, any type parameters
             // associated with S or T are considered to be unique types that have
             // no inheritance relationship with other types, and any constraints on
             // those type parameters are ignored.
 
-            // A counter-intuative consequence of this rule is that:
+            // A counter-intuitive consequence of this rule is that:
             //
             // class X<U> where U : X<U>
             // {
@@ -580,7 +580,7 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
                 return false;
             }
         }
-        
+
         public sealed override ImmutableArray<Location> Locations
         {
             get

@@ -1,6 +1,6 @@
 ﻿// Copyright (c) Microsoft.  All Rights Reserved.  Licensed under the Apache License, Version 2.0.  See License.txt in the project root for license information.
 
-using Microsoft.CodeAnalysis.Completion.Providers;
+using Microsoft.CodeAnalysis.Completion;
 using Microsoft.CodeAnalysis.CSharp.Completion.Providers;
 using Roslyn.Test.Utilities;
 using Xunit;
@@ -9,7 +9,7 @@ namespace Microsoft.CodeAnalysis.Editor.CSharp.UnitTests.Completion.CompletionPr
 {
     public class EnumAndCompletionListTagCompletionProviderTests : AbstractCSharpCompletionProviderTests
     {
-        internal override ICompletionProvider CreateCompletionProvider()
+        internal override CompletionListProvider CreateCompletionProvider()
         {
             return new EnumAndCompletionListTagCompletionProvider();
         }
@@ -418,6 +418,46 @@ class C
 }
 ";
             VerifyItemIsAbsent(markup, "E");
+        }
+
+        [WorkItem(4310, "https://github.com/dotnet/roslyn/issues/4310")]
+        [Fact, Trait(Traits.Feature, Traits.Features.Completion)]
+        public void InExpressionBodiedProperty()
+        {
+            var markup =
+@"class C
+{
+    Colors Colors => $$
+}
+
+enum Colors
+{
+    Red,
+    Blue,
+    Green,
+}
+";
+            VerifyItemExists(markup, "Colors");
+        }
+
+        [WorkItem(4310, "https://github.com/dotnet/roslyn/issues/4310")]
+        [Fact, Trait(Traits.Feature, Traits.Features.Completion)]
+        public void InExpressionBodiedMethod()
+        {
+            var markup =
+@"class C
+{
+    Colors GetColors() => $$
+}
+
+enum Colors
+{
+    Red,
+    Blue,
+    Green,
+}
+";
+            VerifyItemExists(markup, "Colors");
         }
     }
 }

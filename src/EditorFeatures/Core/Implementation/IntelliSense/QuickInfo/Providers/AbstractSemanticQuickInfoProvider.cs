@@ -104,10 +104,10 @@ namespace Microsoft.CodeAnalysis.Editor.Implementation.IntelliSense.QuickInfo
 
             // We calculate the set of supported projects
             candidateResults.Remove(bestBinding);
-
             foreach (var candidate in candidateResults)
             {
-                if (!candidate.Item3.SequenceEqual(bestBinding.Item3, LinkedFilesSymbolEquivalenceComparer.IgnoreAssembliesInstance))
+                // Does the candidate have anything remotely equivalent?
+                if (!candidate.Item3.Intersect(bestBinding.Item3, LinkedFilesSymbolEquivalenceComparer.Instance).Any())
                 {
                     invalidProjects.Add(candidate.Item1.ProjectId);
                 }
@@ -119,6 +119,11 @@ namespace Microsoft.CodeAnalysis.Editor.Implementation.IntelliSense.QuickInfo
 
         private async Task<SyntaxToken> FindTokenInLinkedDocument(SyntaxToken token, Document linkedDocument, CancellationToken cancellationToken)
         {
+            if (!linkedDocument.SupportsSyntaxTree)
+            {
+                return default(SyntaxToken);
+            }
+
             var root = await linkedDocument.GetSyntaxRootAsync(cancellationToken).ConfigureAwait(false);
 
             // Don't search trivia because we want to ignore inactive regions
@@ -191,7 +196,8 @@ namespace Microsoft.CodeAnalysis.Editor.Implementation.IntelliSense.QuickInfo
             // TODO: exceptions
 
             var formatter = workspace.Services.GetLanguageServices(semanticModel.Language).GetService<IDocumentationCommentFormattingService>();
-            var documentationContent = GetDocumentationContent(symbols, sections, semanticModel, token.SpanStart, formatter, cancellationToken);
+            var syntaxFactsService = workspace.Services.GetLanguageServices(semanticModel.Language).GetService<ISyntaxFactsService>();
+            var documentationContent = GetDocumentationContent(symbols, sections, semanticModel, token, formatter, syntaxFactsService, cancellationToken);
             var showWarningGlyph = supportedPlatforms != null && supportedPlatforms.HasValidAndInvalidProjects();
             var showSymbolGlyph = true;
 
@@ -217,8 +223,9 @@ namespace Microsoft.CodeAnalysis.Editor.Implementation.IntelliSense.QuickInfo
             IEnumerable<ISymbol> symbols,
             IDictionary<SymbolDescriptionGroups, ImmutableArray<SymbolDisplayPart>> sections,
             SemanticModel semanticModel,
-            int position,
+            SyntaxToken token,
             IDocumentationCommentFormattingService formatter,
+            ISyntaxFactsService syntaxFactsService,
             CancellationToken cancellationToken)
         {
             if (sections.ContainsKey(SymbolDescriptionGroups.Documentation))
@@ -231,7 +238,14 @@ namespace Microsoft.CodeAnalysis.Editor.Implementation.IntelliSense.QuickInfo
             {
                 var symbol = symbols.First().OriginalDefinition;
 
-                var documentation = symbol.GetDocumentationParts(semanticModel, position, formatter, cancellationToken);
+                // if generating quick info for an attribute, bind to the class instead of the constructor
+                if (syntaxFactsService.IsAttributeName(token.Parent) &&
+                    symbol.ContainingType?.IsAttribute() == true)
+                {
+                    symbol = symbol.ContainingType;
+                }
+
+                var documentation = symbol.GetDocumentationParts(semanticModel, token.SpanStart, formatter, cancellationToken);
 
                 if (documentation != null)
                 {

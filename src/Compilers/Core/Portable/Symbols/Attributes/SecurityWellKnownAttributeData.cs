@@ -4,6 +4,7 @@ using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Diagnostics;
+using System.Reflection;
 using System.Threading;
 using Microsoft.CodeAnalysis.CodeGen;
 using Roslyn.Utilities;
@@ -22,7 +23,7 @@ namespace Microsoft.CodeAnalysis
         // Fixup involves reading the file contents of the resolved file and emitting it in the permission set.
         private string[] _lazyPathsForPermissionSetFixup;
 
-        public void SetSecurityAttribute(int attributeIndex, Cci.SecurityAction action, int totalSourceAttributes)
+        public void SetSecurityAttribute(int attributeIndex, DeclarativeSecurityAction action, int totalSourceAttributes)
         {
             Debug.Assert(attributeIndex >= 0 && attributeIndex < totalSourceAttributes);
             Debug.Assert(action != 0);
@@ -51,7 +52,7 @@ namespace Microsoft.CodeAnalysis
         }
 
         /// <summary>
-        /// Used for retreiving applied source security attributes, i.e. attributes derived from well-known SecurityAttribute.
+        /// Used for retrieving applied source security attributes, i.e. attributes derived from well-known SecurityAttribute.
         /// </summary>
         public IEnumerable<Cci.SecurityAttribute> GetSecurityAttributes<T>(ImmutableArray<T> customAttributes)
             where T : Cci.ICustomAttribute
@@ -68,10 +69,10 @@ namespace Microsoft.CodeAnalysis
                 {
                     if (_lazySecurityActions[i] != 0)
                     {
-                        var action = (Cci.SecurityAction)_lazySecurityActions[i];
+                        var action = (DeclarativeSecurityAction)_lazySecurityActions[i];
                         Cci.ICustomAttribute attribute = customAttributes[i];
 
-                        if (_lazyPathsForPermissionSetFixup != null && _lazyPathsForPermissionSetFixup[i] != null)
+                        if (_lazyPathsForPermissionSetFixup?[i] != null)
                         {
                             attribute = new PermissionSetAttributeWithFileReference(attribute, _lazyPathsForPermissionSetFixup[i]);
                         }

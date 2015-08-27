@@ -3,10 +3,9 @@
 using System;
 using System.IO;
 using System.Linq;
-using Microsoft.CodeAnalysis.Completion.Providers;
+using Microsoft.CodeAnalysis.Completion;
 using Microsoft.CodeAnalysis.Editor.CSharp.UnitTests.Completion.CompletionProviders;
 using Microsoft.CodeAnalysis.Editor.Implementation.Interactive;
-using Microsoft.CodeAnalysis.Editor.Shared.Utilities;
 using Roslyn.Test.Utilities;
 using Xunit;
 
@@ -14,7 +13,7 @@ namespace Microsoft.CodeAnalysis.Editor.CSharp.UnitTests.Completion
 {
     public class LoadDirectiveCompletionProviderTests : AbstractCSharpCompletionProviderTests
     {
-        internal override ICompletionProvider CreateCompletionProvider()
+        internal override CompletionListProvider CreateCompletionProvider()
         {
             return new LoadCommandCompletionProvider();
         }
@@ -68,7 +67,7 @@ namespace Microsoft.CodeAnalysis.Editor.CSharp.UnitTests.Completion
             // after so many ".." we should be at the root drive an should no longer suggest the parent.  we can determine
             // our current directory depth by counting the number of backslashes present in the current working directory
             // and after that many references to "..", we are at the root.
-            int depth = Environment.CurrentDirectory.Count(c => c == Path.DirectorySeparatorChar);
+            int depth = Directory.GetCurrentDirectory().Count(c => c == Path.DirectorySeparatorChar);
             var pathToRoot = string.Concat(Enumerable.Repeat(@"..\", depth));
 
             VerifyItemExistsInInteractive(

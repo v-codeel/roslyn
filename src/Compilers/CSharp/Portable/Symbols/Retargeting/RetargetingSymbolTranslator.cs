@@ -23,7 +23,8 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols.Retargeting
         /// <summary>
         /// Retargeting map from underlying module to this one.
         /// </summary>
-        private readonly ConcurrentDictionary<Symbol, Symbol> _symbolMap = new ConcurrentDictionary<Symbol, Symbol>();
+        private readonly ConcurrentDictionary<Symbol, Symbol> _symbolMap =
+            new ConcurrentDictionary<Symbol, Symbol>(concurrencyLevel: 2, capacity: 4);
 
         private readonly Func<Symbol, RetargetingMethodSymbol> _createRetargetingMethod;
         private readonly Func<Symbol, RetargetingNamespaceSymbol> _createRetargetingNamespace;
@@ -122,7 +123,7 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols.Retargeting
             /// <summary>
             /// The map that captures information about what assembly should be retargeted 
             /// to what assembly. Key is the AssemblySymbol referenced by the underlying module,
-            /// value is the corresponding AssemblySymbol referenced by the reatergeting module, and 
+            /// value is the corresponding AssemblySymbol referenced by the retargeting module, and 
             /// corresponding retargeting map for symbols.
             /// </summary>
             private Dictionary<AssemblySymbol, DestinationData> RetargetingAssemblyMap
@@ -216,7 +217,9 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols.Retargeting
                 }
 
                 // Retarget from one assembly to another
-                return PerformTypeRetargeting(ref destination, type);
+                type = PerformTypeRetargeting(ref destination, type);
+                this.RetargetingAssemblyMap[retargetFrom] = destination;
+                return type;
             }
 
             private NamedTypeSymbol RetargetNamedTypeDefinitionFromUnderlyingAssembly(NamedTypeSymbol type)
@@ -257,7 +260,8 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols.Retargeting
             {
                 NamedTypeSymbol cached;
 
-                if (this.RetargetingAssembly.NoPiaUnificationMap.TryGetValue(type, out cached))
+                var map = this.RetargetingAssembly.NoPiaUnificationMap;
+                if (map.TryGetValue(type, out cached))
                 {
                     return cached;
                 }
@@ -336,7 +340,7 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols.Retargeting
                     result = new UnsupportedMetadataTypeSymbol();
                 }
 
-                cached = this.RetargetingAssembly.NoPiaUnificationMap.GetOrAdd(type, result);
+                cached = map.GetOrAdd(type, result);
 
                 return cached;
             }
@@ -452,7 +456,7 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols.Retargeting
                 // This must be a generic instantiation (i.e. constructed type).
 
                 NamedTypeSymbol genericType = type;
-                var oldArguments = ArrayBuilder<TypeSymbol>.GetInstance();
+                var oldArguments = ArrayBuilder<TypeWithModifiers>.GetInstance();
                 int startOfNonInterfaceArguments = int.MaxValue;
 
                 // Collect generic arguments for the type and its containers.
@@ -464,24 +468,52 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols.Retargeting
                         startOfNonInterfaceArguments = oldArguments.Count;
                     }
 
-                    if (genericType.Arity > 0)
+                    int arity = genericType.Arity;
+
+                    if (arity > 0)
                     {
-                        oldArguments.AddRange(genericType.TypeArgumentsNoUseSiteDiagnostics);
+                        var args = genericType.TypeArgumentsNoUseSiteDiagnostics;
+
+                        if (genericType.HasTypeArgumentsCustomModifiers)
+                        {
+                            var modifiers = genericType.TypeArgumentsCustomModifiers;
+
+                            for (int i = 0; i < arity; i++)
+                            {
+                                oldArguments.Add(new TypeWithModifiers(args[i], modifiers[i]));
+                            }
+                        }
+                        else
+                        {
+                            for (int i = 0; i < arity; i++)
+                            {
+                                oldArguments.Add(new TypeWithModifiers(args[i]));
+                            }
+                        }
                     }
 
                     genericType = genericType.ContainingType;
                 }
 
+                bool anythingRetargeted = !originalDefinition.Equals(newDefinition);
+
                 // retarget the arguments
-                var newArguments = ArrayBuilder<TypeSymbol>.GetInstance(oldArguments.Count);
+                var newArguments = ArrayBuilder<TypeWithModifiers>.GetInstance(oldArguments.Count);
 
                 foreach (var arg in oldArguments)
                 {
-                    newArguments.Add((TypeSymbol)arg.Accept(this, RetargetOptions.RetargetPrimitiveTypesByTypeCode)); // generic instantiation is a signature
-                }
+                    bool modifiersHaveChanged;
 
-                // See if definition or any of the arguments were retargeted
-                bool anythingRetargeted = !originalDefinition.Equals(newDefinition) || !oldArguments.SequenceEqual(newArguments);
+                    var newArg = new TypeWithModifiers((TypeSymbol)arg.Type.Accept(this, RetargetOptions.RetargetPrimitiveTypesByTypeCode), // generic instantiation is a signature
+                                                       RetargetModifiers(arg.CustomModifiers, out modifiersHaveChanged));
+
+                    if (!anythingRetargeted && (modifiersHaveChanged || newArg.Type != arg.Type))
+                    {
+                        anythingRetargeted = true;
+                    }
+
+                    newArguments.Add(newArg);
+                }
 
                 // See if it is or its enclosing type is a non-interface closed over NoPia local types. 
                 bool noPiaIllegalGenericInstantiation = IsNoPiaIllegalGenericInstantiation(oldArguments, newArguments, startOfNonInterfaceArguments);
@@ -530,7 +562,7 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols.Retargeting
                 return constructedType;
             }
 
-            private bool IsNoPiaIllegalGenericInstantiation(ArrayBuilder<TypeSymbol> oldArguments, ArrayBuilder<TypeSymbol> newArguments, int startOfNonInterfaceArguments)
+            private bool IsNoPiaIllegalGenericInstantiation(ArrayBuilder<TypeWithModifiers> oldArguments, ArrayBuilder<TypeWithModifiers> newArguments, int startOfNonInterfaceArguments)
             {
                 // TODO: Do we need to check constraints on type parameters as well?
 
@@ -538,7 +570,7 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols.Retargeting
                 {
                     for (int i = startOfNonInterfaceArguments; i < oldArguments.Count; i++)
                     {
-                        if (IsOrClosedOverAnExplicitLocalType(oldArguments[i]))
+                        if (IsOrClosedOverAnExplicitLocalType(oldArguments[i].Type))
                         {
                             return true;
                         }
@@ -551,7 +583,7 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols.Retargeting
                 {
                     for (int i = startOfNonInterfaceArguments; i < oldArguments.Count; i++)
                     {
-                        if (MetadataDecoder.IsOrClosedOverATypeFromAssemblies(oldArguments[i], assembliesToEmbedTypesFrom))
+                        if (MetadataDecoder.IsOrClosedOverATypeFromAssemblies(oldArguments[i].Type, assembliesToEmbedTypesFrom))
                         {
                             return true;
                         }
@@ -564,7 +596,7 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols.Retargeting
                 {
                     for (int i = startOfNonInterfaceArguments; i < newArguments.Count; i++)
                     {
-                        if (MetadataDecoder.IsOrClosedOverATypeFromAssemblies(newArguments[i], linkedAssemblies))
+                        if (MetadataDecoder.IsOrClosedOverATypeFromAssemblies(newArguments[i].Type, linkedAssemblies))
                         {
                             return true;
                         }
@@ -924,7 +956,7 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols.Retargeting
                     Debug.Assert(typeParameter.TypeParameterKind == TypeParameterKind.Method);
 
                     // The method symbol we are building will be using IndexedTypeParameterSymbols as 
-                    // its type parametes, therefore, we should return them here as well.
+                    // its type parameters, therefore, we should return them here as well.
                     return IndexedTypeParameterSymbol.GetTypeParameter(typeParameter.Ordinal);
                 }
             }

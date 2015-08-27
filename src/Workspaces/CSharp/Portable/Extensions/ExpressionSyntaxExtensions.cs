@@ -506,6 +506,20 @@ namespace Microsoft.CodeAnalysis.CSharp.Extensions
                         return true;
                     }
 
+                // If the parent is a conditional access expression, we could introduce an LValue
+                // for the given expression, unless it is itself a MemberBindingExpression or starts with one.
+                // Case (1) : The WhenNotNull clause always starts with a memberbindingexpression.
+                //              expression '.Method()' in a?.Method()
+                // Case (2) : The Expression clause always starts with a memberbindingexpression if 
+                // the grandparent is a conditional access expression.
+                //              expression '.Method' in a?.Method()?.Length
+                // Case (3) : The child Conditional access expression always starts with a memberbindingexpression if
+                // the parent is a conditional access expression. This case is already covered before the parent kind switch
+                case SyntaxKind.ConditionalAccessExpression:
+                    var parentConditionalAccessExpression = (ConditionalAccessExpressionSyntax)expression.Parent;
+                    return expression != parentConditionalAccessExpression.WhenNotNull &&
+                            !parentConditionalAccessExpression.Parent.IsKind(SyntaxKind.ConditionalAccessExpression);
+
                 case SyntaxKind.IsExpression:
                 case SyntaxKind.AsExpression:
                     // Can't introduce a variable for the type portion of an is/as check.
@@ -672,7 +686,7 @@ namespace Microsoft.CodeAnalysis.CSharp.Extensions
             else if (expression is TypeSyntax)
             {
                 var typeName = (TypeSyntax)expression;
-                return typeName.IsReplacableByVar(semanticModel, out replacementNode, out issueSpan, optionSet, cancellationToken);
+                return typeName.IsReplaceableByVar(semanticModel, out replacementNode, out issueSpan, optionSet, cancellationToken);
             }
 
             return false;
@@ -773,7 +787,9 @@ namespace Microsoft.CodeAnalysis.CSharp.Extensions
                 }
             }
 
-            replacementNode = memberAccess.Name.WithLeadingTrivia(memberAccess.GetLeadingTrivia()).WithTrailingTrivia(memberAccess.GetTrailingTrivia());
+            replacementNode = memberAccess.Name
+                .WithLeadingTrivia(memberAccess.GetLeadingTriviaForSimplifiedMemberAccess())
+                .WithTrailingTrivia(memberAccess.GetTrailingTrivia());
             issueSpan = memberAccess.Expression.Span;
 
             if (replacementNode == null)
@@ -782,6 +798,24 @@ namespace Microsoft.CodeAnalysis.CSharp.Extensions
             }
 
             return memberAccess.CanReplaceWithReducedName(replacementNode, semanticModel, cancellationToken);
+        }
+
+        private static SyntaxTriviaList GetLeadingTriviaForSimplifiedMemberAccess(this MemberAccessExpressionSyntax memberAccess)
+        {
+            // We want to include any user-typed trivia that may be present between the 'Expression', 'OperatorToken' and 'Identifier' of the MemberAccessExpression.
+            // However, we don't want to include any elastic trivia that may have been introduced by the expander in these locations. This is to avoid triggering
+            // aggressive formatting. Otherwise, formatter will see this elastic trivia added by the expander and use that as a cue to introduce unnecessary blank lines
+            // etc. around the user's original code.
+            return memberAccess.GetLeadingTrivia()
+                .AddRange(memberAccess.Expression.GetTrailingTrivia().WithoutElasticTrivia())
+                .AddRange(memberAccess.OperatorToken.LeadingTrivia.WithoutElasticTrivia())
+                .AddRange(memberAccess.OperatorToken.TrailingTrivia.WithoutElasticTrivia())
+                .AddRange(memberAccess.Name.GetLeadingTrivia().WithoutElasticTrivia());
+        }
+
+        private static IEnumerable<SyntaxTrivia> WithoutElasticTrivia(this IEnumerable<SyntaxTrivia> list)
+        {
+            return list.Where(t => !t.IsElastic());
         }
 
         private static bool InsideCrefReference(ExpressionSyntax expr)
@@ -847,7 +881,7 @@ namespace Microsoft.CodeAnalysis.CSharp.Extensions
 
             var symbol = semanticModel.GetSymbolInfo(node, cancellationToken).Symbol;
 
-            // If the Symbol is a contrcutor get its containing type
+            // If the Symbol is a constructor get its containing type
             if (symbol.IsConstructor())
             {
                 symbol = symbol.ContainingType;
@@ -971,7 +1005,7 @@ namespace Microsoft.CodeAnalysis.CSharp.Extensions
 
         public static IAliasSymbol GetAliasForSymbol(INamespaceOrTypeSymbol symbol, SyntaxToken token, SemanticModel semanticModel, CancellationToken cancellationToken)
         {
-            var originalSemanticModel = (SemanticModel)semanticModel.GetOriginalSemanticModel();
+            var originalSemanticModel = semanticModel.GetOriginalSemanticModel();
             if (!originalSemanticModel.SyntaxTree.HasCompilationUnitRoot)
             {
                 return null;
@@ -1003,7 +1037,7 @@ namespace Microsoft.CodeAnalysis.CSharp.Extensions
                 return token.Parent;
             }
 
-            var originalSemanticMode = (SemanticModel)semanticModel.GetOriginalSemanticModel();
+            var originalSemanticMode = semanticModel.GetOriginalSemanticModel();
             token = originalSemanticMode.SyntaxTree.GetRoot(cancellationToken).FindToken(semanticModel.OriginalPositionForSpeculation);
 
             return token.Parent;
@@ -1306,13 +1340,17 @@ namespace Microsoft.CodeAnalysis.CSharp.Extensions
                     var aliasInfo = semanticModel.GetAliasInfo(name, cancellationToken);
                     if (nameHasNoAlias && aliasInfo == null)
                     {
-                        if (IsReplacableByVar(name, semanticModel, out replacementNode, out issueSpan, optionSet, cancellationToken))
+                        if (IsReplaceableByVar(name, semanticModel, out replacementNode, out issueSpan, optionSet, cancellationToken))
                         {
                             return true;
                         }
 
-                        if (PreferPredefinedTypeKeywordInDeclarations(name, optionSet, semanticModel) ||
-                            PreferPredefinedTypeKeywordInMemberAccess(name, optionSet, semanticModel))
+                        // Don't simplify to predefined type if name is part of a QualifiedName.
+                        // QualifiedNames can't contain PredefinedTypeNames (although MemberAccessExpressions can).
+                        // In other words, the left side of a QualifiedName can't be a PredefinedTypeName.
+                        if (!name.Parent.IsKind(SyntaxKind.QualifiedName) &&
+                            (PreferPredefinedTypeKeywordInDeclarations(name, optionSet, semanticModel) ||
+                             PreferPredefinedTypeKeywordInMemberAccess(name, optionSet, semanticModel)))
                         {
                             var type = semanticModel.GetTypeInfo(name, cancellationToken).Type;
                             if (type != null)
@@ -1343,9 +1381,7 @@ namespace Microsoft.CodeAnalysis.CSharp.Extensions
                     if (!name.IsVar && (symbol.Kind == SymbolKind.NamedType) && !name.IsLeftSideOfQualifiedName())
                     {
                         var type = (INamedTypeSymbol)symbol;
-                        if (!type.IsUnboundGenericType && // Don't rewrite unbound generic type "Nullable<>"
-                            type.IsNullable() &&
-                            aliasInfo == null)
+                        if (aliasInfo == null && CanSimplifyNullable(type, name))
                         {
                             GenericNameSyntax genericName;
                             if (name.Kind() == SyntaxKind.QualifiedName)
@@ -1418,6 +1454,54 @@ namespace Microsoft.CodeAnalysis.CSharp.Extensions
             }
 
             return name.CanReplaceWithReducedName(replacementNode, semanticModel, cancellationToken);
+        }
+
+        private static bool CanSimplifyNullable(INamedTypeSymbol type, NameSyntax name)
+        {
+            if (!type.IsNullable())
+            {
+                return false;
+            }
+
+            if (type.IsUnboundGenericType)
+            {
+                // Don't simplify unbound generic type "Nullable<>".
+                return false;
+            }
+
+            if (!InsideCrefReference(name))
+            {
+                // Nullable<T> can always be simplified to T? outside crefs.
+                return true;
+            }
+
+            // Inside crefs, if the T in this Nullable{T} is being declared right here
+            // then this Nullable{T} is not a constructed generic type and we should
+            // not offer to simplify this to T?.
+            //
+            // For example, we should not offer the simplification in the following cases where
+            // T does not bind to an existing type / type parameter in the user's code.
+            // - <see cref="Nullable{T}"/>
+            // - <see cref="System.Nullable{T}.Value"/>
+            //
+            // And we should offer the simplification in the following cases where SomeType and
+            // SomeMethod bind to a type and method declared elsewhere in the users code.
+            // - <see cref="SomeType.SomeMethod(Nullable{SomeType})"/>
+
+            var argument = type.TypeArguments.SingleOrDefault();
+            if (argument == null || argument.IsErrorType())
+            {
+                return false;
+            }
+
+            var argumentDecl = argument.DeclaringSyntaxReferences.FirstOrDefault();
+            if (argumentDecl == null)
+            {
+                // The type argument is a type from metadata - so this is a constructed generic nullable type that can be simplified (e.g. Nullable(Of Integer)).
+                return true;
+            }
+
+            return !name.Span.Contains(argumentDecl.Span);
         }
 
         private static bool CanReplaceWithPredefinedTypeKeywordInContext(NameSyntax name, SemanticModel semanticModel, out TypeSyntax replacementNode, ref TextSpan issueSpan, SyntaxKind keywordKind, CancellationToken cancellationToken)
@@ -1639,7 +1723,7 @@ namespace Microsoft.CodeAnalysis.CSharp.Extensions
                                 if ((namedType.GetBaseTypes().Contains(containingType) &&
                                     !optionSet.GetOption(SimplificationOptions.AllowSimplificationToBaseType)) ||
                                     (!optionSet.GetOption(SimplificationOptions.AllowSimplificationToGenericType) &&
-                                    containingType.TypeArguments.Count() != 0))
+                                    containingType.TypeArguments.Length != 0))
                                 {
                                     return false;
                                 }
@@ -1848,10 +1932,10 @@ namespace Microsoft.CodeAnalysis.CSharp.Extensions
             var invalidTransformation2 = WillConflictWithExistingLocal(name, reducedName);
             var invalidTransformation3 = IsAmbiguousCast(name, reducedName);
             var invalidTransformation4 = IsNullableTypeInPointerExpression(name, reducedName);
-            var isNotNullableReplacable = name.IsNotNullableReplacable(reducedName);
+            var isNotNullableReplaceable = name.IsNotNullableReplaceable(reducedName);
 
             if (invalidTransformation1 || invalidTransformation2 || invalidTransformation3 || invalidTransformation4
-                || isNotNullableReplacable)
+                || isNotNullableReplaceable)
             {
                 return false;
             }
@@ -1859,9 +1943,9 @@ namespace Microsoft.CodeAnalysis.CSharp.Extensions
             return true;
         }
 
-        private static bool IsNotNullableReplacable(this NameSyntax name, TypeSyntax reducedName)
+        private static bool IsNotNullableReplaceable(this NameSyntax name, TypeSyntax reducedName)
         {
-            var isNotNullableReplacable = false;
+            var isNotNullableReplaceable = false;
             var isLeftSideOfDot = name.IsLeftSideOfDot();
             var isRightSideOfDot = name.IsRightSideOfDot();
 
@@ -1869,15 +1953,15 @@ namespace Microsoft.CodeAnalysis.CSharp.Extensions
             {
                 if (((NullableTypeSyntax)reducedName).ElementType.Kind() == SyntaxKind.OmittedTypeArgument)
                 {
-                    isNotNullableReplacable = true;
+                    isNotNullableReplaceable = true;
                 }
                 else
                 {
-                    isNotNullableReplacable = name.IsLeftSideOfDot() || name.IsRightSideOfDot();
+                    isNotNullableReplaceable = name.IsLeftSideOfDot() || name.IsRightSideOfDot();
                 }
             }
 
-            return isNotNullableReplacable;
+            return isNotNullableReplaceable;
         }
 
         private static bool IsThisOrTypeOrNamespace(MemberAccessExpressionSyntax memberAccess, SemanticModel semanticModel)
@@ -1917,7 +2001,7 @@ namespace Microsoft.CodeAnalysis.CSharp.Extensions
             return false;
         }
 
-        private static bool IsReplacableByVar(
+        private static bool IsReplaceableByVar(
             this TypeSyntax simpleName,
             SemanticModel semanticModel,
             out TypeSyntax replacementNode,
@@ -1972,7 +2056,7 @@ namespace Microsoft.CodeAnalysis.CSharp.Extensions
                 }
 
                 var variable = variableDeclaration.Variables.Single();
-                var initializer = (EqualsValueClauseSyntax)variable.Initializer;
+                var initializer = variable.Initializer;
                 var identifier = variable.Identifier;
 
                 if (EqualsValueClauseNotSuitableForVar(identifier, simpleName, initializer, semanticModel, cancellationToken))

@@ -137,13 +137,14 @@ namespace Microsoft.VisualStudio.LanguageServices.CSharp.LanguageService
             else
             {
                 var symbols = semanticModel.GetSymbols(token, document.Project.Solution.Workspace, bindLiteralsToUnderlyingType: true, cancellationToken: CancellationToken.None);
+                symbol = symbols.FirstOrDefault();
 
-                var bindableParent = document.GetLanguageService<ISyntaxFactsService>().GetBindableParent(token);
-                var overloads = semanticModel.GetMemberGroup(bindableParent);
-
-                symbol = symbols.Concat(overloads)
-                                .Distinct(SymbolEquivalenceComparer.Instance)
-                                 .FirstOrDefault();
+                if (symbol == null)
+                {
+                    var bindableParent = document.GetLanguageService<ISyntaxFactsService>().GetBindableParent(token);
+                    var overloads = semanticModel.GetMemberGroup(bindableParent);
+                    symbol = overloads.FirstOrDefault();
+                }
             }
 
             // Local: return the name if it's the declaration, otherwise the type
@@ -320,7 +321,7 @@ namespace Microsoft.VisualStudio.LanguageServices.CSharp.LanguageService
 
             if (symbol.GetTypeArguments().Any())
             {
-                return string.Format("{0}`{1}", displayString, symbol.GetTypeArguments().Count());
+                return string.Format("{0}`{1}", displayString, symbol.GetTypeArguments().Length);
             }
 
             return displayString;
@@ -348,7 +349,7 @@ namespace Microsoft.VisualStudio.LanguageServices.CSharp.LanguageService
 
             if (symbol.GetTypeArguments().Any())
             {
-                return string.Format("{0}.{1}``{2}", containingType, name, symbol.GetTypeArguments().Count());
+                return string.Format("{0}.{1}``{2}", containingType, name, symbol.GetTypeArguments().Length);
             }
 
             return string.Format("{0}.{1}", containingType, name);

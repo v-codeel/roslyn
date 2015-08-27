@@ -49,7 +49,7 @@ namespace Microsoft.CodeAnalysis.Shared.Utilities
         {
             if (bitArray == null)
             {
-                throw new ArgumentNullException("bitArray");
+                throw new ArgumentNullException(nameof(bitArray));
             }
 
             _bitArray = bitArray;
@@ -122,7 +122,7 @@ namespace Microsoft.CodeAnalysis.Shared.Utilities
                     var c1 = GetCharacter(key, index);
                     var c2 = GetCharacter(key, index + 1);
 
-                    var k = (uint)(c1 | (c2 << 16));
+                    var k = c1 | (c2 << 16);
 
                     k *= m;
                     k ^= k >> r;

@@ -3,15 +3,15 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using Microsoft.CodeAnalysis.CSharp.Test.Utilities;
 using Microsoft.CodeAnalysis.Scripting;
 using Microsoft.CodeAnalysis.Scripting.CSharp;
+using Roslyn.Test.Utilities;
 using Roslyn.Utilities;
 using Xunit;
 
 namespace Microsoft.CodeAnalysis.Scripting.CSharp.Test
 {
-    public class ScriptTests : CSharpTestBase
+    public class ScriptTests : TestBase
     {
         [Fact]
         public void TestCreateScript()
@@ -24,6 +24,7 @@ namespace Microsoft.CodeAnalysis.Scripting.CSharp.Test
         public void TestGetCompilation()
         {
             var script = CSharpScript.Create("1 + 2");
+            script.RunAsync(new ScriptTests());
             var compilation = script.GetCompilation();
             Assert.Equal(script.Code, compilation.SyntaxTrees.First().GetText().ToString());
         }
@@ -35,43 +36,75 @@ namespace Microsoft.CodeAnalysis.Scripting.CSharp.Test
             var script = CSharpScript.Create("1 + 2");
             var fn = script.CreateDelegate();
             var value = fn();
-            Assert.Equal(3, value);
+            Assert.Equal(3, value.Result);
         }
 
         [Fact]
         public void TestRunScript()
         {
-            var result = CSharpScript.Run("1 + 2");
-            Assert.Equal(3, result.ReturnValue);
+            var result = CSharpScript.RunAsync("1 + 2");
+            Assert.Equal(3, result.ReturnValue.Result);
         }
 
         [Fact]
         public void TestCreateAndRunScript()
         {
             var script = CSharpScript.Create("1 + 2");
-            var result = script.Run();
+            var result = script.RunAsync();
             Assert.Same(script, result.Script);
-            Assert.Equal(3, result.ReturnValue);
+            Assert.Equal(3, result.ReturnValue.Result);
         }
 
         [Fact]
         public void TestEvalScript()
         {
-            var value = CSharpScript.Eval("1 + 2");
-            Assert.Equal(3, value);
+            var value = CSharpScript.EvaluateAsync("1 + 2");
+            Assert.Equal(3, value.Result);
         }
 
         [Fact]
         public void TestRunScriptWithSpecifiedReturnType()
         {
-            var result = CSharpScript.Create("1 + 2").WithReturnType(typeof(int)).Run();
-            Assert.Equal(3, result.ReturnValue);
+            var result = CSharpScript.RunAsync("1 + 2");
+            Assert.Equal(3, result.ReturnValue.Result);
         }
 
         [Fact]
         public void TestRunVoidScript()
         {
-            var result = CSharpScript.Run("Console.WriteLine(0);");
+            var result = CSharpScript.RunAsync("System.Console.WriteLine(0);");
+            var task = result.ReturnValue;
+            Assert.Null(task.Result);
+        }
+
+        [Fact(Skip = "https://github.com/dotnet/roslyn/issues/170")]
+        public void TestRunDynamicVoidScriptWithTerminatingSemicolon()
+        {
+            var result = CSharpScript.RunAsync(@"
+class SomeClass
+{
+    public void Do()
+    {
+    }
+}
+dynamic d = new SomeClass();
+d.Do();"
+, ScriptOptions.Default.WithReferences(MscorlibRef, SystemRef, SystemCoreRef, CSharpRef));
+        }
+
+        [Fact(Skip = "https://github.com/dotnet/roslyn/issues/170")]
+        public void TestRunDynamicVoidScriptWithoutTerminatingSemicolon()
+        {
+            var result = CSharpScript.RunAsync(@"
+class SomeClass
+{
+    public void Do()
+    {
+    }
+}
+dynamic d = new SomeClass();
+d.Do()"
+, ScriptOptions.Default.WithReferences(MscorlibRef, SystemRef, SystemCoreRef, CSharpRef));
         }
 
         public class Globals
@@ -83,16 +116,16 @@ namespace Microsoft.CodeAnalysis.Scripting.CSharp.Test
         [Fact]
         public void TestRunScriptWithGlobals()
         {
-            var result = CSharpScript.Run("X + Y", new Globals { X = 1, Y = 2 });
-            Assert.Equal(3, result.ReturnValue);
+            var result = CSharpScript.RunAsync("X + Y", new Globals { X = 1, Y = 2 });
+            Assert.Equal(3, result.ReturnValue.Result);
         }
 
         [Fact]
         public void TestRunCreatedScriptWithExpectedGlobals()
         {
             var script = CSharpScript.Create("X + Y").WithGlobalsType(typeof(Globals));
-            var result = script.Run(new Globals { X = 1, Y = 2 });
-            Assert.Equal(3, result.ReturnValue);
+            var result = script.RunAsync(new Globals { X = 1, Y = 2 });
+            Assert.Equal(3, result.ReturnValue.Result);
             Assert.Same(script, result.Script);
         }
 
@@ -100,8 +133,8 @@ namespace Microsoft.CodeAnalysis.Scripting.CSharp.Test
         public void TestRunCreatedScriptWithUnexpectedGlobals()
         {
             var script = CSharpScript.Create("X + Y");
-            var result = script.Run(new Globals { X = 1, Y = 2 });
-            Assert.Equal(3, result.ReturnValue);
+            var result = script.RunAsync(new Globals { X = 1, Y = 2 });
+            Assert.Equal(3, result.ReturnValue.Result);
 
             // the end state of running the script should be based on a different script instance because of the globals
             // not matching the original script definition.
@@ -112,9 +145,9 @@ namespace Microsoft.CodeAnalysis.Scripting.CSharp.Test
         public void TestRunScriptWithScriptState()
         {
             // run a script using another scripts end state as the starting state (globals)
-            var result = CSharpScript.Run("int X = 100;");
-            var result2 = CSharpScript.Run("X + X", result);
-            Assert.Equal(200, result2.ReturnValue);
+            var result = CSharpScript.RunAsync("int X = 100;");
+            var result2 = CSharpScript.RunAsync("X + X", result);
+            Assert.Equal(200, result2.ReturnValue.Result);
         }
 
         [Fact]
@@ -128,16 +161,17 @@ namespace Microsoft.CodeAnalysis.Scripting.CSharp.Test
             };
 
             object input = null;
-            ScriptState result = null;
+            ScriptState<object> result = null;
             foreach (var submission in submissions)
             {
-                result = CSharpScript.Run(submission, input);
+                result = CSharpScript.RunAsync(submission, input);
                 input = result;
             }
 
-            Assert.Equal(10100, result.ReturnValue);
+            Assert.Equal(10100, result.ReturnValue.Result);
         }
 
+#if TODO // https://github.com/dotnet/roslyn/issues/3720
         [Fact]
         public void TestCreateMethodDelegate()
         {
@@ -147,11 +181,12 @@ namespace Microsoft.CodeAnalysis.Scripting.CSharp.Test
             var result = fn(5);
             Assert.Equal(25, result);
         }
+#endif
 
         [Fact]
         public void TestGetScriptVariableAfterRunningScript()
         {
-            var result = CSharpScript.Run("int x = 100;");
+            var result = CSharpScript.RunAsync("int x = 100;");
             var globals = result.Variables.Names.ToList();
             Assert.Equal(1, globals.Count);
             Assert.Equal(true, globals.Contains("x"));
@@ -163,17 +198,17 @@ namespace Microsoft.CodeAnalysis.Scripting.CSharp.Test
         public void TestBranchingSubscripts()
         {
             // run script to create declaration of M
-            var result1 = CSharpScript.Run("int M(int x) { return x + x; }");
+            var result1 = CSharpScript.RunAsync("int M(int x) { return x + x; }");
 
             // run second script starting from first script's end state
             // this script's new declaration should hide the old declaration
-            var result2 = CSharpScript.Run("int M(int x) { return x * x; } M(5)", result1);
-            Assert.Equal(25, result2.ReturnValue);
+            var result2 = CSharpScript.RunAsync("int M(int x) { return x * x; } M(5)", result1);
+            Assert.Equal(25, result2.ReturnValue.Result);
 
             // run third script also starting from first script's end state
             // it should not see any declarations made by the second script.
-            var result3 = CSharpScript.Run("M(5)", result1);
-            Assert.Equal(10, result3.ReturnValue);
+            var result3 = CSharpScript.RunAsync("M(5)", result1);
+            Assert.Equal(10, result3.ReturnValue.Result);
         }
     }
 }

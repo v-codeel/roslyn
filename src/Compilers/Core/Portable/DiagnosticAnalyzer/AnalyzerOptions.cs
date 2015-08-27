@@ -15,7 +15,7 @@ namespace Microsoft.CodeAnalysis.Diagnostics
         /// <summary>
         /// A set of additional non-code text files that can be used by analyzers.
         /// </summary>
-        public ImmutableArray<AdditionalText> AdditionalFiles { get; internal set; }
+        public ImmutableArray<AdditionalText> AdditionalFiles { get; }
 
         /// <summary>
         /// Creates analyzer options to be passed to <see cref="DiagnosticAnalyzer"/>.
@@ -47,9 +47,9 @@ namespace Microsoft.CodeAnalysis.Diagnostics
             }
 
             var other = obj as AnalyzerOptions;
-            return other != null && 
+            return other != null &&
                 (this.AdditionalFiles == other.AdditionalFiles ||
-                this.AdditionalFiles.SequenceEqual(other.AdditionalFiles, (a, b) => ReferenceEquals(a, b)));
+                this.AdditionalFiles.SequenceEqual(other.AdditionalFiles, ReferenceEquals));
         }
 
         public override int GetHashCode()

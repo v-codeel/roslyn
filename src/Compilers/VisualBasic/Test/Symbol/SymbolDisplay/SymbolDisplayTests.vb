@@ -920,7 +920,7 @@ end class
 
             Dim format As SymbolDisplayFormat = Nothing
 
-            ' default is show asterics for VB. IF this is changed, this test will fail
+            ' default is show asterisks for VB. If this is changed, this test will fail
             ' in this case, please rewrite the test TestNoArrayAsterisks to TestArrayAsterisks
             TestSymbolDescription(
                 text,
@@ -1208,7 +1208,7 @@ end namespace
 
             findSymbol = Function(globalns) globalns
 
-                             ' never escape "the" Global namespace, but escape other ns named "global" always
+            ' never escape "the" Global namespace, but escape other ns named "global" always
             TestSymbolDescription(
                 text,
                 findSymbol,
@@ -1221,7 +1221,7 @@ end namespace
 
             findSymbol = Function(globalns) globalns.LookupNestedNamespace({"Global"}).LookupNestedNamespace({"Integer"})
 
-                             ' never escape "the" Global namespace, but escape other ns named "global" always
+            ' never escape "the" Global namespace, but escape other ns named "global" always
             TestSymbolDescription(
                 text,
                 findSymbol,
@@ -1313,7 +1313,7 @@ End Class
             Dim text =
 <compilation>
     <file name="a.vb">
-Interfact I
+Interface I
     sub M()
     End Sub
 end Interface
@@ -1344,7 +1344,7 @@ end class
             Dim text =
 <compilation>
     <file name="a.vb">
-Interfact I
+Interface I
     sub M()
     End Sub
 end Interface
@@ -1376,7 +1376,7 @@ end class
             Dim text =
 <compilation>
     <file name="a.vb">
-Interfact I
+Interface I
     sub M()
     End Sub
 end Interface
@@ -4548,7 +4548,7 @@ class Outer
         End Sub
 
         <Fact>
-        Sub FormatPrimitive()
+        Public Sub FormatPrimitive()
             Assert.Equal("Nothing", SymbolDisplay.FormatPrimitive(Nothing, quoteStrings:=True, useHexadecimalNumbers:=True))
 
             Assert.Equal("3", SymbolDisplay.FormatPrimitive(OutputKind.NetModule, quoteStrings:=False, useHexadecimalNumbers:=False))

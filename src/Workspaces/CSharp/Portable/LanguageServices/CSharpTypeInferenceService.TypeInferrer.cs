@@ -14,96 +14,44 @@ namespace Microsoft.CodeAnalysis.CSharp
 {
     internal partial class CSharpTypeInferenceService
     {
-        private class TypeInferrer
+        private class TypeInferrer : AbstractTypeInferrer
         {
-            private readonly SemanticModel _semanticModel;
-            private readonly CancellationToken _cancellationToken;
-            private readonly HashSet<ExpressionSyntax> _seenExpressionInferType = new HashSet<ExpressionSyntax>();
-            private readonly HashSet<ExpressionSyntax> _seenExpressionGetType = new HashSet<ExpressionSyntax>();
-
             internal TypeInferrer(
                 SemanticModel semanticModel,
-                CancellationToken cancellationToken)
+                CancellationToken cancellationToken) : base(semanticModel, cancellationToken)
             {
-                _semanticModel = semanticModel;
-                _cancellationToken = cancellationToken;
             }
-
-            private Compilation Compilation
+            
+            protected override bool IsUnusableType(ITypeSymbol otherSideType)
             {
-                get
-                {
-                    return _semanticModel.Compilation;
-                }
-            }
-
-            public IEnumerable<ITypeSymbol> InferTypes(ExpressionSyntax expression)
-            {
-                if (expression != null)
-                {
-                    if (_seenExpressionInferType.Add(expression))
-                    {
-                        var types = InferTypesWorker(expression);
-                        if (types.Any())
-                        {
-                            return types.Where(t => !IsUnusableType(t)).Distinct();
-                        }
-                    }
-                }
-
-                return SpecializedCollections.EmptyEnumerable<ITypeSymbol>();
-            }
-
-            public IEnumerable<ITypeSymbol> InferTypes(int position)
-            {
-                var types = InferTypesWorker(position);
-                if (types.Any())
-                {
-                    return types.Where(t => !IsUnusableType(t)).Distinct();
-                }
-
-                return SpecializedCollections.EmptyEnumerable<ITypeSymbol>();
-            }
-
-            private static bool IsUnusableType(ITypeSymbol otherSideType)
-            {
-                if (otherSideType == null)
-                {
-                    return true;
-                }
-
                 return otherSideType.IsErrorType() &&
                     (otherSideType.Name == string.Empty || otherSideType.Name == "var");
             }
 
-            // TODO: Add support for Expression<T>
-            private IEnumerable<ITypeSymbol> GetTypes(ExpressionSyntax expression)
+            protected override IEnumerable<ITypeSymbol> GetTypes_DoNotCallDirectly(ExpressionSyntax expression, bool objectAsDefault)
             {
-                if (_seenExpressionGetType.Add(expression))
-                {
-                    IEnumerable<ITypeSymbol> types;
+                IEnumerable<ITypeSymbol> types;
 
-                    // BUG: (vladres) Are following expressions parenthesized correctly?
-                    // BUG:
-                    // BUG: (davip) It is parenthesized incorrectly. This problem was introduced in Changeset 822325 when 
-                    // BUG: this method was changed from returning a single ITypeSymbol to returning an IEnumerable<ITypeSymbol> 
-                    // BUG: to better deal with overloads. The old version was:
-                    // BUG: 
-                    // BUG:     if (!IsUnusableType(type = GetTypeSimple(expression)) ||
-                    // BUG:         !IsUnusableType(type = GetTypeComplex(expression)))
-                    // BUG:           { return type; }
-                    // BUG: 
-                    // BUG: The intent is to only use *usable* types, whether simple or complex. I have confirmed this intent with Ravi, who made the change. 
-                    // BUG: 
-                    // BUG: Note that the current implementation of GetTypesComplex and GetTypesSimple already ensure the returned value 
-                    // BUG: is a usable type, so there should not (currently) be any observable effect of this logic error.
-                    // BUG:
-                    // BUG: (vladres) Please remove this comment once the bug is fixed.
-                    if ((types = GetTypesSimple(expression).Where(t => !IsUnusableType(t))).Any() ||
-                        (types = GetTypesComplex(expression)).Where(t => !IsUnusableType(t)).Any())
-                    {
-                        return types;
-                    }
+                // BUG: (vladres) Are following expressions parenthesized correctly?
+                // BUG:
+                // BUG: (davip) It is parenthesized incorrectly. This problem was introduced in Changeset 822325 when 
+                // BUG: this method was changed from returning a single ITypeSymbol to returning an IEnumerable<ITypeSymbol> 
+                // BUG: to better deal with overloads. The old version was:
+                // BUG: 
+                // BUG:     if (!IsUnusableType(type = GetTypeSimple(expression)) ||
+                // BUG:         !IsUnusableType(type = GetTypeComplex(expression)))
+                // BUG:           { return type; }
+                // BUG: 
+                // BUG: The intent is to only use *usable* types, whether simple or complex. I have confirmed this intent with Ravi, who made the change. 
+                // BUG: 
+                // BUG: Note that the current implementation of GetTypesComplex and GetTypesSimple already ensure the returned value 
+                // BUG: is a usable type, so there should not (currently) be any observable effect of this logic error.
+                // BUG:
+                // BUG: (vladres) Please remove this comment once the bug is fixed.
+                if ((types = GetTypesSimple(expression).Where(IsUsableTypeFunc)).Any() ||
+                    (types = GetTypesComplex(expression)).Where(IsUsableTypeFunc).Any())
+                {
+                    return types;
                 }
 
                 return SpecializedCollections.EmptyEnumerable<ITypeSymbol>();
@@ -140,10 +88,10 @@ namespace Microsoft.CodeAnalysis.CSharp
                 ExpressionSyntax left, right;
                 if (DecomposeBinaryOrAssignmentExpression(expression, out operatorToken, out left, out right))
                 {
-                    var types = InferTypeInBinaryOrAssignmentExpression(expression, operatorToken, left, right, left).Where(t => !IsUnusableType(t));
+                    var types = InferTypeInBinaryOrAssignmentExpression(expression, operatorToken, left, right, left).Where(IsUsableTypeFunc);
                     if (types.IsEmpty())
                     {
-                        types = InferTypeInBinaryOrAssignmentExpression(expression, operatorToken, left, right, right).Where(t => !IsUnusableType(t));
+                        types = InferTypeInBinaryOrAssignmentExpression(expression, operatorToken, left, right, right).Where(IsUsableTypeFunc);
                     }
 
                     return types;
@@ -157,8 +105,8 @@ namespace Microsoft.CodeAnalysis.CSharp
             {
                 if (expression != null)
                 {
-                    var typeInfo = _semanticModel.GetTypeInfo(expression, _cancellationToken);
-                    var symbolInfo = _semanticModel.GetSymbolInfo(expression, _cancellationToken);
+                    var typeInfo = SemanticModel.GetTypeInfo(expression, CancellationToken);
+                    var symbolInfo = SemanticModel.GetSymbolInfo(expression, CancellationToken);
 
                     if (symbolInfo.CandidateReason != CandidateReason.WrongArity)
                     {
@@ -173,7 +121,7 @@ namespace Microsoft.CodeAnalysis.CSharp
                             type = method.ConvertToType(this.Compilation);
                         }
 
-                        if (!IsUnusableType(type))
+                        if (IsUsableTypeFunc(type))
                         {
                             return SpecializedCollections.SingletonEnumerable(type);
                         }
@@ -183,30 +131,28 @@ namespace Microsoft.CodeAnalysis.CSharp
                 return SpecializedCollections.EmptyEnumerable<ITypeSymbol>();
             }
 
-            private IEnumerable<ITypeSymbol> InferTypesWorker(ExpressionSyntax expression)
+            protected override IEnumerable<ITypeSymbol> InferTypesWorker_DoNotCallDirectly(ExpressionSyntax expression)
             {
                 expression = expression.WalkUpParentheses();
                 var parent = expression.Parent;
 
-                if (parent is ConditionalAccessExpressionSyntax)
-                {
-                    parent = parent.Parent;
-                }
-
                 return parent.TypeSwitch(
                     (AnonymousObjectMemberDeclaratorSyntax memberDeclarator) => InferTypeInMemberDeclarator(memberDeclarator),
                     (ArgumentSyntax argument) => InferTypeInArgument(argument),
-                    (CheckedExpressionSyntax checkedExpression) => InferTypes(checkedExpression),
                     (ArrayCreationExpressionSyntax arrayCreationExpression) => InferTypeInArrayCreationExpression(arrayCreationExpression),
                     (ArrayRankSpecifierSyntax arrayRankSpecifier) => InferTypeInArrayRankSpecifier(arrayRankSpecifier),
                     (ArrayTypeSyntax arrayType) => InferTypeInArrayType(arrayType),
+                    (ArrowExpressionClauseSyntax arrowClause) => InferTypeInArrowExpressionClause(arrowClause),
+                    (AssignmentExpressionSyntax assignmentExpression) => InferTypeInBinaryOrAssignmentExpression(assignmentExpression, assignmentExpression.OperatorToken, assignmentExpression.Left, assignmentExpression.Right, expression),
                     (AttributeArgumentSyntax attribute) => InferTypeInAttributeArgument(attribute),
                     (AttributeSyntax attribute) => InferTypeInAttribute(attribute),
+                    (AwaitExpressionSyntax awaitExpression) => InferTypeInAwaitExpression(awaitExpression),
                     (BinaryExpressionSyntax binaryExpression) => InferTypeInBinaryOrAssignmentExpression(binaryExpression, binaryExpression.OperatorToken, binaryExpression.Left, binaryExpression.Right, expression),
-                    (AssignmentExpressionSyntax assignmentExpression) => InferTypeInBinaryOrAssignmentExpression(assignmentExpression, assignmentExpression.OperatorToken, assignmentExpression.Left, assignmentExpression.Right, expression),
                     (CastExpressionSyntax castExpression) => InferTypeInCastExpression(castExpression, expression),
                     (CatchDeclarationSyntax catchDeclaration) => InferTypeInCatchDeclaration(catchDeclaration),
                     (CatchFilterClauseSyntax catchFilterClause) => InferTypeInCatchFilterClause(catchFilterClause),
+                    (CheckedExpressionSyntax checkedExpression) => InferTypes(checkedExpression),
+                    (ConditionalAccessExpressionSyntax conditionalAccessExpression) => InferTypeInConditionalAccessExpression(conditionalAccessExpression),
                     (ConditionalExpressionSyntax conditionalExpression) => InferTypeInConditionalExpression(conditionalExpression, expression),
                     (DoStatementSyntax doStatement) => InferTypeInDoStatement(doStatement),
                     (EqualsValueClauseSyntax equalsValue) => InferTypeInEqualsValueClause(equalsValue),
@@ -216,12 +162,11 @@ namespace Microsoft.CodeAnalysis.CSharp
                     (IfStatementSyntax ifStatement) => InferTypeInIfStatement(ifStatement),
                     (InitializerExpressionSyntax initializerExpression) => InferTypeInInitializerExpression(initializerExpression, expression),
                     (LockStatementSyntax lockStatement) => InferTypeInLockStatement(lockStatement),
+                    (MemberAccessExpressionSyntax memberAccessExpression) => InferTypeInMemberAccessExpression(memberAccessExpression),
                     (NameEqualsSyntax nameEquals) => InferTypeInNameEquals(nameEquals),
                     (ParenthesizedLambdaExpressionSyntax parenthesizedLambdaExpression) => InferTypeInParenthesizedLambdaExpression(parenthesizedLambdaExpression),
                     (PostfixUnaryExpressionSyntax postfixUnary) => InferTypeInPostfixUnaryExpression(postfixUnary),
                     (PrefixUnaryExpressionSyntax prefixUnary) => InferTypeInPrefixUnaryExpression(prefixUnary),
-                    (AwaitExpressionSyntax awaitExpression) => InferTypeInAwaitExpression(awaitExpression),
-                    (ArrowExpressionClauseSyntax arrowClause) => InferTypeInArrowExpressionClause(arrowClause),
                     (ReturnStatementSyntax returnStatement) => InferTypeForReturnStatement(returnStatement),
                     (SimpleLambdaExpressionSyntax simpleLambdaExpression) => InferTypeInSimpleLambdaExpression(simpleLambdaExpression),
                     (SwitchLabelSyntax switchLabel) => InferTypeInSwitchLabel(switchLabel),
@@ -248,31 +193,34 @@ namespace Microsoft.CodeAnalysis.CSharp
                 return SpecializedCollections.EmptyEnumerable<ITypeSymbol>();
             }
 
-            private IEnumerable<ITypeSymbol> InferTypesWorker(int position)
+            protected override IEnumerable<ITypeSymbol> InferTypesWorker_DoNotCallDirectly(int position)
             {
-                var syntaxTree = (SyntaxTree)_semanticModel.SyntaxTree;
-                var token = syntaxTree.FindTokenOnLeftOfPosition(position, _cancellationToken);
+                var syntaxTree = SemanticModel.SyntaxTree;
+                var token = syntaxTree.FindTokenOnLeftOfPosition(position, CancellationToken);
                 token = token.GetPreviousTokenIfTouchingWord(position);
 
                 var parent = token.Parent;
+
                 return parent.TypeSwitch(
                     (AnonymousObjectMemberDeclaratorSyntax memberDeclarator) => InferTypeInMemberDeclarator(memberDeclarator, token),
-                    (ArgumentSyntax argument) => InferTypeInArgument(argument, token),
                     (ArgumentListSyntax argument) => InferTypeInArgumentList(argument, token),
-                    (AttributeArgumentSyntax argument) => InferTypeInAttributeArgument(argument, token),
-                    (AttributeArgumentListSyntax attributeArgumentList) => InferTypeInAttributeArgumentList(attributeArgumentList, token),
-                    (CheckedExpressionSyntax checkedExpression) => InferTypes(checkedExpression),
+                    (ArgumentSyntax argument) => InferTypeInArgument(argument, token),
                     (ArrayCreationExpressionSyntax arrayCreationExpression) => InferTypeInArrayCreationExpression(arrayCreationExpression, token),
                     (ArrayRankSpecifierSyntax arrayRankSpecifier) => InferTypeInArrayRankSpecifier(arrayRankSpecifier, token),
                     (ArrayTypeSyntax arrayType) => InferTypeInArrayType(arrayType, token),
+                    (ArrowExpressionClauseSyntax arrowClause) => InferTypeInArrowExpressionClause(arrowClause),
+                    (AssignmentExpressionSyntax assignmentExpression) => InferTypeInBinaryOrAssignmentExpression(assignmentExpression, assignmentExpression.OperatorToken, assignmentExpression.Left, assignmentExpression.Right, previousToken: token),
+                    (AttributeArgumentListSyntax attributeArgumentList) => InferTypeInAttributeArgumentList(attributeArgumentList, token),
+                    (AttributeArgumentSyntax argument) => InferTypeInAttributeArgument(argument, token),
                     (AttributeListSyntax attributeDeclaration) => InferTypeInAttributeDeclaration(attributeDeclaration, token),
                     (AttributeTargetSpecifierSyntax attributeTargetSpecifier) => InferTypeInAttributeTargetSpecifier(attributeTargetSpecifier, token),
+                    (AwaitExpressionSyntax awaitExpression) => InferTypeInAwaitExpression(awaitExpression, token),
                     (BinaryExpressionSyntax binaryExpression) => InferTypeInBinaryOrAssignmentExpression(binaryExpression, binaryExpression.OperatorToken, binaryExpression.Left, binaryExpression.Right, previousToken: token),
-                    (AssignmentExpressionSyntax assignmentExpression) => InferTypeInBinaryOrAssignmentExpression(assignmentExpression, assignmentExpression.OperatorToken, assignmentExpression.Left, assignmentExpression.Right, previousToken: token),
                     (BracketedArgumentListSyntax bracketedArgumentList) => InferTypeInBracketedArgumentList(bracketedArgumentList, token),
                     (CastExpressionSyntax castExpression) => InferTypeInCastExpression(castExpression, previousToken: token),
                     (CatchDeclarationSyntax catchDeclaration) => InferTypeInCatchDeclaration(catchDeclaration, token),
                     (CatchFilterClauseSyntax catchFilterClause) => InferTypeInCatchFilterClause(catchFilterClause, token),
+                    (CheckedExpressionSyntax checkedExpression) => InferTypes(checkedExpression),
                     (ConditionalExpressionSyntax conditionalExpression) => InferTypeInConditionalExpression(conditionalExpression, previousToken: token),
                     (DoStatementSyntax doStatement) => InferTypeInDoStatement(doStatement, token),
                     (EqualsValueClauseSyntax equalsValue) => InferTypeInEqualsValueClause(equalsValue, token),
@@ -284,10 +232,10 @@ namespace Microsoft.CodeAnalysis.CSharp
                     (LockStatementSyntax lockStatement) => InferTypeInLockStatement(lockStatement, token),
                     (NameColonSyntax nameColon) => InferTypeInNameColon(nameColon, token),
                     (NameEqualsSyntax nameEquals) => InferTypeInNameEquals(nameEquals, token),
+                    (ObjectCreationExpressionSyntax objectCreation) => InferTypeInObjectCreationExpression(objectCreation, token),
                     (ParenthesizedLambdaExpressionSyntax parenthesizedLambdaExpression) => InferTypeInParenthesizedLambdaExpression(parenthesizedLambdaExpression, token),
                     (PostfixUnaryExpressionSyntax postfixUnary) => InferTypeInPostfixUnaryExpression(postfixUnary, token),
                     (PrefixUnaryExpressionSyntax prefixUnary) => InferTypeInPrefixUnaryExpression(prefixUnary, token),
-                    (AwaitExpressionSyntax awaitExpression) => InferTypeInAwaitExpression(awaitExpression, token),
                     (ReturnStatementSyntax returnStatement) => InferTypeForReturnStatement(returnStatement, token),
                     (SimpleLambdaExpressionSyntax simpleLambdaExpression) => InferTypeInSimpleLambdaExpression(simpleLambdaExpression, token),
                     (SwitchLabelSyntax switchLabel) => InferTypeInSwitchLabel(switchLabel, token),
@@ -399,14 +347,45 @@ namespace Microsoft.CodeAnalysis.CSharp
 
             private IEnumerable<ITypeSymbol> InferTypeInConstructorInitializer(ConstructorInitializerSyntax initializer, int index, ArgumentSyntax argument = null)
             {
-                var info = _semanticModel.GetSymbolInfo(initializer, _cancellationToken);
+                var info = SemanticModel.GetSymbolInfo(initializer, CancellationToken);
                 var methods = info.GetBestOrAllSymbols().OfType<IMethodSymbol>();
                 return InferTypeInArgument(index, methods, argument);
             }
 
+            private IEnumerable<ITypeSymbol> InferTypeInObjectCreationExpression(ObjectCreationExpressionSyntax expression, SyntaxToken previousToken)
+            {
+                // A couple of broken code scenarios where the new keyword in objectcreationexpression
+                // appears to be a part of a subsequent assignment.  For example:
+                //
+                //       new Form
+                //       {
+                //           Location = new $$
+                //           StartPosition = FormStartPosition.CenterParent
+                //       };
+                //  The 'new' token is part of an assignment of the assignment to StartPosition,
+                //  but the user is really trying to assign to Location.
+                //
+                // Similarly:
+                //      bool b;
+                //      Task task = new $$
+                //      b = false;
+                // The 'new' token is part of an assignment of the assignment to b, but the user 
+                // is really trying to assign to task.
+                //
+                // In both these cases, we simply back up before the 'new' if it follows an equals
+                // and start the inference again.
+                if (previousToken.Kind() == SyntaxKind.NewKeyword &&
+                    previousToken.GetPreviousToken().Kind() == SyntaxKind.EqualsToken)
+                {
+                    return InferTypes(previousToken.SpanStart);
+                }
+
+                return InferTypes(expression);
+            }
+
             private IEnumerable<ITypeSymbol> InferTypeInObjectCreationExpression(ObjectCreationExpressionSyntax creation, int index, ArgumentSyntax argumentOpt = null)
             {
-                var info = _semanticModel.GetSymbolInfo(creation.Type, _cancellationToken);
+                var info = SemanticModel.GetSymbolInfo(creation.Type, CancellationToken);
                 var type = info.Symbol as INamedTypeSymbol;
 
                 if (type == null)
@@ -434,7 +413,7 @@ namespace Microsoft.CodeAnalysis.CSharp
                 // being called with argument at this position.  Note: if they're calling an
                 // extension method then it will need one more argument in order for us to
                 // call it.
-                var info = _semanticModel.GetSymbolInfo(invocation, _cancellationToken);
+                var info = SemanticModel.GetSymbolInfo(invocation, CancellationToken);
                 IEnumerable<IMethodSymbol> methods = null;
 
                 // Overload resolution (see DevDiv 611477) in certain extension method cases
@@ -442,7 +421,7 @@ namespace Microsoft.CodeAnalysis.CSharp
                 // method group info, which is what signature help already does.
                 if (info.CandidateReason == CandidateReason.None)
                 {
-                    methods = ((SemanticModel)_semanticModel).GetMemberGroup(invocation.Expression, _cancellationToken)
+                    methods = SemanticModel.GetMemberGroup(invocation.Expression, CancellationToken)
                                                             .OfType<IMethodSymbol>();
                 }
                 else
@@ -505,7 +484,7 @@ namespace Microsoft.CodeAnalysis.CSharp
 
             private IEnumerable<ITypeSymbol> InferTypeInAttribute(AttributeSyntax attribute, int index, AttributeArgumentSyntax argumentOpt = null)
             {
-                var info = _semanticModel.GetSymbolInfo(attribute, _cancellationToken);
+                var info = SemanticModel.GetSymbolInfo(attribute, CancellationToken);
                 var methods = info.GetBestOrAllSymbols().OfType<IMethodSymbol>();
                 return InferTypeInAttributeArgument(index, methods, argumentOpt);
             }
@@ -513,7 +492,7 @@ namespace Microsoft.CodeAnalysis.CSharp
             private IEnumerable<ITypeSymbol> InferTypeInElementAccessExpression(
                 ElementAccessExpressionSyntax elementAccess, int index, ArgumentSyntax argumentOpt = null)
             {
-                var info = _semanticModel.GetTypeInfo(elementAccess.Expression, _cancellationToken);
+                var info = SemanticModel.GetTypeInfo(elementAccess.Expression, CancellationToken);
                 var type = info.Type as INamedTypeSymbol;
                 if (type != null)
                 {
@@ -543,8 +522,131 @@ namespace Microsoft.CodeAnalysis.CSharp
 
             private IEnumerable<ITypeSymbol> InferTypeInArgument(int index, IEnumerable<IMethodSymbol> methods, ArgumentSyntax argumentOpt)
             {
+                if (argumentOpt != null)
+                {
+                    var invocation = argumentOpt?.Parent?.Parent as InvocationExpressionSyntax;
+                    if (invocation != null)
+                    {
+                        // We're trying to figure out the signature of a method we're an argument to. 
+                        // That method may be generic, and we might end up using one of its generic
+                        // type parameters in the type we infer.  First, let's see if we can instantiate
+                        // the methods so that the type can be inferred better.
+                        var invocationTypes = this.InferTypes(invocation).WhereNotNull().ToList();
+                        var instantiatedMethods = methods.Select(m => Instantiate(m, invocationTypes)).ToList();
+
+                        // Now that we've instantiated the methods, filter down to the ones that 
+                        // will actually return a viable type given where this invocation expression
+                        // is.
+                        var filteredMethods = instantiatedMethods.Where(m =>
+                            invocationTypes.Any(t => Compilation.ClassifyConversion(m.ReturnType, t).IsImplicit)).ToList();
+
+                        // If we filtered down to nothing, then just fall back to the instantiated list.
+                        // this is a best effort after all.
+                        methods = filteredMethods.Any() ? filteredMethods : instantiatedMethods;
+                    }
+                }
+
                 return InferTypeInArgument(index, methods.Select(m => m.Parameters), argumentOpt);
             }
+
+            private IMethodSymbol Instantiate(IMethodSymbol method, IList<ITypeSymbol> invocationTypes)
+            {
+                // No need to instantiate if this isn't a generic method.
+                if (method.TypeArguments.Length == 0)
+                {
+                    return method;
+                }
+
+                // Can't infer the type parameters if this method doesn't have a return type.
+                // Note: this is because this code path is specifically flowing type information
+                // backward through the return type.  Type information is already flowed forward
+                // through arguments by the compiler when we get the initial set of methods.
+                if (method.ReturnsVoid)
+                {
+                    return method;
+                }
+
+                // If the method has already been constructed poorly (i.e. with error types for type 
+                // arguments), then unconstruct it.
+                if (method.TypeArguments.All(t => t.Kind == SymbolKind.ErrorType))
+                {
+                    method = method.ConstructedFrom;
+                }
+
+                IDictionary<ITypeParameterSymbol, ITypeSymbol> bestMap = null;
+                foreach (var type in invocationTypes)
+                {
+                    // Ok.  We inferred a type for this location, and we have the return type of this 
+                    // method.  See if we can then assign any values for type parameters.
+                    var map = DetermineTypeParameterMapping(type, method.ReturnType);
+                    if (map.Count > 0 && (bestMap == null || map.Count > bestMap.Count))
+                    {
+                        bestMap = map;
+                    }
+                }
+
+                if (bestMap == null)
+                {
+                    return method;
+                }
+
+                var typeArguments = method.ConstructedFrom.TypeParameters.Select(tp => bestMap.GetValueOrDefault(tp) ?? tp).ToArray();
+                return method.Construct(typeArguments);
+            }
+
+            private Dictionary<ITypeParameterSymbol, ITypeSymbol> DetermineTypeParameterMapping(ITypeSymbol inferredType, ITypeSymbol returnType)
+            {
+                var result = new Dictionary<ITypeParameterSymbol, ITypeSymbol>();
+                DetermineTypeParameterMapping(inferredType, returnType, result);
+                return result;
+            }
+
+            private void DetermineTypeParameterMapping(ITypeSymbol inferredType, ITypeSymbol returnType, Dictionary<ITypeParameterSymbol, ITypeSymbol> result)
+            {
+                if (inferredType == null || returnType == null)
+                {
+                    return;
+                }
+
+                if (returnType.Kind == SymbolKind.TypeParameter)
+                {
+                    if (inferredType.Kind != SymbolKind.TypeParameter)
+                    {
+                        var returnTypeParameter = (ITypeParameterSymbol)returnType;
+                        if (!result.ContainsKey(returnTypeParameter))
+                        {
+                            result[returnTypeParameter] = inferredType;
+                        }
+                        return;
+                    }
+                }
+
+                if (inferredType.Kind != returnType.Kind)
+                {
+                    return;
+                }
+
+                switch (inferredType.Kind)
+                {
+                    case SymbolKind.ArrayType:
+                        DetermineTypeParameterMapping(((IArrayTypeSymbol)inferredType).ElementType, ((IArrayTypeSymbol)returnType).ElementType, result);
+                        return;
+                    case SymbolKind.PointerType:
+                        DetermineTypeParameterMapping(((IPointerTypeSymbol)inferredType).PointedAtType, ((IPointerTypeSymbol)returnType).PointedAtType, result);
+                        return;
+                    case SymbolKind.NamedType:
+                        var inferredNamedType = (INamedTypeSymbol)inferredType;
+                        var returnNamedType = (INamedTypeSymbol)returnType;
+                        if (inferredNamedType.TypeArguments.Length == returnNamedType.TypeArguments.Length)
+                        {
+                            for (int i = 0, n = inferredNamedType.TypeArguments.Length; i < n; i++)
+                            {
+                                DetermineTypeParameterMapping(inferredNamedType.TypeArguments[i], returnNamedType.TypeArguments[i], result);
+                            }
+                        }
+                        return;
+                }
+        }
 
             private IEnumerable<ITypeSymbol> InferTypeInAttributeArgument(
                 int index,
@@ -918,6 +1020,11 @@ namespace Microsoft.CodeAnalysis.CSharp
                                      : x); // Foo() ?? ""
             }
 
+            private IEnumerable<ITypeSymbol> InferTypeInConditionalAccessExpression(ConditionalAccessExpressionSyntax expression)
+            {
+                return InferTypes(expression);
+            }
+
             private IEnumerable<ITypeSymbol> InferTypeInConditionalExpression(ConditionalExpressionSyntax conditional, ExpressionSyntax expressionOpt = null, SyntaxToken? previousToken = null)
             {
                 if (expressionOpt != null && conditional.Condition == expressionOpt)
@@ -979,7 +1086,7 @@ namespace Microsoft.CodeAnalysis.CSharp
 
                 if (equalsValue.IsParentKind(SyntaxKind.Parameter))
                 {
-                    var parameter = _semanticModel.GetDeclaredSymbol(equalsValue.Parent, _cancellationToken) as IParameterSymbol;
+                    var parameter = SemanticModel.GetDeclaredSymbol(equalsValue.Parent, CancellationToken) as IParameterSymbol;
                     if (parameter != null)
                     {
                         return SpecializedCollections.SingletonEnumerable(parameter.Type);
@@ -993,7 +1100,7 @@ namespace Microsoft.CodeAnalysis.CSharp
             {
                 Contract.Assert(propertyDeclaration?.Type != null, "Property type should never be null");
 
-                var typeInfo = _semanticModel.GetTypeInfo(propertyDeclaration.Type);
+                var typeInfo = SemanticModel.GetTypeInfo(propertyDeclaration.Type);
                 return typeInfo.Type != null
                     ? SpecializedCollections.SingletonEnumerable(typeInfo.Type)
                     : SpecializedCollections.EmptyEnumerable<ITypeSymbol>();
@@ -1001,7 +1108,7 @@ namespace Microsoft.CodeAnalysis.CSharp
 
             private IEnumerable<ITypeSymbol> InferTypeInBaseMethodDeclaration(BaseMethodDeclarationSyntax declaration)
             {
-                var methodSymbol = _semanticModel.GetDeclaredSymbol(declaration);
+                var methodSymbol = SemanticModel.GetDeclaredSymbol(declaration);
                 return methodSymbol?.ReturnType != null
                     ? SpecializedCollections.SingletonEnumerable(methodSymbol.ReturnType)
                     : SpecializedCollections.EmptyEnumerable<ITypeSymbol>();
@@ -1077,25 +1184,48 @@ namespace Microsoft.CodeAnalysis.CSharp
                 ExpressionSyntax expressionOpt = null,
                 SyntaxToken? previousToken = null)
             {
-                if (initializerExpression.IsParentKind(SyntaxKind.ImplicitArrayCreationExpression))
+                if (initializerExpression.IsKind(SyntaxKind.ComplexElementInitializerExpression))
                 {
-                    // First, try to infer the type that the array should be.  If we can infer an
-                    // appropriate array type, then use the element type of the array.  Otherwise,
-                    // look at the siblings of this expression and use their type instead.
+                    // new Dictionary<K,V> { { x, ... } }
+                    // new C { Prop = { { x, ... } } }
+                    var parameterIndex = previousToken.HasValue
+                            ? initializerExpression.Expressions.GetSeparators().ToList().IndexOf(previousToken.Value) + 1
+                            : initializerExpression.Expressions.IndexOf(expressionOpt);
 
-                    var arrayTypes = this.InferTypes((ExpressionSyntax)initializerExpression.Parent);
-                    var elementTypes = arrayTypes.OfType<IArrayTypeSymbol>().Select(a => a.ElementType).Where(e => !IsUnusableType(e));
+                    var addMethodSymbols = SemanticModel.GetCollectionInitializerSymbolInfo(initializerExpression).GetAllSymbols();
+                    var addMethodParameterTypes = addMethodSymbols
+                        .Cast<IMethodSymbol>()
+                        .Where(a => a.Parameters.Length == initializerExpression.Expressions.Count)
+                        .Select(a => a.Parameters.ElementAtOrDefault(parameterIndex)?.Type)
+                        .WhereNotNull();
 
-                    if (elementTypes.Any())
+                    if (addMethodParameterTypes.Any())
                     {
-                        return elementTypes;
+                        return addMethodParameterTypes;
                     }
-
-                    // { foo(), |
-                    if (previousToken.HasValue && previousToken.Value.Kind() == SyntaxKind.CommaToken)
+                }
+                else if (initializerExpression.IsKind(SyntaxKind.CollectionInitializerExpression))
+                {
+                    if (expressionOpt != null)
                     {
-                        var sibling = initializerExpression.Expressions.FirstOrDefault(e => e.SpanStart < previousToken.Value.SpanStart);
-                        if (sibling != null)
+                        // new List<T> { x, ... }
+                        // new C { Prop = { x, ... } }
+                        var addMethodSymbols = SemanticModel.GetCollectionInitializerSymbolInfo(expressionOpt).GetAllSymbols();
+                        var addMethodParameterTypes = addMethodSymbols
+                            .Cast<IMethodSymbol>()
+                            .Where(a => a.Parameters.Length == 1)
+                            .Select(a => a.Parameters[0].Type).WhereNotNull();
+                        if (addMethodParameterTypes.Any())
+                        {
+                            return addMethodParameterTypes;
+                        }
+                    }
+                    else
+                    {
+                        // new List<T> { x,
+                        // new C { Prop = { x,
+
+                        foreach (var sibling in initializerExpression.Expressions.Where(e => e.Kind() != SyntaxKind.ComplexElementInitializerExpression))
                         {
                             var types = GetTypes(sibling);
                             if (types.Any())
@@ -1103,6 +1233,23 @@ namespace Microsoft.CodeAnalysis.CSharp
                                 return types;
                             }
                         }
+                    }
+                }
+
+                if (initializerExpression.IsParentKind(SyntaxKind.ImplicitArrayCreationExpression))
+                {
+                    // new[] { 1, x }
+
+                    // First, try to infer the type that the array should be.  If we can infer an
+                    // appropriate array type, then use the element type of the array.  Otherwise,
+                    // look at the siblings of this expression and use their type instead.
+
+                    var arrayTypes = this.InferTypes((ExpressionSyntax)initializerExpression.Parent);
+                    var elementTypes = arrayTypes.OfType<IArrayTypeSymbol>().Select(a => a.ElementType).Where(IsUsableTypeFunc);
+
+                    if (elementTypes.Any())
+                    {
+                        return elementTypes;
                     }
 
                     foreach (var sibling in initializerExpression.Expressions)
@@ -1131,13 +1278,6 @@ namespace Microsoft.CodeAnalysis.CSharp
                 else if (initializerExpression.IsParentKind(SyntaxKind.ArrayCreationExpression))
                 {
                     // new int[] { Foo() } 
-                    var symbols = _semanticModel.GetCollectionInitializerSymbolInfo(initializerExpression).GetAllSymbols();
-
-                    if (symbols.Any(t => t is INamedTypeSymbol))
-                    {
-                        return symbols.OfType<INamedTypeSymbol>();
-                    }
-
                     var arrayCreation = (ArrayCreationExpressionSyntax)initializerExpression.Parent;
                     IEnumerable<ITypeSymbol> types = GetTypes(arrayCreation);
 
@@ -1159,42 +1299,18 @@ namespace Microsoft.CodeAnalysis.CSharp
                             GetCollectionElementType(t, parameterIndex: 0));
                     }
                 }
-                else if ((initializerExpression.IsParentKind(SyntaxKind.ComplexElementInitializerExpression) &&
-                          initializerExpression.Parent.IsParentKind(SyntaxKind.ObjectCreationExpression)) ||
-                         (initializerExpression.IsKind(SyntaxKind.ComplexElementInitializerExpression) &&
-                          initializerExpression.IsParentKind(SyntaxKind.CollectionInitializerExpression) &&
-                          initializerExpression.Parent.IsParentKind(SyntaxKind.ObjectCreationExpression)))
-                {
-                    // new Dictionary<K,V> { { Foo(), ... } }
-                    var objectCreation = (ObjectCreationExpressionSyntax)initializerExpression.Parent.Parent;
-                    var symbols = _semanticModel.GetCollectionInitializerSymbolInfo(initializerExpression).GetAllSymbols();
-
-                    if (symbols.Any(t => t is INamedTypeSymbol))
-                    {
-                        return symbols.OfType<INamedTypeSymbol>();
-                    }
-
-                    IEnumerable<ITypeSymbol> types = GetTypes(objectCreation);
-
-                    if (types.Any(t => t is INamedTypeSymbol))
-                    {
-                        var parameterIndex = previousToken.HasValue
-                            ? initializerExpression.Expressions.GetWithSeparators().IndexOf(previousToken.Value) + 1
-                            : initializerExpression.Expressions.IndexOf(expressionOpt);
-
-                        return types.OfType<INamedTypeSymbol>().SelectMany(t =>
-                            GetCollectionElementType(t,
-                                parameterIndex: parameterIndex));
-                    }
-                }
                 else if (initializerExpression.IsParentKind(SyntaxKind.SimpleAssignmentExpression))
                 {
                     // new Foo { a = { Foo() } }
-                    var symbols = _semanticModel.GetCollectionInitializerSymbolInfo(initializerExpression).GetAllSymbols();
 
-                    if (symbols.Any(t => t is INamedTypeSymbol))
+                    if (expressionOpt != null)
                     {
-                        return symbols.OfType<INamedTypeSymbol>();
+                        var addMethodSymbols = SemanticModel.GetCollectionInitializerSymbolInfo(expressionOpt).GetAllSymbols();
+                        var addMethodParameterTypes = addMethodSymbols.Select(a => ((IMethodSymbol)a).Parameters[0].Type).WhereNotNull();
+                        if (addMethodParameterTypes.Any())
+                        {
+                            return addMethodParameterTypes;
+                        }
                     }
 
                     var assignExpression = (AssignmentExpressionSyntax)initializerExpression.Parent;
@@ -1202,13 +1318,13 @@ namespace Microsoft.CodeAnalysis.CSharp
 
                     if (types.Any(t => t is INamedTypeSymbol))
                     {
+                        // new Foo { a = { Foo() } }
                         var parameterIndex = previousToken.HasValue
-                            ? initializerExpression.Expressions.GetWithSeparators().IndexOf(previousToken.Value) + 1
-                            : initializerExpression.Expressions.IndexOf(expressionOpt);
+                                ? initializerExpression.Expressions.GetSeparators().ToList().IndexOf(previousToken.Value) + 1
+                                : initializerExpression.Expressions.IndexOf(expressionOpt);
 
                         return types.OfType<INamedTypeSymbol>().SelectMany(t =>
-                            GetCollectionElementType(t,
-                                parameterIndex: parameterIndex));
+                            GetCollectionElementType(t, 0));
                     }
                 }
 
@@ -1299,6 +1415,17 @@ namespace Microsoft.CodeAnalysis.CSharp
                 if (argumentSyntax != null)
                 {
                     return InferTypeInArgument(argumentSyntax);
+                }
+
+                return SpecializedCollections.EmptyEnumerable<ITypeSymbol>();
+            }
+
+            private IEnumerable<ITypeSymbol> InferTypeInMemberAccessExpression(MemberAccessExpressionSyntax expression)
+            {
+                var awaitExpression = expression.GetAncestor<AwaitExpressionSyntax>();
+                if (awaitExpression != null)
+                {
+                    return InferTypes(awaitExpression.Expression);
                 }
 
                 return SpecializedCollections.EmptyEnumerable<ITypeSymbol>();
@@ -1396,7 +1523,7 @@ namespace Microsoft.CodeAnalysis.CSharp
                     return SpecializedCollections.EmptyEnumerable<ITypeSymbol>();
                 }
 
-                var memberSymbol = GetDeclaredMemberSymbolFromOriginalSemanticModel(_semanticModel, yieldStatement.GetAncestorOrThis<MemberDeclarationSyntax>());
+                var memberSymbol = GetDeclaredMemberSymbolFromOriginalSemanticModel(SemanticModel, yieldStatement.GetAncestorOrThis<MemberDeclarationSyntax>());
 
                 var memberType = memberSymbol.TypeSwitch(
                         (IMethodSymbol method) => method.ReturnType,
@@ -1436,7 +1563,7 @@ namespace Microsoft.CodeAnalysis.CSharp
                 var delegateExpression = ancestorExpressions.FirstOrDefault(e => e.IsKind(SyntaxKind.AnonymousMethodExpression));
                 if (delegateExpression != null)
                 {
-                    var delegateType = InferTypesWorker(delegateExpression).FirstOrDefault();
+                    var delegateType = InferTypes(delegateExpression).FirstOrDefault();
                     if (delegateType != null && delegateType.IsDelegateType())
                     {
                         var delegateInvokeMethod = delegateType.GetDelegateType(this.Compilation).DelegateInvokeMethod;
@@ -1447,7 +1574,7 @@ namespace Microsoft.CodeAnalysis.CSharp
                     }
                 }
 
-                var memberSymbol = GetDeclaredMemberSymbolFromOriginalSemanticModel(_semanticModel, returnStatement.GetAncestorOrThis<MemberDeclarationSyntax>());
+                var memberSymbol = GetDeclaredMemberSymbolFromOriginalSemanticModel(SemanticModel, returnStatement.GetAncestorOrThis<MemberDeclarationSyntax>());
 
                 if (memberSymbol.IsKind(SymbolKind.Method))
                 {
@@ -1485,7 +1612,7 @@ namespace Microsoft.CodeAnalysis.CSharp
 
                 if (currentSemanticModel.IsSpeculativeSemanticModel)
                 {
-                    var tokenInOriginalTree = originalSemanticModel.SyntaxTree.GetRoot(_cancellationToken).FindToken(currentSemanticModel.OriginalPositionForSpeculation);
+                    var tokenInOriginalTree = originalSemanticModel.SyntaxTree.GetRoot(CancellationToken).FindToken(currentSemanticModel.OriginalPositionForSpeculation);
                     declaration = tokenInOriginalTree.GetAncestor<MemberDeclarationSyntax>();
                 }
                 else
@@ -1493,7 +1620,7 @@ namespace Microsoft.CodeAnalysis.CSharp
                     declaration = declarationInCurrentTree;
                 }
 
-                return originalSemanticModel.GetDeclaredSymbol(declaration, _cancellationToken);
+                return originalSemanticModel.GetDeclaredSymbol(declaration, CancellationToken);
             }
 
             private IEnumerable<ITypeSymbol> InferTypeInSwitchLabel(
@@ -1568,7 +1695,7 @@ namespace Microsoft.CodeAnalysis.CSharp
                     return SpecializedCollections.EmptyEnumerable<ITypeSymbol>();
                 }
 
-                var types = GetTypes(variableType).Where(t => !IsUnusableType(t));
+                var types = GetTypes(variableType).Where(IsUsableTypeFunc);
 
                 if (variableType.IsVar)
                 {

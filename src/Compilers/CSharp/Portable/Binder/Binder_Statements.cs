@@ -129,7 +129,7 @@ namespace Microsoft.CodeAnalysis.CSharp
 
             Debug.Assert(System.Linq.Enumerable.Contains(result.Syntax.AncestorsAndSelf(), node), @"Bound statement (or one of its parents) 
                                                                             should have same syntax as the given syntax node. 
-                                                                            Otherwise it may be confusung to the binder cache that uses syntax node as keys.");
+                                                                            Otherwise it may be confusing to the binder cache that uses syntax node as keys.");
 
             return result;
         }
@@ -346,7 +346,7 @@ namespace Microsoft.CodeAnalysis.CSharp
 
             // result.Symbols can be empty in some malformed code, e.g. when a labeled statement is used an embedded statement in an if or foreach statement    
             // In this case we create new label symbol on the fly, and an error is reported by parser
-            var symbol = result.Symbols.Count != 0 ?
+            var symbol = result.Symbols.Count > 0 && result.IsMultiViable ?
                 (LabelSymbol)result.Symbols.First() :
                 new SourceLabelSymbol((MethodSymbol)ContainingMemberOrLambda, node.Identifier);
 
@@ -430,7 +430,7 @@ namespace Microsoft.CodeAnalysis.CSharp
                 expressionStatement = new BoundExpressionStatement(node, expression);
             }
 
-            CheckForUnobservedAwaitable(expressionStatement, diagnostics);
+            CheckForUnobservedAwaitable(expression, diagnostics);
 
             return expressionStatement;
         }
@@ -441,46 +441,8 @@ namespace Microsoft.CodeAnalysis.CSharp
         /// <remarks>
         /// The checks here are equivalent to StatementBinder::CheckForUnobservedAwaitable() in the native compiler.
         /// </remarks>
-        private void CheckForUnobservedAwaitable(BoundExpressionStatement expressionStatement, DiagnosticBag diagnostics)
+        private void CheckForUnobservedAwaitable(BoundExpression expression, DiagnosticBag diagnostics)
         {
-            if (expressionStatement == null)
-            {
-                return;
-            }
-
-            BoundExpression expression = expressionStatement.Expression;
-
-            // If we don't have an expression or it doesn't have a type, just bail out
-            // now. Also, the dynamic type is always awaitable in an async method and
-            // could generate a lot of noise if we warned on it. Finally, we only want
-            // to warn on method calls, not other kinds of expressions.
-
-            if (expression == null
-                || expression.Kind != BoundKind.Call
-                || (object)expression.Type == null
-                || expression.Type.IsDynamic()
-                || expression.Type.SpecialType == SpecialType.System_Void)
-            {
-                return;
-            }
-
-            var call = (BoundCall)expression;
-
-            // First check if the target method is async.
-            if ((object)call.Method != null && call.Method.IsAsync)
-            {
-                Error(diagnostics, ErrorCode.WRN_UnobservedAwaitableExpression, expression.Syntax);
-                return;
-            }
-
-            // Then check if the method call returns a WinRT async type.
-            if (ImplementsWinRTAsyncInterface(call.Type))
-            {
-                Error(diagnostics, ErrorCode.WRN_UnobservedAwaitableExpression, expression.Syntax);
-                return;
-            }
-
-            // Finally, if we're in an async method, and the expression could be be awaited, report that it is instead discarded.
             if (CouldBeAwaited(expression))
             {
                 Error(diagnostics, ErrorCode.WRN_UnobservedAwaitableExpression, expression.Syntax);
@@ -1015,8 +977,7 @@ namespace Microsoft.CodeAnalysis.CSharp
             switch (kind)
             {
                 default:
-                    Debug.Assert(false, "bad BindValueKind");
-                    goto case BindValueKind.Assignment;
+                    throw ExceptionUtilities.UnexpectedValue(kind);
                 case BindValueKind.CompoundAssignment:
                 case BindValueKind.Assignment:
                     return ErrorCode.ERR_AssgReadonlyLocal;
@@ -1042,8 +1003,7 @@ namespace Microsoft.CodeAnalysis.CSharp
                 case BindValueKind.AddressOf:
                     return ErrorCode.ERR_InvalidAddrOp;
                 default:
-                    Debug.Assert(false, "bad BindValueKind");
-                    goto case BindValueKind.Assignment;
+                    throw ExceptionUtilities.UnexpectedValue(kind);
             }
         }
 
@@ -1599,10 +1559,11 @@ namespace Microsoft.CodeAnalysis.CSharp
                 case SyntaxKind.IdentifierName:
                     eventSyntax = syntax;
                     break;
-                default:
-                    Debug.Assert(false, "Unexpected syntax: " + syntax.Kind());
-                    eventSyntax = syntax;
+                case SyntaxKind.MemberBindingExpression:
+                    eventSyntax = ((MemberBindingExpressionSyntax)syntax).Name;
                     break;
+                default:
+                    throw ExceptionUtilities.UnexpectedValue(syntax.Kind());
             }
 
             BoundEventAccess eventAccess = (BoundEventAccess)expr;
@@ -1959,11 +1920,17 @@ namespace Microsoft.CodeAnalysis.CSharp
             return (object)sourceProperty != null &&
                     sourceProperty.IsAutoProperty &&
                     sourceProperty.ContainingType == fromMember.ContainingType &&
-                    ((MethodSymbol)fromMember).MethodKind == (propertyIsStatic ? MethodKind.StaticConstructor
-                                                                                : MethodKind.Constructor) &&
-                   (propertyIsStatic || receiver.Kind == BoundKind.ThisReference);
+                    IsConstructorOrField(fromMember, isStatic: propertyIsStatic) &&
+                    (propertyIsStatic || receiver.Kind == BoundKind.ThisReference);
         }
 
+        private static bool IsConstructorOrField(Symbol member, bool isStatic)
+        {
+            return (member as MethodSymbol)?.MethodKind == (isStatic ?
+                                                                MethodKind.StaticConstructor :
+                                                                MethodKind.Constructor) ||
+                    (member as FieldSymbol)?.IsStatic == isStatic;
+        }
 
         /// <summary>
         /// SPEC: When a property or indexer declared in a struct-type is the target of an 
@@ -2196,7 +2163,7 @@ namespace Microsoft.CodeAnalysis.CSharp
 
             var delegateType = targetType.GetDelegateType();
 
-            // The target type is a vaid delegate or expression tree type. Is there something wrong with the 
+            // The target type is a valid delegate or expression tree type. Is there something wrong with the 
             // parameter list?
 
             // First off, is there a parameter list at all?
@@ -2837,7 +2804,7 @@ namespace Microsoft.CodeAnalysis.CSharp
             }
             else if (arg != null)
             {
-                hasErrors = arg.HasAnyErrors;
+                hasErrors = arg.HasErrors || ((object)arg.Type != null && arg.Type.IsErrorType());
             }
             else
             {
@@ -2908,15 +2875,8 @@ namespace Microsoft.CodeAnalysis.CSharp
             }
             else
             {
-                // Check that the returned expression is not void. "return void" is not allowed anywhere outside
-                // expression-lambdas.
-                //
-                // Note: in the case of "return void" in non-async lambdas used in return-type-inference,
-                // simply return "void" as the inferred return type and give an error if that didn't work.
-                // We can't follow the same route in async methods, since empty-return-operands become a "Task"
-                // return type.
-
-                if ((object)arg?.Type != null && IsInAsyncMethod() && arg.Type.SpecialType == SpecialType.System_Void)
+                // Check that the returned expression is not void.
+                if ((object)arg?.Type != null && arg.Type.SpecialType == SpecialType.System_Void)
                 {
                     Error(diagnostics, ErrorCode.ERR_CantReturnVoid, expressionSyntax);
                 }
@@ -3200,7 +3160,7 @@ namespace Microsoft.CodeAnalysis.CSharp
                     // Don't mark compiler generated so that the rewriter generates sequence points
                     var expressionStatement = new BoundExpressionStatement(syntax, expression, errors);
 
-                    CheckForUnobservedAwaitable(expressionStatement, diagnostics);
+                    CheckForUnobservedAwaitable(expression, diagnostics);
                     statement = expressionStatement;
                 }
                 else
